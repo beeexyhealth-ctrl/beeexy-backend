@@ -1,0 +1,67 @@
+# .NET build output
+**/[Bb]in/
+**/[Oo]bj/
+[Aa]rtifacts/
+[Pp]ublish/
+
+# Test and coverage output
+[Tt]est[Rr]esults/
+*.trx
+*.coverage
+*.coveragexml
+coverage/
+coverage.*
+
+# NuGet artifacts
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+
+# IDE and editor state
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+appsettings.Local.json
+appsettings.*.Local.json
+appsettings.*.local.json
+secrets.json
+*.pfx
+*.p12
+*.pem
+*.key
+
+# Logs and local databases
+*.log
+logs/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# EF Core generated migration bundles
+efbundle
+efbundle.exe
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
