@@ -9,7 +9,7 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
-    public async Task AllMigrations_ApplyToFreshPostgreSqlWithoutProductTables()
+    public async Task AllMigrations_ApplyToFreshPostgreSqlWithPhase21Tables()
     {
         var options = new DbContextOptionsBuilder<BeeexyDbContext>()
             .UseNpgsql(postgres.ConnectionString)
@@ -22,7 +22,12 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
             var appliedMigrations = await dbContext.Database.GetAppliedMigrationsAsync();
             var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync();
 
-            Assert.Equal(["20260819193818_InitialFoundation"], appliedMigrations);
+            Assert.Equal(
+                [
+                    "20260819193818_InitialFoundation",
+                    "20260819214410_Phase21IdentityPersistenceFoundation"
+                ],
+                appliedMigrations);
             Assert.Empty(pendingMigrations);
         }
 
@@ -43,6 +48,16 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
             tables.Add(reader.GetString(0));
         }
 
-        Assert.Equal(["public.__EFMigrationsHistory"], tables);
+        Assert.Equal(
+            [
+                "identity.accounts",
+                "identity.email_authentication_challenges",
+                "identity.external_identities",
+                "identity.refresh_sessions",
+                "patients.patient_profiles",
+                "patients.user_preferences",
+                "public.__EFMigrationsHistory"
+            ],
+            tables);
     }
 }

@@ -1,0 +1,53 @@
+using Beeexy.Infrastructure.Persistence;
+using Beeexy.Tests.Integration.Support;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
+
+namespace Beeexy.Tests.Integration.Infrastructure;
+
+[Collection(PostgreSqlCollection.Name)]
+public sealed class ForeignKeySchemaTests(PostgreSqlContainerFixture postgres)
+{
+    [Fact]
+    public async Task Phase21ForeignKeys_ExistAndUseRestrictedDeleteBehavior()
+    {
+        var options = new DbContextOptionsBuilder<BeeexyDbContext>()
+            .UseNpgsql(postgres.ConnectionString)
+            .Options;
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            await dbContext.Database.MigrateAsync();
+        }
+
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT tc.constraint_name, rc.delete_rule " +
+            "FROM information_schema.table_constraints tc " +
+            "JOIN information_schema.referential_constraints rc " +
+            "ON rc.constraint_catalog = tc.constraint_catalog " +
+            "AND rc.constraint_schema = tc.constraint_schema " +
+            "AND rc.constraint_name = tc.constraint_name " +
+            "WHERE tc.constraint_type = 'FOREIGN KEY' " +
+            "AND tc.table_schema IN ('identity', 'patients') " +
+            "ORDER BY tc.constraint_name;";
+
+        var foreignKeys = new List<(string Name, string DeleteRule)>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            foreignKeys.Add((reader.GetString(0), reader.GetString(1)));
+        }
+
+        Assert.Equal(
+            [
+                "fk_external_identities_accounts_account_id",
+                "fk_patient_profiles_accounts_account_id",
+                "fk_refresh_sessions_accounts_account_id",
+                "fk_user_preferences_accounts_account_id"
+            ],
+            foreignKeys.Select(foreignKey => foreignKey.Name));
+        Assert.All(foreignKeys, foreignKey => Assert.Equal("RESTRICT", foreignKey.DeleteRule));
+    }
+}
