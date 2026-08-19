@@ -9,7 +9,7 @@ namespace Beeexy.Tests.Integration.Api;
 public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
-    public async Task OpenApi_InDevelopment_IsGeneratedForOnlyHealthEndpoints()
+    public async Task OpenApi_InDevelopment_IncludesHealthAndEmailChallengeEndpoints()
     {
         using var factory = new BeeexyApiFactory(postgres.ConnectionString);
         using var client = factory.CreateApiClient();
@@ -20,9 +20,12 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(2, paths.EnumerateObject().Count());
+        Assert.Equal(3, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
+        Assert.True(paths
+            .GetProperty("/api/v1/auth/email/challenges")
+            .TryGetProperty("post", out _));
     }
 
     [Fact]

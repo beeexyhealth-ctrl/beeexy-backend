@@ -1,4 +1,6 @@
+using Beeexy.Application.Identity;
 using Beeexy.Infrastructure.Persistence;
+using Microsoft.Extensions.Hosting;
 
 namespace Beeexy.Api.Configuration;
 
@@ -7,6 +9,8 @@ internal static class StartupConfiguration
     public const string CorsPolicyName = "ConfiguredFrontendOrigins";
 
     private const string CorsAllowedOriginsKey = "Cors:AllowedOrigins";
+    private const string EmailChallengeSectionKey = "Authentication:EmailChallenge";
+    private const string EmailSenderProviderKey = "Authentication:EmailSender:Provider";
 
     public static string GetRequiredDatabaseConnectionString(IConfiguration configuration)
     {
@@ -49,6 +53,83 @@ internal static class StartupConfiguration
         return normalizedOrigins;
     }
 
+    public static EmailChallengeStartupSettings GetRequiredEmailChallengeSettings(
+        IConfiguration configuration,
+        IHostEnvironment environment)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(environment);
+
+        var section = configuration.GetSection(EmailChallengeSectionKey);
+        var codeLength = GetRequiredPositiveInt(section, "CodeLength");
+        var lifetimeMinutes = GetRequiredPositiveInt(section, "LifetimeMinutes");
+        var emailPermitLimit = GetRequiredPositiveInt(section, "EmailPermitLimit");
+        var ipPermitLimit = GetRequiredPositiveInt(section, "IpPermitLimit");
+        var rateLimitWindowMinutes = GetRequiredPositiveInt(
+            section,
+            "RateLimitWindowMinutes");
+        var otpHashingKey = section["OtpHashingKey"];
+
+        if (string.IsNullOrWhiteSpace(otpHashingKey) || otpHashingKey.Length < 32)
+        {
+            throw new InvalidOperationException(
+                $"A secret of at least 32 characters must be configured in " +
+                $"'{EmailChallengeSectionKey}:OtpHashingKey'.");
+        }
+
+        EmailChallengePolicy policy;
+        try
+        {
+            policy = new EmailChallengePolicy(
+                codeLength,
+                TimeSpan.FromMinutes(lifetimeMinutes),
+                emailPermitLimit,
+                ipPermitLimit,
+                TimeSpan.FromMinutes(rateLimitWindowMinutes));
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            throw new InvalidOperationException(
+                $"Configuration section '{EmailChallengeSectionKey}' is invalid.",
+                exception);
+        }
+
+        var emailSenderProvider = configuration[EmailSenderProviderKey];
+        var useInMemoryEmailSender = string.Equals(
+            emailSenderProvider,
+            "InMemory",
+            StringComparison.OrdinalIgnoreCase);
+        var useUnavailableEmailSender = string.Equals(
+            emailSenderProvider,
+            "Unavailable",
+            StringComparison.OrdinalIgnoreCase);
+
+        if (!useInMemoryEmailSender && !useUnavailableEmailSender)
+        {
+            throw new InvalidOperationException(
+                $"A supported provider must be configured in '{EmailSenderProviderKey}'.");
+        }
+
+        if (environment.IsProduction() && useInMemoryEmailSender)
+        {
+            throw new InvalidOperationException(
+                "The in-memory authentication email sender cannot be used in Production. " +
+                "No production authentication email provider is configured.");
+        }
+
+        if (!environment.IsProduction() && useUnavailableEmailSender)
+        {
+            throw new InvalidOperationException(
+                "The unavailable authentication email sender is reserved for Production " +
+                "until a production provider is selected.");
+        }
+
+        return new EmailChallengeStartupSettings(
+            policy,
+            otpHashingKey,
+            useInMemoryEmailSender);
+    }
+
     private static bool IsValidOrigin(string origin)
     {
         if (origin.Contains('*') || origin.EndsWith("/", StringComparison.Ordinal))
@@ -67,5 +148,20 @@ internal static class StartupConfiguration
             && uri.AbsolutePath == "/"
             && string.IsNullOrEmpty(uri.Query)
             && string.IsNullOrEmpty(uri.Fragment);
+    }
+
+    private static int GetRequiredPositiveInt(
+        IConfigurationSection section,
+        string settingName)
+    {
+        var value = section.GetValue<int?>(settingName);
+        if (value is null or <= 0)
+        {
+            throw new InvalidOperationException(
+                $"A positive integer must be configured in " +
+                $"'{section.Path}:{settingName}'.");
+        }
+
+        return value.Value;
     }
 }

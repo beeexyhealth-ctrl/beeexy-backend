@@ -1,4 +1,7 @@
 using Beeexy.Tests.Integration.Support;
+using Beeexy.Infrastructure.Identity;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace Beeexy.Tests.Integration.Configuration;
 
@@ -25,5 +28,16 @@ public sealed class StartupValidationTests(PostgreSqlContainerFixture postgres)
         using var response = await client.GetAsync("/health/live");
 
         Assert.True(response.IsSuccessStatusCode);
+    }
+
+    [Fact]
+    public void Production_DoesNotRegisterInMemoryAuthenticationEmailSender()
+    {
+        using var factory = new BeeexyApiFactory(
+            postgres.ConnectionString,
+            Environments.Production);
+        using var client = factory.CreateApiClient();
+
+        Assert.Null(factory.Services.GetService<InMemoryAuthenticationEmailSender>());
     }
 }

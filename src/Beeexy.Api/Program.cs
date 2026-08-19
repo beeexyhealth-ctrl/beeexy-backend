@@ -1,7 +1,9 @@
 using Beeexy.Api.Configuration;
 using Beeexy.Api.Errors;
 using Beeexy.Api.Health;
+using Beeexy.Api.Identity;
 using Beeexy.Api.Middleware;
+using Beeexy.Application.Identity;
 using Beeexy.Infrastructure;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
@@ -19,8 +21,16 @@ var databaseConnectionString = StartupConfiguration.GetRequiredDatabaseConnectio
     builder.Configuration);
 var corsAllowedOrigins = StartupConfiguration.GetRequiredCorsAllowedOrigins(
     builder.Configuration);
+var emailChallengeSettings = StartupConfiguration.GetRequiredEmailChallengeSettings(
+    builder.Configuration,
+    builder.Environment);
 
-builder.Services.AddInfrastructure(databaseConnectionString);
+builder.Services.AddInfrastructure(
+    databaseConnectionString,
+    emailChallengeSettings.Policy,
+    emailChallengeSettings.OtpHashingKey,
+    emailChallengeSettings.UseInMemoryEmailSender);
+builder.Services.AddScoped<RequestEmailChallenge>();
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddProblemDetails(options =>
 {
@@ -91,6 +101,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapBeeexyHealthEndpoints();
+app.MapBeeexyAuthenticationEndpoints();
 
 app.Run();
 

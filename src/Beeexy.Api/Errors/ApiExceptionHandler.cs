@@ -1,3 +1,4 @@
+using Beeexy.Application.Common;
 using Beeexy.Domain.Common;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
@@ -16,6 +17,13 @@ internal sealed class ApiExceptionHandler(
         var problemDetails = MapException(exception);
         httpContext.Response.StatusCode = problemDetails.Status
             ?? StatusCodes.Status500InternalServerError;
+
+        if (exception is RateLimitExceededException rateLimitException)
+        {
+            httpContext.Response.Headers.RetryAfter = Math.Ceiling(
+                    rateLimitException.RetryAfter.TotalSeconds)
+                .ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
 
         logger.LogWarning(
             "Request failure mapped to safe Problem Details with status {StatusCode}.",
@@ -43,6 +51,37 @@ internal sealed class ApiExceptionHandler(
             };
             domainProblem.Extensions["errorCode"] = domainException.Error.Code;
             return domainProblem;
+        }
+
+        if (exception is RequestValidationException validationException)
+        {
+            var validationProblem = new ProblemDetails
+            {
+                Status = StatusCodes.Status422UnprocessableEntity,
+                Title = "Request validation failed.",
+                Detail = validationException.Message
+            };
+            validationProblem.Extensions["errorCode"] = validationException.Code;
+            return validationProblem;
+        }
+
+        if (exception is RateLimitExceededException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status429TooManyRequests,
+                Title = "Too many requests.",
+                Detail = "Please try again later."
+            };
+        }
+
+        if (exception is BadHttpRequestException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "The request is malformed."
+            };
         }
 
         return new ProblemDetails
