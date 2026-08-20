@@ -20,6 +20,19 @@ internal static class AuthenticationEndpointExtensions
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         endpoints.MapPost(
+                "/api/v1/auth/google",
+                AuthenticateWithGoogleAsync)
+            .WithName("AuthenticateWithGoogle")
+            .WithTags("Authentication")
+            .Accepts<GoogleAuthenticationRequest>("application/json")
+            .Produces<AuthenticationTokenResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        endpoints.MapPost(
                 "/api/v1/auth/refresh",
                 RotateRefreshSessionAsync)
             .WithName("RotateRefreshSession")
@@ -104,6 +117,22 @@ internal static class AuthenticationEndpointExtensions
             result.BeeexyId));
     }
 
+    private static async Task<IResult> AuthenticateWithGoogleAsync(
+        GoogleAuthenticationRequest request,
+        AuthenticateWithGoogle useCase,
+        CancellationToken cancellationToken)
+    {
+        var result = await useCase.ExecuteAsync(
+            new AuthenticateWithGoogleCommand(request.Credential),
+            cancellationToken);
+
+        return Results.Ok(ToResponse(
+            result.Tokens,
+            result.AccountId.Value,
+            result.ProfileId.Value,
+            result.BeeexyId));
+    }
+
     private static async Task<IResult> LogoutSessionAsync(
         LogoutSession useCase,
         CancellationToken cancellationToken)
@@ -132,6 +161,8 @@ internal sealed record RequestEmailChallengeRequest(string? Email);
 internal sealed record VerifyEmailChallengeRequest(string? Email, string? Code);
 
 internal sealed record RefreshSessionRequest(string? RefreshToken);
+
+internal sealed record GoogleAuthenticationRequest(string? Credential);
 
 internal sealed record AuthenticationTokenResponse(
     string AccessToken,

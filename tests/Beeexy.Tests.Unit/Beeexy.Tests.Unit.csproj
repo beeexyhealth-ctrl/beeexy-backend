@@ -27,6 +27,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Beeexy.Application\Beeexy.Application.csproj" />
     <ProjectReference Include="..\..\src\Beeexy.Domain\Beeexy.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Beeexy.Infrastructure\Beeexy.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Beeexy.Api\Beeexy.Api.csproj" />
   </ItemGroup>
 

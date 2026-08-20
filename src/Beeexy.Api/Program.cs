@@ -5,6 +5,7 @@ using Beeexy.Api.Identity;
 using Beeexy.Api.Middleware;
 using Beeexy.Application.Identity;
 using Beeexy.Infrastructure;
+using Beeexy.Infrastructure.Identity;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
@@ -30,16 +31,22 @@ var emailChallengeSettings = StartupConfiguration.GetRequiredEmailChallengeSetti
     builder.Environment);
 var authenticationTokenPolicy = StartupConfiguration.GetRequiredAuthenticationTokenPolicy(
     builder.Configuration);
+var googleAuthenticationSettings = StartupConfiguration.GetGoogleAuthenticationSettings(
+    builder.Configuration);
 
 builder.Services.AddInfrastructure(
     databaseConnectionString,
     emailChallengeSettings.Policy,
     authenticationTokenPolicy,
+    new GoogleExternalIdentityOptions(
+        googleAuthenticationSettings.Enabled,
+        googleAuthenticationSettings.ClientId),
     emailChallengeSettings.OtpHashingKey,
     emailChallengeSettings.UseInMemoryEmailSender);
 builder.Services.AddScoped<RequestEmailChallenge>();
 builder.Services.AddScoped<ProvisionAccountAndPrimaryProfile>();
 builder.Services.AddScoped<VerifyEmailChallenge>();
+builder.Services.AddScoped<AuthenticateWithGoogle>();
 builder.Services.AddScoped<IssueAuthenticationTokens>();
 builder.Services.AddScoped<RotateRefreshSession>();
 builder.Services.AddScoped<LogoutSession>();

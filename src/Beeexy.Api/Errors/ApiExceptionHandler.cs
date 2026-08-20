@@ -117,6 +117,26 @@ internal sealed class ApiExceptionHandler(
             };
         }
 
+        if (exception is ExternalIdentityAuthenticationException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status401Unauthorized,
+                Title = "Authentication failed.",
+                Detail = "The external identity could not be authenticated."
+            };
+        }
+
+        if (exception is ExternalIdentityProviderUnavailableException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status503ServiceUnavailable,
+                Title = "Authentication provider unavailable.",
+                Detail = "The external identity provider is currently unavailable."
+            };
+        }
+
         if (exception is BadHttpRequestException)
         {
             return new ProblemDetails

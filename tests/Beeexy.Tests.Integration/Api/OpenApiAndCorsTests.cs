@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(6, paths.EnumerateObject().Count());
+        Assert.Equal(7, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
@@ -29,6 +29,21 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.True(paths
             .GetProperty("/api/v1/auth/email/verify")
             .TryGetProperty("post", out _));
+        var googleOperation = paths
+            .GetProperty("/api/v1/auth/google")
+            .GetProperty("post");
+        Assert.True(googleOperation
+            .GetProperty("responses")
+            .TryGetProperty("200", out _));
+        Assert.True(googleOperation
+            .GetProperty("responses")
+            .TryGetProperty("401", out _));
+        Assert.True(googleOperation
+            .GetProperty("responses")
+            .TryGetProperty("422", out _));
+        Assert.True(googleOperation
+            .GetProperty("responses")
+            .TryGetProperty("503", out _));
         Assert.True(paths
             .GetProperty("/api/v1/auth/refresh")
             .TryGetProperty("post", out _));

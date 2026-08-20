@@ -15,12 +15,14 @@ public static class DependencyInjection
         string connectionString,
         EmailChallengePolicy emailChallengePolicy,
         AuthenticationTokenPolicy authenticationTokenPolicy,
+        GoogleExternalIdentityOptions googleOptions,
         string otpHashingKey,
         bool useInMemoryAuthenticationEmailSender)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
         ArgumentNullException.ThrowIfNull(emailChallengePolicy);
         ArgumentNullException.ThrowIfNull(authenticationTokenPolicy);
+        ArgumentNullException.ThrowIfNull(googleOptions);
         ArgumentException.ThrowIfNullOrWhiteSpace(otpHashingKey);
 
         services.AddSingleton<IClock, SystemClock>();
@@ -39,6 +41,20 @@ public static class DependencyInjection
         services.AddSingleton<IAccessTokenIssuer, JwtAccessTokenIssuer>();
         services.AddSingleton<IAuthenticationSecurityLogger, AuthenticationSecurityLogger>();
         services.AddScoped<IRefreshSessionRepository, RefreshSessionRepository>();
+        services.AddScoped<
+            IExternalIdentityAuthenticationRepository,
+            ExternalIdentityAuthenticationRepository>();
+
+        services.AddSingleton(googleOptions);
+        if (googleOptions.Enabled)
+        {
+            services.AddSingleton<IGoogleIdTokenValidator, GoogleIdTokenValidator>();
+            services.AddSingleton<IExternalIdentityProvider, GoogleExternalIdentityProvider>();
+        }
+        else
+        {
+            services.AddSingleton<IExternalIdentityProvider, DisabledExternalIdentityProvider>();
+        }
 
         if (useInMemoryAuthenticationEmailSender)
         {

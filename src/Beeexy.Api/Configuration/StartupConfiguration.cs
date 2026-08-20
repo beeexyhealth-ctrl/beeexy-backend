@@ -12,6 +12,7 @@ internal static class StartupConfiguration
     private const string EmailChallengeSectionKey = "Authentication:EmailChallenge";
     private const string EmailSenderProviderKey = "Authentication:EmailSender:Provider";
     private const string TokenSectionKey = "Authentication:Tokens";
+    private const string GoogleSectionKey = "Authentication:Google";
 
     public static string GetRequiredDatabaseConnectionString(IConfiguration configuration)
     {
@@ -166,6 +167,35 @@ internal static class StartupConfiguration
                 $"Configuration section '{TokenSectionKey}' is invalid.",
                 exception);
         }
+    }
+
+    public static GoogleAuthenticationStartupSettings GetGoogleAuthenticationSettings(
+        IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        var section = configuration.GetSection(GoogleSectionKey);
+        bool enabled;
+        try
+        {
+            enabled = section.GetValue("Enabled", false);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new InvalidOperationException(
+                $"Configuration section '{GoogleSectionKey}' is invalid.",
+                exception);
+        }
+
+        var clientId = section["ClientId"]?.Trim();
+        if (enabled && string.IsNullOrWhiteSpace(clientId))
+        {
+            throw new InvalidOperationException(
+                $"A Google client ID must be configured in '{GoogleSectionKey}:ClientId' " +
+                "when Google authentication is enabled.");
+        }
+
+        return new GoogleAuthenticationStartupSettings(enabled, enabled ? clientId : null);
     }
 
     private static bool IsValidOrigin(string origin)

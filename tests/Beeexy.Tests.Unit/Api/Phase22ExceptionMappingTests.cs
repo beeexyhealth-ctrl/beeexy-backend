@@ -45,6 +45,8 @@ public sealed class Phase22ExceptionMappingTests
     [InlineData(typeof(EmailChallengeReplayException), StatusCodes.Status409Conflict)]
     [InlineData(typeof(EmailChallengeAttemptLimitException), StatusCodes.Status429TooManyRequests)]
     [InlineData(typeof(SessionAuthenticationException), StatusCodes.Status401Unauthorized)]
+    [InlineData(typeof(ExternalIdentityAuthenticationException), StatusCodes.Status401Unauthorized)]
+    [InlineData(typeof(ExternalIdentityProviderUnavailableException), StatusCodes.Status503ServiceUnavailable)]
     public void VerificationFailures_MapToPhase23StatusWithoutSecretDetails(
         Type exceptionType,
         int expectedStatus)

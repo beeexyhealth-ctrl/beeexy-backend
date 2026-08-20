@@ -40,4 +40,21 @@ public sealed class StartupValidationTests(PostgreSqlContainerFixture postgres)
 
         Assert.Null(factory.Services.GetService<InMemoryAuthenticationEmailSender>());
     }
+
+    [Fact]
+    public void GoogleEnabledWithoutClientId_FailsFast()
+    {
+        using var factory = new BeeexyApiFactory(
+            postgres.ConnectionString,
+            configurationOverrides: new Dictionary<string, string?>
+            {
+                ["Authentication:Google:Enabled"] = "true",
+                ["Authentication:Google:ClientId"] = ""
+            });
+
+        var exception = Assert.ThrowsAny<Exception>(() => factory.CreateApiClient());
+
+        Assert.Contains("Authentication:Google:ClientId", exception.ToString());
+        Assert.DoesNotContain(postgres.ConnectionString, exception.ToString());
+    }
 }
