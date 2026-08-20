@@ -14,15 +14,18 @@ public static class DependencyInjection
         this IServiceCollection services,
         string connectionString,
         EmailChallengePolicy emailChallengePolicy,
+        AuthenticationTokenPolicy authenticationTokenPolicy,
         string otpHashingKey,
         bool useInMemoryAuthenticationEmailSender)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
         ArgumentNullException.ThrowIfNull(emailChallengePolicy);
+        ArgumentNullException.ThrowIfNull(authenticationTokenPolicy);
         ArgumentException.ThrowIfNullOrWhiteSpace(otpHashingKey);
 
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton(emailChallengePolicy);
+        services.AddSingleton(authenticationTokenPolicy);
         services.AddSingleton<IOneTimePasswordGenerator, CryptographicOneTimePasswordGenerator>();
         services.AddSingleton<IOneTimePasswordHasher>(
             _ => new HmacOneTimePasswordHasher(otpHashingKey));
@@ -30,6 +33,12 @@ public static class DependencyInjection
         services.AddScoped<
             IEmailAuthenticationChallengeRepository,
             EmailAuthenticationChallengeRepository>();
+        services.AddScoped<IAccountProvisioningRepository, AccountProvisioningRepository>();
+        services.AddScoped<IIdentityVerificationTransaction, IdentityVerificationTransaction>();
+        services.AddSingleton<IRefreshTokenService, CryptographicRefreshTokenService>();
+        services.AddSingleton<IAccessTokenIssuer, JwtAccessTokenIssuer>();
+        services.AddSingleton<IAuthenticationSecurityLogger, AuthenticationSecurityLogger>();
+        services.AddScoped<IRefreshSessionRepository, RefreshSessionRepository>();
 
         if (useInMemoryAuthenticationEmailSender)
         {

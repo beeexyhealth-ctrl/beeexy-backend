@@ -1,4 +1,5 @@
 using Beeexy.Application.Common;
+using Beeexy.Application.Identity;
 using Beeexy.Domain.Common;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
@@ -26,7 +27,8 @@ internal sealed class ApiExceptionHandler(
         }
 
         logger.LogWarning(
-            "Request failure mapped to safe Problem Details with status {StatusCode}.",
+            "Request failure {FailureType} mapped to safe Problem Details with status {StatusCode}.",
+            exception.GetType().Name,
             httpContext.Response.StatusCode);
 
         return await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
@@ -72,6 +74,46 @@ internal sealed class ApiExceptionHandler(
                 Status = StatusCodes.Status429TooManyRequests,
                 Title = "Too many requests.",
                 Detail = "Please try again later."
+            };
+        }
+
+        if (exception is EmailChallengeAttemptLimitException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status429TooManyRequests,
+                Title = "Too many verification attempts.",
+                Detail = "This verification challenge can no longer be attempted."
+            };
+        }
+
+        if (exception is EmailChallengeReplayException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Verification challenge already used.",
+                Detail = "Request a new verification challenge."
+            };
+        }
+
+        if (exception is EmailChallengeUnauthorizedException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status401Unauthorized,
+                Title = "Authentication failed.",
+                Detail = "The email challenge could not be verified."
+            };
+        }
+
+        if (exception is SessionAuthenticationException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status401Unauthorized,
+                Title = "Authentication failed.",
+                Detail = "The authentication session is invalid."
             };
         }
 

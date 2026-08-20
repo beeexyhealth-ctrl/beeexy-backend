@@ -34,6 +34,8 @@ internal sealed class BeeexyApiFactory : WebApplicationFactory<Program>
         {
             ["Authentication:EmailChallenge:OtpHashingKey"] =
                 "integration-test-only-hmac-key-with-at-least-32-bytes",
+            ["Authentication:Tokens:SigningKey"] =
+                "integration-test-only-jwt-signing-key-with-at-least-32-bytes",
             ["Authentication:EmailSender:Provider"] =
                 string.Equals(environment, Environments.Production, StringComparison.OrdinalIgnoreCase)
                     ? "Unavailable"

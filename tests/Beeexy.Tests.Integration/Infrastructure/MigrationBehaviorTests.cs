@@ -45,6 +45,63 @@ public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
     }
 
     [Fact]
+    public async Task Phase24Migration_CreatesRefreshRotationLineageSchema()
+    {
+        await EnsureMigratedAsync();
+
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync();
+
+        await using (var columnCommand = connection.CreateCommand())
+        {
+            columnCommand.CommandText =
+                "SELECT column_name, is_nullable FROM information_schema.columns " +
+                "WHERE table_schema = 'identity' AND table_name = 'refresh_sessions' " +
+                "AND column_name IN ('family_id', 'parent_session_id', " +
+                "'replaced_by_session_id', 'rotated_at') ORDER BY column_name;";
+
+            var columns = new Dictionary<string, string>();
+            await using var reader = await columnCommand.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                columns.Add(reader.GetString(0), reader.GetString(1));
+            }
+
+            Assert.Equal(4, columns.Count);
+            Assert.Equal("NO", columns["family_id"]);
+            Assert.Equal("YES", columns["parent_session_id"]);
+            Assert.Equal("YES", columns["replaced_by_session_id"]);
+            Assert.Equal("YES", columns["rotated_at"]);
+        }
+
+        await using (var indexCommand = connection.CreateCommand())
+        {
+            indexCommand.CommandText =
+                "SELECT indexname, indexdef FROM pg_indexes " +
+                "WHERE schemaname = 'identity' AND tablename = 'refresh_sessions' " +
+                "AND indexname IN ('ix_refresh_sessions_family_id', " +
+                "'ux_refresh_sessions_parent_session_id');";
+
+            var indexes = new Dictionary<string, string>();
+            await using var reader = await indexCommand.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                indexes.Add(reader.GetString(0), reader.GetString(1));
+            }
+
+            Assert.Equal(2, indexes.Count);
+            Assert.Contains("UNIQUE", indexes["ux_refresh_sessions_parent_session_id"]);
+            Assert.Contains("WHERE", indexes["ux_refresh_sessions_parent_session_id"]);
+        }
+
+        await using var constraintCommand = connection.CreateCommand();
+        constraintCommand.CommandText =
+            "SELECT count(*) FROM pg_constraint " +
+            "WHERE conname = 'ck_refresh_sessions_rotation';";
+        Assert.Equal(1L, (long)(await constraintCommand.ExecuteScalarAsync())!);
+    }
+
+    [Fact]
     public async Task Phase21Migration_CanRollbackAndReapply()
     {
         await EnsureMigratedAsync();

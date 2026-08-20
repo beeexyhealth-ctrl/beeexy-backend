@@ -5,7 +5,11 @@ using Beeexy.Api.Identity;
 using Beeexy.Api.Middleware;
 using Beeexy.Application.Identity;
 using Beeexy.Infrastructure;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -24,13 +28,46 @@ var corsAllowedOrigins = StartupConfiguration.GetRequiredCorsAllowedOrigins(
 var emailChallengeSettings = StartupConfiguration.GetRequiredEmailChallengeSettings(
     builder.Configuration,
     builder.Environment);
+var authenticationTokenPolicy = StartupConfiguration.GetRequiredAuthenticationTokenPolicy(
+    builder.Configuration);
 
 builder.Services.AddInfrastructure(
     databaseConnectionString,
     emailChallengeSettings.Policy,
+    authenticationTokenPolicy,
     emailChallengeSettings.OtpHashingKey,
     emailChallengeSettings.UseInMemoryEmailSender);
 builder.Services.AddScoped<RequestEmailChallenge>();
+builder.Services.AddScoped<ProvisionAccountAndPrimaryProfile>();
+builder.Services.AddScoped<VerifyEmailChallenge>();
+builder.Services.AddScoped<IssueAuthenticationTokens>();
+builder.Services.AddScoped<RotateRefreshSession>();
+builder.Services.AddScoped<LogoutSession>();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentSessionIdentity, HttpCurrentSessionIdentity>();
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.MapInboundClaims = false;
+        options.IncludeErrorDetails = false;
+        options.SaveToken = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(authenticationTokenPolicy.SigningKey)),
+            ValidateIssuer = true,
+            ValidIssuer = authenticationTokenPolicy.Issuer,
+            ValidateAudience = true,
+            ValidAudience = authenticationTokenPolicy.Audience,
+            ValidateLifetime = true,
+            RequireExpirationTime = true,
+            RequireSignedTokens = true,
+            ClockSkew = TimeSpan.Zero
+        };
+    });
+builder.Services.AddAuthorization();
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddProblemDetails(options =>
 {
@@ -73,6 +110,16 @@ builder.Services.AddSwaggerGen(options =>
         Title = "Beeexy API",
         Version = "v1"
     });
+    options.AddSecurityDefinition(
+        JwtBearerDefaults.AuthenticationScheme,
+        new OpenApiSecurityScheme
+        {
+            Type = SecuritySchemeType.Http,
+            Scheme = "bearer",
+            BearerFormat = "JWT",
+            Description = "Signed Beeexy access token."
+        });
+    options.DocumentFilter<BearerAuthorizationDocumentFilter>();
 });
 
 
@@ -89,6 +136,8 @@ if (!app.Environment.IsDevelopment())
 
 app.UseStatusCodePages();
 app.UseCors(StartupConfiguration.CorsPolicyName);
+app.UseAuthentication();
+app.UseAuthorization();
 
 if (app.Environment.IsDevelopment())
 {

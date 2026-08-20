@@ -5,6 +5,10 @@ namespace Beeexy.Application.Identity;
 
 public interface IEmailAuthenticationChallengeRepository
 {
+    Task<EmailAuthenticationChallenge?> FindLatestForUpdateAsync(
+        NormalizedEmail email,
+        CancellationToken cancellationToken = default);
+
     Task ReplacePendingAsync(
         EmailAuthenticationChallenge challenge,
         CancellationToken cancellationToken = default);

@@ -11,6 +11,7 @@ internal static class StartupConfiguration
     private const string CorsAllowedOriginsKey = "Cors:AllowedOrigins";
     private const string EmailChallengeSectionKey = "Authentication:EmailChallenge";
     private const string EmailSenderProviderKey = "Authentication:EmailSender:Provider";
+    private const string TokenSectionKey = "Authentication:Tokens";
 
     public static string GetRequiredDatabaseConnectionString(IConfiguration configuration)
     {
@@ -65,6 +66,9 @@ internal static class StartupConfiguration
         var lifetimeMinutes = GetRequiredPositiveInt(section, "LifetimeMinutes");
         var emailPermitLimit = GetRequiredPositiveInt(section, "EmailPermitLimit");
         var ipPermitLimit = GetRequiredPositiveInt(section, "IpPermitLimit");
+        var maximumVerificationAttempts = GetRequiredPositiveInt(
+            section,
+            "MaximumVerificationAttempts");
         var rateLimitWindowMinutes = GetRequiredPositiveInt(
             section,
             "RateLimitWindowMinutes");
@@ -85,7 +89,8 @@ internal static class StartupConfiguration
                 TimeSpan.FromMinutes(lifetimeMinutes),
                 emailPermitLimit,
                 ipPermitLimit,
-                TimeSpan.FromMinutes(rateLimitWindowMinutes));
+                TimeSpan.FromMinutes(rateLimitWindowMinutes),
+                maximumVerificationAttempts);
         }
         catch (ArgumentOutOfRangeException exception)
         {
@@ -128,6 +133,39 @@ internal static class StartupConfiguration
             policy,
             otpHashingKey,
             useInMemoryEmailSender);
+    }
+
+    public static AuthenticationTokenPolicy GetRequiredAuthenticationTokenPolicy(
+        IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        var section = configuration.GetSection(TokenSectionKey);
+        var issuer = section["Issuer"];
+        var audience = section["Audience"];
+        var signingKey = section["SigningKey"];
+        var accessTokenLifetimeMinutes = GetRequiredPositiveInt(
+            section,
+            "AccessTokenLifetimeMinutes");
+        var refreshTokenLifetimeDays = GetRequiredPositiveInt(
+            section,
+            "RefreshTokenLifetimeDays");
+
+        try
+        {
+            return new AuthenticationTokenPolicy(
+                issuer ?? string.Empty,
+                audience ?? string.Empty,
+                signingKey ?? string.Empty,
+                TimeSpan.FromMinutes(accessTokenLifetimeMinutes),
+                TimeSpan.FromDays(refreshTokenLifetimeDays));
+        }
+        catch (ArgumentException exception)
+        {
+            throw new InvalidOperationException(
+                $"Configuration section '{TokenSectionKey}' is invalid.",
+                exception);
+        }
     }
 
     private static bool IsValidOrigin(string origin)

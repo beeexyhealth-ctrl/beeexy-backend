@@ -9,6 +9,27 @@ namespace Beeexy.Infrastructure.Identity;
 public sealed class EmailAuthenticationChallengeRepository(BeeexyDbContext dbContext)
     : IEmailAuthenticationChallengeRepository
 {
+    public async Task<EmailAuthenticationChallenge?> FindLatestForUpdateAsync(
+        NormalizedEmail email,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(email);
+
+        var challenges = await dbContext.EmailAuthenticationChallenges
+            .FromSqlInterpolated(
+                $"""
+                SELECT *
+                FROM identity.email_authentication_challenges
+                WHERE normalized_email = {email.Value}
+                ORDER BY created_at DESC
+                LIMIT 1
+                FOR UPDATE
+                """)
+            .ToListAsync(cancellationToken);
+
+        return challenges.SingleOrDefault();
+    }
+
     public async Task ReplacePendingAsync(
         EmailAuthenticationChallenge challenge,
         CancellationToken cancellationToken = default)

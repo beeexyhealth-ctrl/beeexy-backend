@@ -180,6 +180,11 @@ public sealed class RequestEmailChallengeTests
 
         public EntityId? DeletedId { get; private set; }
 
+        public Task<EmailAuthenticationChallenge?> FindLatestForUpdateAsync(
+            NormalizedEmail email,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task ReplacePendingAsync(
             EmailAuthenticationChallenge challenge,
             CancellationToken cancellationToken = default)

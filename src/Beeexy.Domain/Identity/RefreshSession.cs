@@ -12,12 +12,16 @@ public sealed class RefreshSession
     private RefreshSession(
         EntityId id,
         EntityId accountId,
+        EntityId familyId,
+        EntityId? parentSessionId,
         TokenHash refreshTokenHash,
         DateTimeOffset expiresAt,
         DateTimeOffset createdAt)
     {
         Id = id;
         AccountId = accountId;
+        FamilyId = familyId;
+        ParentSessionId = parentSessionId;
         RefreshTokenHash = refreshTokenHash;
         ExpiresAt = expiresAt;
         Status = RefreshSessionStatus.Active;
@@ -28,6 +32,12 @@ public sealed class RefreshSession
 
     public EntityId AccountId { get; private set; }
 
+    public EntityId FamilyId { get; private set; }
+
+    public EntityId? ParentSessionId { get; private set; }
+
+    public EntityId? ReplacedBySessionId { get; private set; }
+
     public TokenHash RefreshTokenHash { get; private set; }
 
     public DateTimeOffset ExpiresAt { get; private set; }
@@ -35,6 +45,8 @@ public sealed class RefreshSession
     public RefreshSessionStatus Status { get; private set; }
 
     public DateTimeOffset? RevokedAt { get; private set; }
+
+    public DateTimeOffset? RotatedAt { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
 
@@ -45,7 +57,9 @@ public sealed class RefreshSession
         TokenHash refreshTokenHash,
         DateTimeOffset expiresAt,
         DateTimeOffset createdAt,
-        EntityId? id = null)
+        EntityId? id = null,
+        EntityId? familyId = null,
+        EntityId? parentSessionId = null)
     {
         ArgumentNullException.ThrowIfNull(refreshTokenHash);
         InstantGuard.EnsureUtc(createdAt, nameof(createdAt));
@@ -58,9 +72,12 @@ public sealed class RefreshSession
                 "Refresh-session expiration must follow creation time.");
         }
 
+        var sessionId = id ?? EntityId.New();
         return new RefreshSession(
-            id ?? EntityId.New(),
+            sessionId,
             accountId,
+            familyId ?? sessionId,
+            parentSessionId,
             refreshTokenHash,
             expiresAt,
             createdAt);
@@ -78,6 +95,24 @@ public sealed class RefreshSession
         Status = RefreshSessionStatus.Revoked;
         RevokedAt = revokedAt;
         UpdatedAt = revokedAt;
+    }
+
+    public void Rotate(EntityId successorSessionId, DateTimeOffset rotatedAt)
+    {
+        EnsureActive(rotatedAt);
+
+        if (successorSessionId == Id)
+        {
+            throw new ArgumentException(
+                "A refresh session cannot replace itself.",
+                nameof(successorSessionId));
+        }
+
+        Status = RefreshSessionStatus.Revoked;
+        ReplacedBySessionId = successorSessionId;
+        RevokedAt = rotatedAt;
+        RotatedAt = rotatedAt;
+        UpdatedAt = rotatedAt;
     }
 
     public void MarkExpired(DateTimeOffset expiredAt)

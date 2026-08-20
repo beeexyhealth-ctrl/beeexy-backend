@@ -18,6 +18,7 @@ public sealed class EmailChallengeStartupConfigurationTests
         Assert.Equal(TimeSpan.FromMinutes(10), settings.Policy.Lifetime);
         Assert.Equal(3, settings.Policy.EmailPermitLimit);
         Assert.Equal(20, settings.Policy.IpPermitLimit);
+        Assert.Equal(5, settings.Policy.MaximumVerificationAttempts);
         Assert.Equal(TimeSpan.FromMinutes(15), settings.Policy.RateLimitWindow);
         Assert.True(settings.UseInMemoryEmailSender);
     }
@@ -65,6 +66,7 @@ public sealed class EmailChallengeStartupConfigurationTests
             ["Authentication:EmailChallenge:LifetimeMinutes"] = "10",
             ["Authentication:EmailChallenge:EmailPermitLimit"] = "3",
             ["Authentication:EmailChallenge:IpPermitLimit"] = "20",
+            ["Authentication:EmailChallenge:MaximumVerificationAttempts"] = "5",
             ["Authentication:EmailChallenge:RateLimitWindowMinutes"] = "15",
             ["Authentication:EmailChallenge:OtpHashingKey"] =
                 "unit-test-only-hmac-key-with-at-least-32-bytes",

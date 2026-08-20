@@ -44,7 +44,8 @@ public sealed class ProjectDependencyTests
             .Descendants("ProjectReference")
             .Select(reference => reference.Attribute("Include")?.Value)
             .Where(reference => !string.IsNullOrWhiteSpace(reference))
-            .Select(reference => Path.GetFileNameWithoutExtension(reference!))
+            .Select(reference => Path.GetFileNameWithoutExtension(
+                reference!.Replace('\\', Path.DirectorySeparatorChar)))
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
 

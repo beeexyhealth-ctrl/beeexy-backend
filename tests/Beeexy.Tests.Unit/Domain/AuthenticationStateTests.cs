@@ -78,6 +78,23 @@ public sealed class AuthenticationStateTests
         Assert.Null(session.RevokedAt);
     }
 
+    [Fact]
+    public void RefreshSession_RotationRecordsFamilyLineageAndCannotRepeat()
+    {
+        var createdAt = Utc(12);
+        var session = CreateSession(createdAt);
+        var successorId = EntityId.New();
+
+        session.Rotate(successorId, createdAt.AddMinutes(1));
+
+        Assert.Equal(RefreshSessionStatus.Revoked, session.Status);
+        Assert.Equal(successorId, session.ReplacedBySessionId);
+        Assert.Equal(createdAt.AddMinutes(1), session.RotatedAt);
+        Assert.Equal(session.RotatedAt, session.RevokedAt);
+        Assert.Throws<InvalidOperationException>(() =>
+            session.Rotate(EntityId.New(), createdAt.AddMinutes(2)));
+    }
+
     private static EmailAuthenticationChallenge CreateChallenge(DateTimeOffset createdAt)
     {
         return EmailAuthenticationChallenge.Create(

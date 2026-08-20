@@ -9,7 +9,7 @@ namespace Beeexy.Tests.Integration.Api;
 public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
-    public async Task OpenApi_InDevelopment_IncludesHealthAndEmailChallengeEndpoints()
+    public async Task OpenApi_InDevelopment_IncludesHealthAndEmailAuthenticationEndpoints()
     {
         using var factory = new BeeexyApiFactory(postgres.ConnectionString);
         using var client = factory.CreateApiClient();
@@ -20,12 +20,38 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(3, paths.EnumerateObject().Count());
+        Assert.Equal(6, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
             .GetProperty("/api/v1/auth/email/challenges")
             .TryGetProperty("post", out _));
+        Assert.True(paths
+            .GetProperty("/api/v1/auth/email/verify")
+            .TryGetProperty("post", out _));
+        Assert.True(paths
+            .GetProperty("/api/v1/auth/refresh")
+            .TryGetProperty("post", out _));
+        Assert.True(paths
+            .GetProperty("/api/v1/auth/logout")
+            .TryGetProperty("post", out var logoutOperation));
+
+        var logoutSecurity = logoutOperation.GetProperty("security");
+        Assert.Single(logoutSecurity.EnumerateArray());
+        Assert.True(
+            logoutSecurity[0].TryGetProperty("Bearer", out _),
+            logoutSecurity[0].GetRawText());
+        Assert.False(paths
+            .GetProperty("/api/v1/auth/refresh")
+            .GetProperty("post")
+            .TryGetProperty("security", out _));
+
+        var securitySchemes = document.RootElement
+            .GetProperty("components")
+            .GetProperty("securitySchemes");
+        var bearer = securitySchemes.GetProperty("Bearer");
+        Assert.Equal("http", bearer.GetProperty("type").GetString());
+        Assert.Equal("bearer", bearer.GetProperty("scheme").GetString());
     }
 
     [Fact]

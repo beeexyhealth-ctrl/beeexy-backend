@@ -24,6 +24,10 @@ internal sealed class RefreshSessionConfiguration : IEntityTypeConfiguration<Ref
                     "ck_refresh_sessions_revoked",
                     "(\"status\" = 'revoked' AND \"revoked_at\" IS NOT NULL) OR " +
                     "(\"status\" <> 'revoked' AND \"revoked_at\" IS NULL)");
+                table.HasCheckConstraint(
+                    "ck_refresh_sessions_rotation",
+                    "(\"rotated_at\" IS NULL AND \"replaced_by_session_id\" IS NULL) OR " +
+                    "(\"rotated_at\" IS NOT NULL AND \"replaced_by_session_id\" IS NOT NULL)");
             });
 
         builder.HasKey(session => session.Id)
@@ -38,6 +42,23 @@ internal sealed class RefreshSessionConfiguration : IEntityTypeConfiguration<Ref
             .HasColumnName("account_id")
             .HasConversion(id => id.Value, value => EntityId.From(value))
             .IsRequired();
+
+        builder.Property(session => session.FamilyId)
+            .HasColumnName("family_id")
+            .HasConversion(id => id.Value, value => EntityId.From(value))
+            .IsRequired();
+
+        builder.Property(session => session.ParentSessionId)
+            .HasColumnName("parent_session_id")
+            .HasConversion(
+                id => id.HasValue ? id.Value.Value : (Guid?)null,
+                value => value.HasValue ? EntityId.From(value.Value) : (EntityId?)null);
+
+        builder.Property(session => session.ReplacedBySessionId)
+            .HasColumnName("replaced_by_session_id")
+            .HasConversion(
+                id => id.HasValue ? id.Value.Value : (Guid?)null,
+                value => value.HasValue ? EntityId.From(value.Value) : (EntityId?)null);
 
         builder.Property(session => session.RefreshTokenHash)
             .HasColumnName("refresh_token_hash")
@@ -62,6 +83,10 @@ internal sealed class RefreshSessionConfiguration : IEntityTypeConfiguration<Ref
             .HasColumnName("revoked_at")
             .HasColumnType("timestamp with time zone");
 
+        builder.Property(session => session.RotatedAt)
+            .HasColumnName("rotated_at")
+            .HasColumnType("timestamp with time zone");
+
         builder.Property(session => session.CreatedAt)
             .HasColumnName("created_at")
             .HasColumnType("timestamp with time zone")
@@ -74,6 +99,14 @@ internal sealed class RefreshSessionConfiguration : IEntityTypeConfiguration<Ref
         builder.HasIndex(session => session.RefreshTokenHash)
             .IsUnique()
             .HasDatabaseName("ux_refresh_sessions_refresh_token_hash");
+
+        builder.HasIndex(session => session.ParentSessionId)
+            .IsUnique()
+            .HasFilter("\"parent_session_id\" IS NOT NULL")
+            .HasDatabaseName("ux_refresh_sessions_parent_session_id");
+
+        builder.HasIndex(session => session.FamilyId)
+            .HasDatabaseName("ix_refresh_sessions_family_id");
 
         builder.HasIndex(session => new { session.AccountId, session.ExpiresAt })
             .HasFilter("\"status\" = 'active'")

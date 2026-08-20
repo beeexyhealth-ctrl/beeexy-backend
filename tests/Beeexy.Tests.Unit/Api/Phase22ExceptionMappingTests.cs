@@ -1,5 +1,6 @@
 using Beeexy.Api.Errors;
 using Beeexy.Application.Common;
+using Beeexy.Application.Identity;
 using Microsoft.AspNetCore.Http;
 
 namespace Beeexy.Tests.Unit.Api;
@@ -37,5 +38,23 @@ public sealed class Phase22ExceptionMappingTests
 
         Assert.Equal(StatusCodes.Status400BadRequest, problem.Status);
         Assert.DoesNotContain("sensitive parser detail", problem.ToString(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(typeof(EmailChallengeUnauthorizedException), StatusCodes.Status401Unauthorized)]
+    [InlineData(typeof(EmailChallengeReplayException), StatusCodes.Status409Conflict)]
+    [InlineData(typeof(EmailChallengeAttemptLimitException), StatusCodes.Status429TooManyRequests)]
+    [InlineData(typeof(SessionAuthenticationException), StatusCodes.Status401Unauthorized)]
+    public void VerificationFailures_MapToPhase23StatusWithoutSecretDetails(
+        Type exceptionType,
+        int expectedStatus)
+    {
+        var exception = Assert.IsAssignableFrom<Exception>(Activator.CreateInstance(exceptionType));
+
+        var problem = ApiExceptionHandler.MapException(exception);
+
+        Assert.Equal(expectedStatus, problem.Status);
+        Assert.DoesNotContain("583104", problem.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("otp", problem.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 }

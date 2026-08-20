@@ -7,7 +7,8 @@ public sealed record EmailChallengePolicy
         TimeSpan lifetime,
         int emailPermitLimit,
         int ipPermitLimit,
-        TimeSpan rateLimitWindow)
+        TimeSpan rateLimitWindow,
+        int maximumVerificationAttempts = 5)
     {
         if (codeLength is < 6 or > 9)
         {
@@ -40,11 +41,17 @@ public sealed record EmailChallengePolicy
                 "Rate-limit window must be positive and no longer than one day.");
         }
 
+        if (maximumVerificationAttempts is <= 0 or > 100)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumVerificationAttempts));
+        }
+
         CodeLength = codeLength;
         Lifetime = lifetime;
         EmailPermitLimit = emailPermitLimit;
         IpPermitLimit = ipPermitLimit;
         RateLimitWindow = rateLimitWindow;
+        MaximumVerificationAttempts = maximumVerificationAttempts;
     }
 
     public int CodeLength { get; }
@@ -56,4 +63,6 @@ public sealed record EmailChallengePolicy
     public int IpPermitLimit { get; }
 
     public TimeSpan RateLimitWindow { get; }
+
+    public int MaximumVerificationAttempts { get; }
 }

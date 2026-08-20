@@ -1,3 +1,4 @@
+using Beeexy.Application.Identity;
 using Beeexy.Domain.Common;
 using Beeexy.Infrastructure.Identity;
 
@@ -22,7 +23,7 @@ public sealed class OneTimePasswordSecurityTests
     public void Hasher_IsReproducibleAndChallengeSpecificWithoutContainingPlaintext()
     {
         const string oneTimeCode = "583104";
-        var hasher = new HmacOneTimePasswordHasher(
+        IOneTimePasswordHasher hasher = new HmacOneTimePasswordHasher(
             "unit-test-only-hmac-key-with-at-least-32-bytes");
         var firstChallengeId = EntityId.New();
         var secondChallengeId = EntityId.New();
@@ -35,6 +36,9 @@ public sealed class OneTimePasswordSecurityTests
         Assert.NotEqual(firstHash, secondHash);
         Assert.StartsWith("hmac-sha256:", firstHash.Value, StringComparison.Ordinal);
         Assert.DoesNotContain(oneTimeCode, firstHash.Value, StringComparison.Ordinal);
+        Assert.True(hasher.Verify(firstChallengeId, oneTimeCode, firstHash));
+        Assert.False(hasher.Verify(firstChallengeId, "000000", firstHash));
+        Assert.False(hasher.Verify(secondChallengeId, oneTimeCode, firstHash));
     }
 
     [Theory]
