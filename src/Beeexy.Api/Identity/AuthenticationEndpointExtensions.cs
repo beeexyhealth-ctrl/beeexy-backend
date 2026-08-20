@@ -1,4 +1,5 @@
 using Beeexy.Application.Identity;
+using Beeexy.Application.Patients;
 
 namespace Beeexy.Api.Identity;
 
@@ -30,6 +31,18 @@ internal static class AuthenticationEndpointExtensions
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        endpoints.MapGet(
+                "/api/v1/auth/me",
+                GetCurrentAccountAsync)
+            .WithName("GetCurrentAccount")
+            .WithTags("Authentication")
+            .WithDescription(
+                "Returns the active account, its owned primary-profile reference, and timezone.")
+            .RequireAuthorization()
+            .Produces<CurrentAccountResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         endpoints.MapPost(
@@ -133,6 +146,20 @@ internal static class AuthenticationEndpointExtensions
             result.BeeexyId));
     }
 
+    private static async Task<IResult> GetCurrentAccountAsync(
+        GetCurrentAccount useCase,
+        CancellationToken cancellationToken)
+    {
+        var result = await useCase.ExecuteAsync(cancellationToken);
+        return Results.Ok(new CurrentAccountResponse(
+            result.AccountId.Value,
+            result.Status.ToString().ToLowerInvariant(),
+            new CurrentPrimaryProfileResponse(
+                result.PrimaryProfileId.Value,
+                result.BeeexyId),
+            new CurrentAccountPreferencesResponse(result.Timezone)));
+    }
+
     private static async Task<IResult> LogoutSessionAsync(
         LogoutSession useCase,
         CancellationToken cancellationToken)
@@ -163,6 +190,16 @@ internal sealed record VerifyEmailChallengeRequest(string? Email, string? Code);
 internal sealed record RefreshSessionRequest(string? RefreshToken);
 
 internal sealed record GoogleAuthenticationRequest(string? Credential);
+
+internal sealed record CurrentAccountResponse(
+    Guid AccountId,
+    string Status,
+    CurrentPrimaryProfileResponse PrimaryProfile,
+    CurrentAccountPreferencesResponse Preferences);
+
+internal sealed record CurrentPrimaryProfileResponse(Guid ProfileId, string BeeexyId);
+
+internal sealed record CurrentAccountPreferencesResponse(string Timezone);
 
 internal sealed record AuthenticationTokenResponse(
     string AccessToken,

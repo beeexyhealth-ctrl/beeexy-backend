@@ -31,6 +31,12 @@ internal sealed class UserPreferenceConfiguration : IEntityTypeConfiguration<Use
             .HasMaxLength(UserTimeZone.MaximumLength)
             .IsRequired();
 
+        builder.Property(preference => preference.Version)
+            .HasColumnName("version")
+            .HasDefaultValue(1L)
+            .IsConcurrencyToken()
+            .IsRequired();
+
         builder.Property(preference => preference.CreatedAt)
             .HasColumnName("created_at")
             .HasColumnType("timestamp with time zone")
@@ -43,6 +49,10 @@ internal sealed class UserPreferenceConfiguration : IEntityTypeConfiguration<Use
         builder.HasIndex(preference => preference.AccountId)
             .IsUnique()
             .HasDatabaseName("ux_user_preferences_account_id");
+
+        builder.ToTable(table => table.HasCheckConstraint(
+            "ck_user_preferences_version_positive",
+            "version > 0"));
 
         builder.HasOne<Account>()
             .WithOne()

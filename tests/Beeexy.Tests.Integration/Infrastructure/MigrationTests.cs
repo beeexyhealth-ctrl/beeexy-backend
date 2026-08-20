@@ -26,7 +26,8 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                 [
                     "20260819193818_InitialFoundation",
                     "20260819214410_Phase21IdentityPersistenceFoundation",
-                    "20260820015208_Phase24RefreshSessionRotation"
+                    "20260820015208_Phase24RefreshSessionRotation",
+                    "20260820053544_Phase26ProfileOptimisticConcurrency"
                 ],
                 appliedMigrations);
             Assert.Empty(pendingMigrations);

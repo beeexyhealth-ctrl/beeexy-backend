@@ -1,5 +1,6 @@
 using Beeexy.Application.Common;
 using Beeexy.Application.Identity;
+using Beeexy.Application.Patients;
 using Beeexy.Domain.Common;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
@@ -134,6 +135,16 @@ internal sealed class ApiExceptionHandler(
                 Status = StatusCodes.Status503ServiceUnavailable,
                 Title = "Authentication provider unavailable.",
                 Detail = "The external identity provider is currently unavailable."
+            };
+        }
+
+        if (exception is ProfileUpdateConcurrencyException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Profile update conflict.",
+                Detail = "The profile changed after it was read. Retrieve it and try again."
             };
         }
 

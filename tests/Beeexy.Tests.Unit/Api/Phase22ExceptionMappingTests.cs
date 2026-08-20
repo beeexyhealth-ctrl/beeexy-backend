@@ -1,6 +1,7 @@
 using Beeexy.Api.Errors;
 using Beeexy.Application.Common;
 using Beeexy.Application.Identity;
+using Beeexy.Application.Patients;
 using Microsoft.AspNetCore.Http;
 
 namespace Beeexy.Tests.Unit.Api;
@@ -47,6 +48,8 @@ public sealed class Phase22ExceptionMappingTests
     [InlineData(typeof(SessionAuthenticationException), StatusCodes.Status401Unauthorized)]
     [InlineData(typeof(ExternalIdentityAuthenticationException), StatusCodes.Status401Unauthorized)]
     [InlineData(typeof(ExternalIdentityProviderUnavailableException), StatusCodes.Status503ServiceUnavailable)]
+    [InlineData(typeof(ProfileUpdateConcurrencyException), StatusCodes.Status409Conflict)]
+    [InlineData(typeof(AccountProfileInvariantException), StatusCodes.Status500InternalServerError)]
     public void VerificationFailures_MapToPhase23StatusWithoutSecretDetails(
         Type exceptionType,
         int expectedStatus)

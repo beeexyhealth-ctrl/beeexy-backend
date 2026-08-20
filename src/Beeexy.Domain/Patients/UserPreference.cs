@@ -18,6 +18,7 @@ public sealed class UserPreference
         Id = id;
         AccountId = accountId;
         TimeZone = timeZone;
+        Version = 1;
         CreatedAt = createdAt;
     }
 
@@ -26,6 +27,8 @@ public sealed class UserPreference
     public EntityId AccountId { get; private set; }
 
     public UserTimeZone TimeZone { get; private set; }
+
+    public long Version { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
 
@@ -54,6 +57,7 @@ public sealed class UserPreference
         }
 
         TimeZone = timeZone;
+        Version = checked(Version + 1);
         UpdatedAt = updatedAt;
     }
 }

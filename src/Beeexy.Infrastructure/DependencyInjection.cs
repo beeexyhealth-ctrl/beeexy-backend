@@ -1,6 +1,8 @@
 using Beeexy.Application.Identity;
+using Beeexy.Application.Patients;
 using Beeexy.Domain.Common;
 using Beeexy.Infrastructure.Identity;
+using Beeexy.Infrastructure.Patients;
 using Beeexy.Infrastructure.Persistence;
 using Beeexy.Infrastructure.Time;
 using Microsoft.EntityFrameworkCore;
@@ -44,6 +46,8 @@ public static class DependencyInjection
         services.AddScoped<
             IExternalIdentityAuthenticationRepository,
             ExternalIdentityAuthenticationRepository>();
+        services.AddScoped<ICurrentAccountProfileRepository, CurrentAccountProfileRepository>();
+        services.AddSingleton<IAccountProfileAuditLogger, AccountProfileAuditLogger>();
 
         services.AddSingleton(googleOptions);
         if (googleOptions.Enabled)

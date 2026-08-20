@@ -60,12 +60,32 @@ public sealed class PatientProfileAndPreferenceTests
             UserTimeZone.Create("America/Lima"),
             createdAt);
 
+        Assert.Equal(1, preference.Version);
+
         preference.ChangeTimeZone(
             UserTimeZone.Create("Europe/Madrid"),
             createdAt.AddMinutes(1));
 
         Assert.Equal("Europe/Madrid", preference.TimeZone.Value);
+        Assert.Equal(2, preference.Version);
         Assert.Equal(createdAt.AddMinutes(1), preference.UpdatedAt);
+    }
+
+    [Fact]
+    public void UserPreference_UnchangedTimezone_DoesNotAdvanceVersion()
+    {
+        var createdAt = Utc(12);
+        var preference = UserPreference.Create(
+            EntityId.New(),
+            UserTimeZone.Create("America/Lima"),
+            createdAt);
+
+        preference.ChangeTimeZone(
+            UserTimeZone.Create("America/Lima"),
+            createdAt.AddMinutes(1));
+
+        Assert.Equal(1, preference.Version);
+        Assert.Null(preference.UpdatedAt);
     }
 
     private static DateTimeOffset Utc(int hour)

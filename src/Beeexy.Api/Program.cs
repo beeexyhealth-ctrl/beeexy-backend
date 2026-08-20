@@ -3,7 +3,9 @@ using Beeexy.Api.Errors;
 using Beeexy.Api.Health;
 using Beeexy.Api.Identity;
 using Beeexy.Api.Middleware;
+using Beeexy.Api.Patients;
 using Beeexy.Application.Identity;
+using Beeexy.Application.Patients;
 using Beeexy.Infrastructure;
 using Beeexy.Infrastructure.Identity;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -50,6 +52,10 @@ builder.Services.AddScoped<AuthenticateWithGoogle>();
 builder.Services.AddScoped<IssueAuthenticationTokens>();
 builder.Services.AddScoped<RotateRefreshSession>();
 builder.Services.AddScoped<LogoutSession>();
+builder.Services.AddScoped<CurrentAccountProfileResolver>();
+builder.Services.AddScoped<GetCurrentAccount>();
+builder.Services.AddScoped<GetPrimaryProfile>();
+builder.Services.AddScoped<UpdatePrimaryProfile>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentSessionIdentity, HttpCurrentSessionIdentity>();
 builder.Services
@@ -158,6 +164,7 @@ if (app.Environment.IsDevelopment())
 
 app.MapBeeexyHealthEndpoints();
 app.MapBeeexyAuthenticationEndpoints();
+app.MapBeeexyPatientEndpoints();
 
 app.Run();
 

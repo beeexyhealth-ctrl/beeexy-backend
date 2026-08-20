@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(7, paths.EnumerateObject().Count());
+        Assert.Equal(9, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
@@ -50,6 +50,34 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.True(paths
             .GetProperty("/api/v1/auth/logout")
             .TryGetProperty("post", out var logoutOperation));
+        var accountMeOperation = paths
+            .GetProperty("/api/v1/auth/me")
+            .GetProperty("get");
+        var patientMePath = paths.GetProperty("/api/v1/patients/me");
+        var patientGetOperation = patientMePath.GetProperty("get");
+        var patientPatchOperation = patientMePath.GetProperty("patch");
+
+        foreach (var operation in new[]
+                 {
+                     accountMeOperation,
+                     patientGetOperation,
+                     patientPatchOperation
+                 })
+        {
+            var security = operation.GetProperty("security");
+            Assert.Single(security.EnumerateArray());
+            Assert.True(security[0].TryGetProperty("Bearer", out _));
+            Assert.True(operation.GetProperty("responses").TryGetProperty("401", out _));
+        }
+
+        var patchResponses = patientPatchOperation.GetProperty("responses");
+        Assert.True(patchResponses.TryGetProperty("200", out _));
+        Assert.True(patchResponses.TryGetProperty("409", out _));
+        Assert.True(patchResponses.TryGetProperty("422", out _));
+        Assert.Contains(
+            "stale version returns 409",
+            patientPatchOperation.GetProperty("description").GetString(),
+            StringComparison.OrdinalIgnoreCase);
 
         var logoutSecurity = logoutOperation.GetProperty("security");
         Assert.Single(logoutSecurity.EnumerateArray());

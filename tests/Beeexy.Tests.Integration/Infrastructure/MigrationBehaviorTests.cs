@@ -102,6 +102,34 @@ public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
     }
 
     [Fact]
+    public async Task Phase26Migration_AddsPositivePreferenceConcurrencyVersion()
+    {
+        await EnsureMigratedAsync();
+
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync();
+        await using (var columnCommand = connection.CreateCommand())
+        {
+            columnCommand.CommandText =
+                "SELECT data_type, is_nullable, column_default " +
+                "FROM information_schema.columns " +
+                "WHERE table_schema = 'patients' AND table_name = 'user_preferences' " +
+                "AND column_name = 'version';";
+            await using var reader = await columnCommand.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal("bigint", reader.GetString(0));
+            Assert.Equal("NO", reader.GetString(1));
+            Assert.Contains("1", reader.GetString(2), StringComparison.Ordinal);
+        }
+
+        await using var constraintCommand = connection.CreateCommand();
+        constraintCommand.CommandText =
+            "SELECT count(*) FROM pg_constraint " +
+            "WHERE conname = 'ck_user_preferences_version_positive';";
+        Assert.Equal(1L, (long)(await constraintCommand.ExecuteScalarAsync())!);
+    }
+
+    [Fact]
     public async Task Phase21Migration_CanRollbackAndReapply()
     {
         await EnsureMigratedAsync();
