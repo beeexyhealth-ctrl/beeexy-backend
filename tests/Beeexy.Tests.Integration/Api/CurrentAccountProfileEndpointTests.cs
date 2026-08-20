@@ -103,7 +103,7 @@ public sealed class CurrentAccountProfileEndpointTests(PostgreSqlContainerFixtur
         var noOp = await PatchProfileAsync(
             client,
             authentication.AccessToken,
-            new { version = updated.Version },
+            new { timezone = "America/Lima", version = updated.Version },
             HttpStatusCode.OK);
         Assert.NotNull(noOp);
         Assert.Equal("America/Lima", noOp.Preferences.Timezone);

@@ -66,7 +66,15 @@ public sealed class AuthenticationSessionEndpointTests(PostgreSqlContainerFixtur
             CreateJwt(Issuer, Audience, "wrong-test-signing-key-with-at-least-32-bytes", accountId, sessionId, DateTimeOffset.UtcNow.AddMinutes(5)),
             CreateJwt("wrong-issuer", Audience, SigningKey, accountId, sessionId, DateTimeOffset.UtcNow.AddMinutes(5)),
             CreateJwt(Issuer, "wrong-audience", SigningKey, accountId, sessionId, DateTimeOffset.UtcNow.AddMinutes(5)),
-            CreateJwt(Issuer, Audience, SigningKey, accountId, sessionId, DateTimeOffset.UtcNow.AddMinutes(-1))
+            CreateJwt(Issuer, Audience, SigningKey, accountId, sessionId, DateTimeOffset.UtcNow.AddMinutes(-1)),
+            CreateJwt(
+                Issuer,
+                Audience,
+                SigningKey,
+                accountId,
+                sessionId,
+                DateTimeOffset.UtcNow.AddMinutes(10),
+                DateTimeOffset.UtcNow.AddMinutes(5))
         };
 
         foreach (var token in invalidTokens)
@@ -74,6 +82,36 @@ public sealed class AuthenticationSessionEndpointTests(PostgreSqlContainerFixtur
             using var response = await PostLogoutAsync(client, token);
             Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         }
+    }
+
+    [Fact]
+    public async Task RefreshReuse_RevokesOnlyTheAffectedSessionFamily()
+    {
+        await EnsureMigratedAsync();
+        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        using var client = factory.CreateApiClient();
+        var email = $"independent-family-{UniqueSuffix()}@example.com";
+        var affectedFamily = await AuthenticateAsync(factory, client, email);
+        var independentFamily = await AuthenticateAsync(factory, client, email);
+        var affectedRotation = await RefreshAsync(
+            client,
+            affectedFamily.RefreshToken,
+            HttpStatusCode.OK);
+
+        using var reuse = await client.PostAsJsonAsync(
+            RefreshEndpoint,
+            new { refreshToken = affectedFamily.RefreshToken });
+        Assert.Equal(HttpStatusCode.Unauthorized, reuse.StatusCode);
+        using var affectedDescendant = await client.PostAsJsonAsync(
+            RefreshEndpoint,
+            new { refreshToken = affectedRotation!.RefreshToken });
+        Assert.Equal(HttpStatusCode.Unauthorized, affectedDescendant.StatusCode);
+
+        var independentRotation = await RefreshAsync(
+            client,
+            independentFamily.RefreshToken,
+            HttpStatusCode.OK);
+        Assert.NotNull(independentRotation);
     }
 
     [Fact]
@@ -302,9 +340,10 @@ public sealed class AuthenticationSessionEndpointTests(PostgreSqlContainerFixtur
         string signingKey,
         Guid accountId,
         Guid sessionId,
-        DateTimeOffset expiresAt)
+        DateTimeOffset expiresAt,
+        DateTimeOffset? notBefore = null)
     {
-        var now = DateTimeOffset.UtcNow.AddMinutes(-2);
+        var now = notBefore ?? DateTimeOffset.UtcNow.AddMinutes(-2);
         var token = new JwtSecurityToken(
             issuer,
             audience,

@@ -1,4 +1,5 @@
 using Beeexy.Api.Configuration;
+using Beeexy.Infrastructure.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
@@ -20,7 +21,10 @@ public sealed class EmailChallengeStartupConfigurationTests
         Assert.Equal(20, settings.Policy.IpPermitLimit);
         Assert.Equal(5, settings.Policy.MaximumVerificationAttempts);
         Assert.Equal(TimeSpan.FromMinutes(15), settings.Policy.RateLimitWindow);
-        Assert.True(settings.UseInMemoryEmailSender);
+        Assert.Equal(
+            AuthenticationEmailSenderProvider.InMemory,
+            settings.EmailSender.Provider);
+        Assert.Null(settings.EmailSender.Resend);
     }
 
     [Fact]
@@ -48,13 +52,71 @@ public sealed class EmailChallengeStartupConfigurationTests
     }
 
     [Fact]
-    public void UnavailableEmailSender_IsAcceptedInProductionWithoutEnablingInMemoryDelivery()
+    public void ValidResendEmailSender_IsAcceptedInProduction()
     {
         var settings = StartupConfiguration.GetRequiredEmailChallengeSettings(
-            BuildConfiguration(("Authentication:EmailSender:Provider", "Unavailable")),
+            BuildConfiguration(
+                ("Authentication:EmailSender:Provider", "Resend"),
+                ("Authentication:EmailSender:Resend:ApiKey",
+                    "re_unit_test_key_that_is_not_a_real_secret"),
+                ("Authentication:EmailSender:Resend:SenderEmail", "auth@beeexy.test"),
+                ("Authentication:EmailSender:Resend:SenderDisplayName", "Beeexy")),
             new StubEnvironment("Production"));
 
-        Assert.False(settings.UseInMemoryEmailSender);
+        Assert.Equal(
+            AuthenticationEmailSenderProvider.Resend,
+            settings.EmailSender.Provider);
+        Assert.Equal("auth@beeexy.test", settings.EmailSender.Resend!.SenderEmail);
+        Assert.Equal("Beeexy", settings.EmailSender.Resend.SenderDisplayName);
+    }
+
+    [Theory]
+    [InlineData("Authentication:EmailSender:Resend:ApiKey", "")]
+    [InlineData("Authentication:EmailSender:Resend:ApiKey", "not-a-resend-key")]
+    [InlineData("Authentication:EmailSender:Resend:SenderEmail", "invalid")]
+    [InlineData("Authentication:EmailSender:Resend:SenderDisplayName", "")]
+    [InlineData("Authentication:EmailSender:Resend:SenderDisplayName", "Beeexy\nInjected")]
+    public void InvalidResendSettings_AreRejected(string key, string value)
+    {
+        var configuration = BuildConfiguration(
+            ("Authentication:EmailSender:Provider", "Resend"),
+            ("Authentication:EmailSender:Resend:ApiKey",
+                "re_unit_test_key_that_is_not_a_real_secret"),
+            ("Authentication:EmailSender:Resend:SenderEmail", "auth@beeexy.test"),
+            ("Authentication:EmailSender:Resend:SenderDisplayName", "Beeexy"),
+            (key, value));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            StartupConfiguration.GetRequiredEmailChallengeSettings(
+                configuration,
+                new StubEnvironment("Production")));
+    }
+
+    [Fact]
+    public void InvalidResendApiKey_IsRejectedWithoutEchoingSecret()
+    {
+        const string invalidSecret = "unexpected-production-provider-secret";
+        var configuration = BuildConfiguration(
+            ("Authentication:EmailSender:Provider", "Resend"),
+            ("Authentication:EmailSender:Resend:ApiKey", invalidSecret),
+            ("Authentication:EmailSender:Resend:SenderEmail", "auth@beeexy.test"),
+            ("Authentication:EmailSender:Resend:SenderDisplayName", "Beeexy"));
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            StartupConfiguration.GetRequiredEmailChallengeSettings(
+                configuration,
+                new StubEnvironment("Production")));
+
+        Assert.DoesNotContain(invalidSecret, exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TransitionalUnavailableProvider_IsRejected()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            StartupConfiguration.GetRequiredEmailChallengeSettings(
+                BuildConfiguration(("Authentication:EmailSender:Provider", "Unavailable")),
+                new StubEnvironment("Production")));
     }
 
     private static IConfiguration BuildConfiguration(

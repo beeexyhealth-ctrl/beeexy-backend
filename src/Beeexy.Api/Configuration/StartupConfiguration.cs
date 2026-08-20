@@ -1,4 +1,5 @@
 using Beeexy.Application.Identity;
+using Beeexy.Infrastructure.Identity;
 using Beeexy.Infrastructure.Persistence;
 using Microsoft.Extensions.Hosting;
 
@@ -11,6 +12,7 @@ internal static class StartupConfiguration
     private const string CorsAllowedOriginsKey = "Cors:AllowedOrigins";
     private const string EmailChallengeSectionKey = "Authentication:EmailChallenge";
     private const string EmailSenderProviderKey = "Authentication:EmailSender:Provider";
+    private const string ResendEmailSenderSectionKey = "Authentication:EmailSender:Resend";
     private const string TokenSectionKey = "Authentication:Tokens";
     private const string GoogleSectionKey = "Authentication:Google";
 
@@ -105,12 +107,12 @@ internal static class StartupConfiguration
             emailSenderProvider,
             "InMemory",
             StringComparison.OrdinalIgnoreCase);
-        var useUnavailableEmailSender = string.Equals(
+        var useResendEmailSender = string.Equals(
             emailSenderProvider,
-            "Unavailable",
+            "Resend",
             StringComparison.OrdinalIgnoreCase);
 
-        if (!useInMemoryEmailSender && !useUnavailableEmailSender)
+        if (!useInMemoryEmailSender && !useResendEmailSender)
         {
             throw new InvalidOperationException(
                 $"A supported provider must be configured in '{EmailSenderProviderKey}'.");
@@ -119,21 +121,37 @@ internal static class StartupConfiguration
         if (environment.IsProduction() && useInMemoryEmailSender)
         {
             throw new InvalidOperationException(
-                "The in-memory authentication email sender cannot be used in Production. " +
-                "No production authentication email provider is configured.");
+                "The in-memory authentication email sender cannot be used in Production.");
         }
 
-        if (!environment.IsProduction() && useUnavailableEmailSender)
+        AuthenticationEmailSenderOptions emailSenderOptions;
+        if (useInMemoryEmailSender)
         {
-            throw new InvalidOperationException(
-                "The unavailable authentication email sender is reserved for Production " +
-                "until a production provider is selected.");
+            emailSenderOptions = AuthenticationEmailSenderOptions.InMemory;
+        }
+        else
+        {
+            var resendSection = configuration.GetSection(ResendEmailSenderSectionKey);
+            try
+            {
+                emailSenderOptions = AuthenticationEmailSenderOptions.CreateResend(
+                    new ResendAuthenticationEmailOptions(
+                        resendSection["ApiKey"] ?? string.Empty,
+                        resendSection["SenderEmail"] ?? string.Empty,
+                        resendSection["SenderDisplayName"] ?? string.Empty));
+            }
+            catch (ArgumentException)
+            {
+                throw new InvalidOperationException(
+                    $"Configuration section '{ResendEmailSenderSectionKey}' is invalid. " +
+                    "A valid API key, sender email, and sender display name are required.");
+            }
         }
 
         return new EmailChallengeStartupSettings(
             policy,
             otpHashingKey,
-            useInMemoryEmailSender);
+            emailSenderOptions);
     }
 
     public static AuthenticationTokenPolicy GetRequiredAuthenticationTokenPolicy(

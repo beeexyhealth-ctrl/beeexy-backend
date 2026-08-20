@@ -29,6 +29,12 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.True(paths
             .GetProperty("/api/v1/auth/email/verify")
             .TryGetProperty("post", out _));
+        var challengeOperation = paths
+            .GetProperty("/api/v1/auth/email/challenges")
+            .GetProperty("post");
+        var verifyOperation = paths
+            .GetProperty("/api/v1/auth/email/verify")
+            .GetProperty("post");
         var googleOperation = paths
             .GetProperty("/api/v1/auth/google")
             .GetProperty("post");
@@ -44,9 +50,9 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.True(googleOperation
             .GetProperty("responses")
             .TryGetProperty("503", out _));
-        Assert.True(paths
+        var refreshOperation = paths
             .GetProperty("/api/v1/auth/refresh")
-            .TryGetProperty("post", out _));
+            .GetProperty("post");
         Assert.True(paths
             .GetProperty("/api/v1/auth/logout")
             .TryGetProperty("post", out var logoutOperation));
@@ -56,6 +62,35 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var patientMePath = paths.GetProperty("/api/v1/patients/me");
         var patientGetOperation = patientMePath.GetProperty("get");
         var patientPatchOperation = patientMePath.GetProperty("patch");
+
+        AssertResponseCodes(challengeOperation, "202", "400", "422", "429", "500");
+        AssertResponseCodes(verifyOperation, "200", "400", "401", "409", "422", "429", "500");
+        AssertResponseCodes(googleOperation, "200", "400", "401", "422", "503", "500");
+        AssertResponseCodes(refreshOperation, "200", "400", "401", "500");
+        AssertResponseCodes(logoutOperation, "204", "401", "500");
+        AssertResponseCodes(accountMeOperation, "200", "401", "500");
+        AssertResponseCodes(patientGetOperation, "200", "401", "404", "500");
+        AssertResponseCodes(
+            patientPatchOperation,
+            "200",
+            "400",
+            "401",
+            "404",
+            "409",
+            "422",
+            "500");
+
+        foreach (var operation in new[]
+                 {
+                     challengeOperation,
+                     verifyOperation,
+                     googleOperation,
+                     refreshOperation,
+                     patientPatchOperation
+                 })
+        {
+            Assert.True(operation.TryGetProperty("requestBody", out _));
+        }
 
         foreach (var operation in new[]
                  {
@@ -84,10 +119,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.True(
             logoutSecurity[0].TryGetProperty("Bearer", out _),
             logoutSecurity[0].GetRawText());
-        Assert.False(paths
-            .GetProperty("/api/v1/auth/refresh")
-            .GetProperty("post")
-            .TryGetProperty("security", out _));
+        Assert.False(refreshOperation.TryGetProperty("security", out _));
 
         var securitySchemes = document.RootElement
             .GetProperty("components")
@@ -165,5 +197,17 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Contains("without wildcards", exception.ToString());
         Assert.DoesNotContain(postgres.ConnectionString, exception.ToString());
+    }
+
+    private static void AssertResponseCodes(
+        JsonElement operation,
+        params string[] expectedCodes)
+    {
+        var responses = operation.GetProperty("responses");
+        Assert.Equal(
+            expectedCodes.Order(StringComparer.Ordinal),
+            responses.EnumerateObject()
+                .Select(response => response.Name)
+                .Order(StringComparer.Ordinal));
     }
 }

@@ -19,13 +19,14 @@ public static class DependencyInjection
         AuthenticationTokenPolicy authenticationTokenPolicy,
         GoogleExternalIdentityOptions googleOptions,
         string otpHashingKey,
-        bool useInMemoryAuthenticationEmailSender)
+        AuthenticationEmailSenderOptions authenticationEmailSenderOptions)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
         ArgumentNullException.ThrowIfNull(emailChallengePolicy);
         ArgumentNullException.ThrowIfNull(authenticationTokenPolicy);
         ArgumentNullException.ThrowIfNull(googleOptions);
         ArgumentException.ThrowIfNullOrWhiteSpace(otpHashingKey);
+        ArgumentNullException.ThrowIfNull(authenticationEmailSenderOptions);
 
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton(emailChallengePolicy);
@@ -60,7 +61,8 @@ public static class DependencyInjection
             services.AddSingleton<IExternalIdentityProvider, DisabledExternalIdentityProvider>();
         }
 
-        if (useInMemoryAuthenticationEmailSender)
+        if (authenticationEmailSenderOptions.Provider ==
+            AuthenticationEmailSenderProvider.InMemory)
         {
             services.AddSingleton<InMemoryAuthenticationEmailSender>();
             services.AddSingleton<IAuthenticationEmailSender>(provider =>
@@ -68,9 +70,11 @@ public static class DependencyInjection
         }
         else
         {
-            services.AddSingleton<
-                IAuthenticationEmailSender,
-                UnavailableAuthenticationEmailSender>();
+            var resendOptions = authenticationEmailSenderOptions.Resend ??
+                throw new InvalidOperationException(
+                    "Resend authentication email options are required.");
+            services.AddSingleton<IAuthenticationEmailSender>(_ =>
+                new ResendAuthenticationEmailSender(new HttpClient(), resendOptions));
         }
 
         services.AddDbContext<BeeexyDbContext>(options =>

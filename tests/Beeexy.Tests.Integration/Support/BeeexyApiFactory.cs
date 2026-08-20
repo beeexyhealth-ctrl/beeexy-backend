@@ -38,8 +38,12 @@ internal sealed class BeeexyApiFactory : WebApplicationFactory<Program>
                 "integration-test-only-jwt-signing-key-with-at-least-32-bytes",
             ["Authentication:EmailSender:Provider"] =
                 string.Equals(environment, Environments.Production, StringComparison.OrdinalIgnoreCase)
-                    ? "Unavailable"
-                    : "InMemory"
+                    ? "Resend"
+                    : "InMemory",
+            ["Authentication:EmailSender:Resend:ApiKey"] =
+                "re_integration_test_key_that_is_not_a_real_secret",
+            ["Authentication:EmailSender:Resend:SenderEmail"] = "auth@beeexy.test",
+            ["Authentication:EmailSender:Resend:SenderDisplayName"] = "Beeexy"
         };
         if (configurationOverrides is not null)
         {

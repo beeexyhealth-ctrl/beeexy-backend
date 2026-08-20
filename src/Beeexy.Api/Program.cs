@@ -44,7 +44,7 @@ builder.Services.AddInfrastructure(
         googleAuthenticationSettings.Enabled,
         googleAuthenticationSettings.ClientId),
     emailChallengeSettings.OtpHashingKey,
-    emailChallengeSettings.UseInMemoryEmailSender);
+    emailChallengeSettings.EmailSender);
 builder.Services.AddScoped<RequestEmailChallenge>();
 builder.Services.AddScoped<ProvisionAccountAndPrimaryProfile>();
 builder.Services.AddScoped<VerifyEmailChallenge>();
