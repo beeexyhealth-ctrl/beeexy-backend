@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(9, paths.EnumerateObject().Count());
+        Assert.Equal(10, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
@@ -62,6 +62,9 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var patientMePath = paths.GetProperty("/api/v1/patients/me");
         var patientGetOperation = patientMePath.GetProperty("get");
         var patientPatchOperation = patientMePath.GetProperty("patch");
+        Assert.True(paths
+            .GetProperty("/api/v1/care-relationships")
+            .TryGetProperty("post", out _));
 
         AssertResponseCodes(challengeOperation, "202", "400", "422", "429", "500");
         AssertResponseCodes(verifyOperation, "200", "400", "401", "409", "422", "429", "500");

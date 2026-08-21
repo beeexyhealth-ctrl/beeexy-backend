@@ -56,6 +56,7 @@ builder.Services.AddScoped<CurrentAccountProfileResolver>();
 builder.Services.AddScoped<GetCurrentAccount>();
 builder.Services.AddScoped<GetPrimaryProfile>();
 builder.Services.AddScoped<UpdatePrimaryProfile>();
+builder.Services.AddScoped<CreateManagedPatient>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentSessionIdentity, HttpCurrentSessionIdentity>();
 builder.Services
@@ -165,6 +166,7 @@ if (app.Environment.IsDevelopment())
 app.MapBeeexyHealthEndpoints();
 app.MapBeeexyAuthenticationEndpoints();
 app.MapBeeexyPatientEndpoints();
+app.MapBeeexyCareRelationshipEndpoints();
 
 app.Run();
 

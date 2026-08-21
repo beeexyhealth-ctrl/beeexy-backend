@@ -49,6 +49,8 @@ public static class DependencyInjection
             ExternalIdentityAuthenticationRepository>();
         services.AddScoped<ICurrentAccountProfileRepository, CurrentAccountProfileRepository>();
         services.AddSingleton<IAccountProfileAuditLogger, AccountProfileAuditLogger>();
+        services.AddScoped<IManagedPatientCreationRepository, ManagedPatientCreationRepository>();
+        services.AddSingleton<ICareRelationshipAuditLogger, CareRelationshipAuditLogger>();
 
         services.AddSingleton(googleOptions);
         if (googleOptions.Enabled)

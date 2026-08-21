@@ -148,6 +148,16 @@ internal sealed class ApiExceptionHandler(
             };
         }
 
+        if (exception is ManagedPatientCreationConflictException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Care relationship creation conflict.",
+                Detail = "The managed patient and care relationship could not be created."
+            };
+        }
+
         if (exception is BadHttpRequestException)
         {
             return new ProblemDetails
