@@ -15,3 +15,11 @@ public sealed class ProfileUpdateConcurrencyException : Exception
     {
     }
 }
+
+public sealed class PatientProfileNotFoundException : Exception
+{
+    public PatientProfileNotFoundException()
+        : base("The patient profile was not found.")
+    {
+    }
+}

@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Beeexy.Application.Common;
 using Beeexy.Application.Patients;
+using Beeexy.Domain.Common;
 
 namespace Beeexy.Api.Patients;
 
@@ -32,6 +33,20 @@ internal static class PatientEndpointExtensions
                 "Returns the authenticated account's owned primary profile and current version.")
             .RequireAuthorization()
             .Produces<PrimaryProfileResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        endpoints.MapGet(
+                "/api/v1/patients/{patientId:guid}",
+                GetPatientProfileAsync)
+            .WithName("GetPatientProfile")
+            .WithTags("Patients")
+            .WithDescription(
+                "Returns an authorized primary or actively managed patient profile. " +
+                "Absent and unauthorized profiles both return a concealed 404.")
+            .RequireAuthorization()
+            .Produces<PatientProfileResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
@@ -72,6 +87,24 @@ internal static class PatientEndpointExtensions
     {
         var result = await useCase.ExecuteAsync(cancellationToken);
         return Results.Ok(ToResponse(result));
+    }
+
+    private static async Task<IResult> GetPatientProfileAsync(
+        Guid patientId,
+        GetPatientProfile useCase,
+        CancellationToken cancellationToken)
+    {
+        if (patientId == Guid.Empty)
+        {
+            throw new PatientProfileNotFoundException();
+        }
+
+        var result = await useCase.ExecuteAsync(
+            EntityId.From(patientId),
+            cancellationToken);
+        return Results.Ok(new PatientProfileResponse(
+            result.ProfileId.Value,
+            result.BeeexyId));
     }
 
     private static async Task<IResult> UpdatePrimaryProfileAsync(
@@ -129,6 +162,8 @@ internal sealed record AccessiblePatientResponse(
 internal sealed record AccessiblePatientRelationshipResponse(
     Guid RelationshipId,
     string Type);
+
+internal sealed record PatientProfileResponse(Guid ProfileId, string BeeexyId);
 
 internal sealed record UpdatePrimaryProfileRequest(string? Timezone, long Version)
 {

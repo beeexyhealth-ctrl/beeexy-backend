@@ -56,6 +56,7 @@ public static class DependencyInjection
         services.AddScoped<
             IPatientAccessAuthorizationRepository,
             PatientAccessAuthorizationRepository>();
+        services.AddScoped<IPatientProfileReadRepository, PatientProfileReadRepository>();
 
         services.AddSingleton(googleOptions);
         if (googleOptions.Enabled)

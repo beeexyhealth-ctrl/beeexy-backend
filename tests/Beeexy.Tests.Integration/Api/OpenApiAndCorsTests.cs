@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(11, paths.EnumerateObject().Count());
+        Assert.Equal(12, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
@@ -65,6 +65,9 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var accessiblePatientsOperation = paths
             .GetProperty("/api/v1/patients")
             .GetProperty("get");
+        var patientDetailOperation = paths
+            .GetProperty("/api/v1/patients/{patientId}")
+            .GetProperty("get");
         var careRelationshipPath = paths.GetProperty("/api/v1/care-relationships");
         var careRelationshipListOperation = careRelationshipPath.GetProperty("get");
         Assert.True(careRelationshipPath.TryGetProperty("post", out _));
@@ -77,6 +80,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         AssertResponseCodes(accountMeOperation, "200", "401", "500");
         AssertResponseCodes(patientGetOperation, "200", "401", "404", "500");
         AssertResponseCodes(accessiblePatientsOperation, "200", "401", "500");
+        AssertResponseCodes(patientDetailOperation, "200", "401", "404", "500");
         AssertResponseCodes(careRelationshipListOperation, "200", "401", "500");
         AssertResponseCodes(
             patientPatchOperation,
@@ -106,6 +110,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
                      patientGetOperation,
                      patientPatchOperation,
                      accessiblePatientsOperation,
+                     patientDetailOperation,
                      careRelationshipListOperation
                  })
         {

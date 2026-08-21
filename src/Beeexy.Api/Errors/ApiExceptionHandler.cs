@@ -158,6 +158,16 @@ internal sealed class ApiExceptionHandler(
             };
         }
 
+        if (exception is PatientProfileNotFoundException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Patient profile not found.",
+                Detail = "The requested patient profile could not be found."
+            };
+        }
+
         if (exception is BadHttpRequestException)
         {
             return new ProblemDetails

@@ -19,7 +19,7 @@ internal sealed class BearerAuthorizationDocumentFilter : IDocumentFilter
                 continue;
             }
 
-            var path = $"/{apiDescription.RelativePath.Split('?')[0]}";
+            var path = NormalizePath(apiDescription.RelativePath);
             if (!document.Paths.TryGetValue(path, out var pathItem) ||
                 pathItem.Operations is null ||
                 !pathItem.Operations.TryGetValue(
@@ -37,5 +37,26 @@ internal sealed class BearerAuthorizationDocumentFilter : IDocumentFilter
                 }
             ];
         }
+    }
+
+    private static string NormalizePath(string relativePath)
+    {
+        var segments = relativePath.Split('?')[0].Split('/');
+        for (var index = 0; index < segments.Length; index++)
+        {
+            var segment = segments[index];
+            if (!segment.StartsWith('{') || !segment.EndsWith('}'))
+            {
+                continue;
+            }
+
+            var constraintIndex = segment.IndexOf(':');
+            if (constraintIndex > 0)
+            {
+                segments[index] = $"{segment[..constraintIndex]}}}";
+            }
+        }
+
+        return $"/{string.Join('/', segments)}";
     }
 }
