@@ -33,6 +33,17 @@ public sealed class UpdateManagedPatient(
         var actorAccountId = currentSessionIdentity.GetRequired().AccountId;
 
         await transaction.BeginAsync(cancellationToken);
+        if (authorization.Reason == PatientAccessReason.Managed)
+        {
+            authorization = await authorizePatientAccess.ExecuteForPatientUpdateAsync(
+                targetProfileId,
+                cancellationToken);
+            if (authorization.Reason != PatientAccessReason.Managed)
+            {
+                throw new PatientProfileNotFoundException();
+            }
+        }
+
         var profile = await repository.FindAsync(targetProfileId, cancellationToken);
         if (profile is null)
         {

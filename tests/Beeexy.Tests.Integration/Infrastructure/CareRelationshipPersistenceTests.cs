@@ -127,6 +127,39 @@ public sealed class CareRelationshipPersistenceTests(PostgreSqlContainerFixture 
     }
 
     [Fact]
+    public async Task ConcurrentDuplicateCreation_PersistsExactlyOneActiveRelationship()
+    {
+        await EnsureMigratedAsync();
+        var graph = CreateGraph();
+        var duplicate = CreateRelationship(
+            graph.Manager.Id,
+            graph.Subject.Id,
+            graph.Account.Id,
+            CareRelationshipType.Caregiver);
+        await SaveAsync(graph.Account, graph.Manager, graph.Subject);
+
+        var outcomes = await Task.WhenAll(
+            CaptureSaveExceptionAsync(graph.Relationship),
+            CaptureSaveExceptionAsync(duplicate));
+
+        Assert.Single(outcomes, exception => exception is null);
+        var conflict = Assert.IsType<DbUpdateException>(
+            Assert.Single(outcomes, exception => exception is not null));
+        var postgresException = Assert.IsType<PostgresException>(conflict.InnerException);
+        Assert.Equal(PostgresErrorCodes.UniqueViolation, postgresException.SqlState);
+        Assert.Equal(
+            "ux_care_relationships_active_manager_subject",
+            postgresException.ConstraintName);
+        await using var dbContext = CreateDbContext();
+        Assert.Equal(
+            1,
+            await dbContext.CareRelationships.CountAsync(value =>
+                value.ManagerProfileId == graph.Manager.Id &&
+                value.SubjectProfileId == graph.Subject.Id &&
+                value.Status == CareRelationshipStatus.Active));
+    }
+
+    [Fact]
     public async Task RevokedHistory_CanCoexistWithNewActiveRelationship()
     {
         await EnsureMigratedAsync();
@@ -339,6 +372,19 @@ public sealed class CareRelationshipPersistenceTests(PostgreSqlContainerFixture 
         await using var dbContext = CreateDbContext();
         dbContext.AddRange(entities);
         await dbContext.SaveChangesAsync();
+    }
+
+    private async Task<Exception?> CaptureSaveExceptionAsync(object entity)
+    {
+        try
+        {
+            await SaveAsync(entity);
+            return null;
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
     }
 
     private async Task InsertRawRelationshipAsync(

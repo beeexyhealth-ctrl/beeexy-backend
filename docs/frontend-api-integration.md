@@ -396,7 +396,7 @@ Related next step: update local profile state from the returned response; after 
 
 ### 6.9 My Circle and approved demographics
 
-The only approved demographic fields are `firstName`, `lastName`, `dateOfBirth`, `sexAssignedAtBirth` (`Male` or `Female`), and `state` (a valid two-letter code for one of the 50 U.S. states). Dates use `YYYY-MM-DD`. State input is trimmed and normalized to uppercase. Unknown fields are rejected with `422`.
+The only approved demographic fields are `firstName`, `lastName`, `dateOfBirth`, `sexAssignedAtBirth` (`Male` or `Female`), and `state` (a valid two-letter code for one of the 50 U.S. states). Dates use `YYYY-MM-DD`. State input is trimmed and normalized to uppercase. Unknown fields are rejected with `422`. Relationship types are exactly `Parent`, `LegalGuardian`, `Caregiver`, `Spouse`, `Child`, `Sibling`, and `Other`; relationship statuses are `Active` and `Revoked`.
 
 Create a managed patient and relationship with `POST /api/v1/care-relationships`:
 
@@ -439,7 +439,57 @@ Success is `201 Created`:
 }
 ```
 
-`GET /api/v1/patients` returns the primary patient first and active managed patients after it. Each summary contains only `profileId`, `beeexyId`, nullable `firstName`/`lastName`, `accessType`, and the nullable relationship summary; DOB, sex, state, and version are intentionally omitted. `GET /api/v1/care-relationships` retains Active and Revoked history and adds only nullable `firstName`/`lastName` to each `subject` summary.
+`GET /api/v1/patients` returns the primary patient first and active managed patients after it. Each summary contains only `profileId`, `beeexyId`, nullable `firstName`/`lastName`, `accessType`, and the nullable relationship summary; DOB, sex, state, and version are intentionally omitted:
+
+```json
+{
+  "patients": [
+    {
+      "profileId": "10000000-0000-0000-0000-000000000001",
+      "beeexyId": "BXY-PRIMARY",
+      "firstName": null,
+      "lastName": null,
+      "accessType": "Primary",
+      "relationship": null
+    },
+    {
+      "profileId": "20000000-0000-0000-0000-000000000002",
+      "beeexyId": "BXY-MANAGED",
+      "firstName": "Maria",
+      "lastName": "Arias",
+      "accessType": "Managed",
+      "relationship": {
+        "relationshipId": "30000000-0000-0000-0000-000000000003",
+        "type": "Child"
+      }
+    }
+  ]
+}
+```
+
+`GET /api/v1/care-relationships` returns only relationships where the current primary patient is the manager. It retains both Active and Revoked history and exposes only nullable `firstName`/`lastName` in each subject summary:
+
+```json
+{
+  "relationships": [
+    {
+      "id": "30000000-0000-0000-0000-000000000003",
+      "subject": {
+        "profileId": "20000000-0000-0000-0000-000000000002",
+        "beeexyId": "BXY-MANAGED",
+        "firstName": "Maria",
+        "lastName": "Arias"
+      },
+      "type": "Child",
+      "status": "Active",
+      "attestationVersion": "phase-3.6-approved",
+      "attestedAt": "2026-08-21T12:00:00+00:00",
+      "createdAt": "2026-08-21T12:00:00+00:00",
+      "revokedAt": null
+    }
+  ]
+}
+```
 
 `GET /api/v1/patients/{patientId}` returns the complete authorized detail:
 
@@ -468,7 +518,11 @@ Partially update any subset of the five fields with `PATCH /api/v1/patients/{pat
 
 Success is `200` with the same full detail shape and version 2. An effective update increments the patient version once. A same-value update returns `200` without incrementing it. A stale version returns `409`; refetch detail before reconciling. Missing/invalid version, invalid demographics, an empty demographic patch, or unknown fields return `422`. Absent, unrelated, or revoked access returns the same concealed `404`, including when the body is invalid.
 
-All My Circle routes require Bearer authentication. A UUID is the route selector; neither a Beeexy ID nor knowledge of a relationship/creator identifier grants access. Revocation uses `DELETE /api/v1/care-relationships/{id}`, returns `204`, is idempotent for its owning manager, and immediately removes that manager's patient read/update access without deleting history.
+All My Circle routes require Bearer authentication. A UUID is the route selector; neither a Beeexy ID nor knowledge of a relationship/creator identifier grants access. A primary patient is the `PatientProfile` owned by the authenticated account (`accountId` is populated); a managed patient uses that same model/table but has no account. A relationship grants only the implemented My Circle list/read/demographic-update capability. It is not record sharing, provider access, external disclosure, or consent delegation.
+
+Revocation uses `DELETE /api/v1/care-relationships/{id}` with no request body. An owning manager receives `204 No Content` for both the first revocation and repeats. Foreign or nonexistent relationship IDs receive concealed `404`, never an existence-revealing `403`. The first revocation preserves a stable server timestamp and revoker metadata; repeats do not overwrite them. The subject immediately disappears from that manager's patient list and detail/PATCH access returns concealed `404`, while the Revoked relationship remains in relationship history. The patient, Beeexy ID, demographics, and any other manager's independent access remain persisted.
+
+The request's `attestationAccepted` and version provide technical recording only. They do not establish legal or identity verification, and final human-readable product/legal wording is an external product-content dependency.
 
 ### 6.10 `GET /health/live`
 
@@ -512,6 +566,7 @@ Frontend handling categories:
 
 - `400`: request serialization/malformed JSON problem; fix the client request.
 - `401`: access token/session/credential is not accepted. For an authenticated API request, attempt one coordinated refresh; if refresh also returns `401`, clear the session. For login verification, allow a new challenge/code.
+- `404`: resource is absent or concealed by authorization; do not infer whether a patient or relationship exists.
 - `409`: consumed OTP replay or stale profile update; request a new OTP or re-fetch profile state respectively.
 - `422`: show validation feedback where appropriate; honor the returned `errorCode` when present.
 - `429`: show a retry message and respect `Retry-After` when present.
@@ -525,10 +580,12 @@ The backend does not expose internal exception class names as its public error c
 | Status | Current Beeexy use |
 |---|---|
 | `200` | Successful token issuance/rotation, account/profile reads, or profile update |
+| `201` | Managed patient and care relationship created atomically |
 | `202` | Email challenge accepted; response body is empty |
-| `204` | Logout succeeded; response body is empty |
+| `204` | Logout or relationship revocation succeeded; response body is empty |
 | `400` | Malformed JSON or malformed HTTP request |
 | `401` | Invalid/expired access or refresh session, invalid OTP, or rejected Google identity |
+| `404` | Missing route/resource or concealed patient/relationship authorization denial |
 | `409` | Consumed OTP replay or stale profile version |
 | `422` | Request/domain validation failure, including invalid email, timezone, or unsupported profile field |
 | `429` | Email/IP throttling or exhausted OTP verification attempts |
@@ -688,6 +745,82 @@ interface UpdatePatientDemographicsRequest {
   sexAssignedAtBirth?: "Male" | "Female";
   state?: string;
 }
+
+type RelationshipType =
+  | "Parent"
+  | "LegalGuardian"
+  | "Caregiver"
+  | "Spouse"
+  | "Child"
+  | "Sibling"
+  | "Other";
+
+type RelationshipStatus = "Active" | "Revoked";
+
+interface AccessiblePatientsResponse {
+  patients: Array<{
+    profileId: string;
+    beeexyId: string;
+    firstName: string | null;
+    lastName: string | null;
+    accessType: "Primary" | "Managed";
+    relationship: {
+      relationshipId: string;
+      type: RelationshipType;
+    } | null;
+  }>;
+}
+
+interface CreateManagedPatientRequest {
+  relationshipType: RelationshipType;
+  attestationVersion: string;
+  attestationAccepted: true;
+  patient: {
+    firstName: string;
+    lastName: string;
+    dateOfBirth: string;
+    sexAssignedAtBirth: "Male" | "Female";
+    state: string;
+  };
+}
+
+interface CreateManagedPatientResponse {
+  relationship: {
+    id: string;
+    type: RelationshipType;
+    status: "Active";
+    attestationVersion: string;
+    attestedAt: string;
+  };
+  patient: {
+    profileId: string;
+    beeexyId: string;
+    firstName: string;
+    lastName: string;
+    dateOfBirth: string;
+    sexAssignedAtBirth: "Male" | "Female";
+    state: string;
+    version: number;
+  };
+}
+
+interface CareRelationshipsResponse {
+  relationships: Array<{
+    id: string;
+    subject: {
+      profileId: string;
+      beeexyId: string;
+      firstName: string | null;
+      lastName: string | null;
+    };
+    type: RelationshipType;
+    status: RelationshipStatus;
+    attestationVersion: string;
+    attestedAt: string;
+    createdAt: string;
+    revokedAt: string | null;
+  }>;
+}
 ```
 
 The backend records are nullable at request binding time, but valid requests must satisfy the endpoint/use-case validation. `UpdatePatientRequest` currently supports only `timezone` and `version`; unknown fields are rejected.
@@ -768,6 +901,6 @@ The current backend does not provide APIs for:
 
 ## 16. Verification Notes
 
-The Phase 1 health, Phase 2 authentication/preference, and Phase 3 My Circle routes were verified against the endpoint mappings, DTO records, authorization services, migrations, exception handler, OpenAPI declarations, and PostgreSQL integration tests. The complete backend suite passes 469 tests (261 unit and 208 integration) with no failures or skips.
+The Phase 1 health, Phase 2 authentication/preference, and Phase 3 My Circle routes were verified against the endpoint mappings, DTO records, authorization services, migrations, exception handler, OpenAPI declarations, and PostgreSQL integration tests. The complete backend suite passes 475 tests (261 unit and 214 PostgreSQL integration) with no failures or skips. The five dedicated Phase 3.8 acceptance tests cover the complete six-endpoint Bearer matrix, disabled-account precedence, the Account A/Account B/Patient X journey, revocation-versus-PATCH locking, demographic-log privacy, and exact OpenAPI scope/enums; a separate concurrent duplicate-relationship test verifies the database uniqueness boundary.
 
-No discrepancy was found between the current implementation plan, endpoint mappings, OpenAPI declarations, and tested request/response contracts for these routes. Broader future phases are not current frontend APIs. The frontend still needs its deployment-specific API origin, its Google Web Client ID when Google is enabled, and a CORS origin configured to match the frontend host.
+No discrepancy was found between the current implementation plan, endpoint mappings, OpenAPI declarations, and tested request/response contracts for these routes. Technical attestation version/acceptance recording is complete; final human-readable product/legal wording remains an external product-content dependency and the API does not claim legal verification. Broader future phases are not current frontend APIs. The frontend still needs its deployment-specific API origin, its Google Web Client ID when Google is enabled, and a CORS origin configured to match the frontend host.

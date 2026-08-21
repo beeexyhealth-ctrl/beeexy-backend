@@ -17,6 +17,8 @@ public sealed class CreateManagedPatient(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(command);
+        var current = await currentAccountResolver.ResolveAsync(cancellationToken);
+        ValidateUnsupportedFields(command);
         var relationshipType = ParseRelationshipType(command.RelationshipType);
         ValidateAttestationAcceptance(command.AttestationAccepted);
         var now = clock.UtcNow;
@@ -24,7 +26,6 @@ public sealed class CreateManagedPatient(
         var demographics = ParseDemographics(command.Patient, now);
 
         await transaction.BeginAsync(cancellationToken);
-        var current = await currentAccountResolver.ResolveAsync(cancellationToken);
 
         var subjectProfileId = EntityId.New();
         var subject = PatientProfile.CreateManaged(
@@ -102,6 +103,23 @@ public sealed class CreateManagedPatient(
             "A supported relationship type is required.");
     }
 
+    private static void ValidateUnsupportedFields(CreateManagedPatientCommand command)
+    {
+        if (command.UnsupportedFields.Count > 0)
+        {
+            throw new RequestValidationException(
+                "care_relationship.unsupported_field",
+                "The care relationship request contains an unsupported field.");
+        }
+
+        if (command.UnsupportedPatientFields.Count > 0)
+        {
+            throw new RequestValidationException(
+                "patient.unsupported_field",
+                "The managed patient contains an unsupported field.");
+        }
+    }
+
     private static void ValidateAttestationAcceptance(bool accepted)
     {
         if (!accepted)
@@ -166,7 +184,12 @@ public sealed record CreateManagedPatientCommand(
     string? RelationshipType,
     string? AttestationVersion,
     bool AttestationAccepted,
-    ManagedPatientDemographicsCommand? Patient);
+    ManagedPatientDemographicsCommand? Patient)
+{
+    public IReadOnlyCollection<string> UnsupportedFields { get; init; } = [];
+
+    public IReadOnlyCollection<string> UnsupportedPatientFields { get; init; } = [];
+}
 
 public sealed record ManagedPatientDemographicsCommand(
     string? FirstName,

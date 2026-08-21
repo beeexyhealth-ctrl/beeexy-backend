@@ -10,7 +10,24 @@ public sealed class AuthorizePatientAccess(
 {
     public async Task<PatientAccessAuthorizationResult> ExecuteAsync(
         EntityId targetProfileId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        await ExecuteCoreAsync(
+            targetProfileId,
+            lockActiveRelationship: false,
+            cancellationToken);
+
+    internal async Task<PatientAccessAuthorizationResult> ExecuteForPatientUpdateAsync(
+        EntityId targetProfileId,
+        CancellationToken cancellationToken = default) =>
+        await ExecuteCoreAsync(
+            targetProfileId,
+            lockActiveRelationship: true,
+            cancellationToken);
+
+    private async Task<PatientAccessAuthorizationResult> ExecuteCoreAsync(
+        EntityId targetProfileId,
+        bool lockActiveRelationship,
+        CancellationToken cancellationToken)
     {
         var current = await currentAccountResolver.ResolveAsync(cancellationToken);
 
@@ -19,10 +36,15 @@ public sealed class AuthorizePatientAccess(
             return PatientAccessAuthorizationResult.Primary();
         }
 
-        var lookup = await repository.FindAsync(
-            current.PrimaryProfile.Id,
-            targetProfileId,
-            cancellationToken);
+        var lookup = lockActiveRelationship
+            ? await repository.FindForPatientUpdateAsync(
+                current.PrimaryProfile.Id,
+                targetProfileId,
+                cancellationToken)
+            : await repository.FindAsync(
+                current.PrimaryProfile.Id,
+                targetProfileId,
+                cancellationToken);
         if (lookup.ActiveRelationshipId is { } relationshipId)
         {
             return PatientAccessAuthorizationResult.Managed(relationshipId);

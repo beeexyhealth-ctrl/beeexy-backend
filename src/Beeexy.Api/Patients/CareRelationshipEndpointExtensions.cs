@@ -86,20 +86,6 @@ internal static class CareRelationshipEndpointExtensions
         CreateManagedPatient useCase,
         CancellationToken cancellationToken)
     {
-        if (request.UnsupportedFields is { Count: > 0 })
-        {
-            throw new RequestValidationException(
-                "care_relationship.unsupported_field",
-                "The care relationship request contains an unsupported field.");
-        }
-
-        if (request.Patient?.UnsupportedFields is { Count: > 0 })
-        {
-            throw new RequestValidationException(
-                "patient.unsupported_field",
-                "The managed patient contains an unsupported field.");
-        }
-
         var result = await useCase.ExecuteAsync(
             new CreateManagedPatientCommand(
                 request.RelationshipType,
@@ -112,7 +98,12 @@ internal static class CareRelationshipEndpointExtensions
                         request.Patient.LastName,
                         request.Patient.DateOfBirth,
                         request.Patient.SexAssignedAtBirth,
-                        request.Patient.State)),
+                        request.Patient.State))
+            {
+                UnsupportedFields = request.UnsupportedFields?.Keys.ToArray() ?? [],
+                UnsupportedPatientFields =
+                    request.Patient?.UnsupportedFields?.Keys.ToArray() ?? []
+            },
             cancellationToken);
 
         var response = new CreateManagedPatientResponse(

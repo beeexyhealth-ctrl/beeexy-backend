@@ -136,7 +136,7 @@ public sealed class CreateManagedPatientTests
         await Assert.ThrowsAsync<SessionAuthenticationException>(() =>
             fixture.UseCase.ExecuteAsync(ValidCommand()));
 
-        Assert.True(fixture.Transaction.Began);
+        Assert.False(fixture.Transaction.Began);
         Assert.False(fixture.Transaction.Committed);
         Assert.Null(fixture.Repository.Subject);
         Assert.Null(fixture.Repository.Relationship);
