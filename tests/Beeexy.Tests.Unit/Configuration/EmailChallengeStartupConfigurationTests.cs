@@ -9,7 +9,7 @@ namespace Beeexy.Tests.Unit.Configuration;
 public sealed class EmailChallengeStartupConfigurationTests
 {
     [Fact]
-    public void ValidNonProductionSettings_CreateConcretePolicy()
+    public void Development_WithInMemoryEmailSender_IsAccepted()
     {
         var settings = StartupConfiguration.GetRequiredEmailChallengeSettings(
             BuildConfiguration(),
@@ -25,6 +25,47 @@ public sealed class EmailChallengeStartupConfigurationTests
             AuthenticationEmailSenderProvider.InMemory,
             settings.EmailSender.Provider);
         Assert.Null(settings.EmailSender.Resend);
+    }
+
+    [Fact]
+    public void Development_WithValidResendEmailSender_IsAccepted()
+    {
+        var settings = StartupConfiguration.GetRequiredEmailChallengeSettings(
+            BuildConfiguration(
+                ("Authentication:EmailSender:Provider", "Resend"),
+                ("Authentication:EmailSender:Resend:ApiKey",
+                    "re_unit_test_key_that_is_not_a_real_secret"),
+                ("Authentication:EmailSender:Resend:SenderEmail", "onboarding@resend.dev"),
+                ("Authentication:EmailSender:Resend:SenderDisplayName", "Beeexy")),
+            new StubEnvironment("Development"));
+
+        Assert.Equal(
+            AuthenticationEmailSenderProvider.Resend,
+            settings.EmailSender.Provider);
+        Assert.Equal("onboarding@resend.dev", settings.EmailSender.Resend!.SenderEmail);
+        Assert.Equal("Beeexy", settings.EmailSender.Resend.SenderDisplayName);
+    }
+
+    [Theory]
+    [InlineData("Authentication:EmailSender:Resend:ApiKey")]
+    [InlineData("Authentication:EmailSender:Resend:SenderEmail")]
+    [InlineData("Authentication:EmailSender:Resend:SenderDisplayName")]
+    public void Development_WithMissingResendSetting_IsRejected(string missingKey)
+    {
+        var configuration = BuildConfiguration(
+            ("Authentication:EmailSender:Provider", "Resend"),
+            ("Authentication:EmailSender:Resend:ApiKey",
+                "re_unit_test_key_that_is_not_a_real_secret"),
+            ("Authentication:EmailSender:Resend:SenderEmail", "onboarding@resend.dev"),
+            ("Authentication:EmailSender:Resend:SenderDisplayName", "Beeexy"),
+            (missingKey, null));
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            StartupConfiguration.GetRequiredEmailChallengeSettings(
+                configuration,
+                new StubEnvironment("Development")));
+
+        Assert.Contains("Authentication:EmailSender:Resend", exception.Message);
     }
 
     [Fact]

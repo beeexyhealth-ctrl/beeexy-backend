@@ -17,7 +17,24 @@ Keep the API key in the deployment secret store. Do not place it in an appsettin
 
 The production adapter sends only a plain-text sign-in message containing the OTP, its UTC expiration, and an instruction to ignore an unrequested message. It sends no tokens, internal identifiers, or profile data. It does not log requests or provider response bodies. A provider rejection, network failure, or timeout becomes a generic delivery failure; the application then deletes the just-created challenge so an undelivered OTP cannot remain usable.
 
-Development deliberately uses `Authentication__EmailSender__Provider=InMemory`. Integration tests use the same deterministic boundary to capture OTPs internally; no public endpoint exposes them. Production startup rejects this provider.
+Development uses `InMemory` by default. To manually exercise the real email flow locally, store the Resend selection and credentials in .NET user-secrets for the API project (the example sender may be replaced by any address accepted by the existing validation and your Resend account):
+
+```bash
+dotnet user-secrets set "Authentication:EmailSender:Provider" "Resend" --project src/Beeexy.Api
+dotnet user-secrets set "Authentication:EmailSender:Resend:ApiKey" "<your-resend-api-key>" --project src/Beeexy.Api
+dotnet user-secrets set "Authentication:EmailSender:Resend:SenderEmail" "onboarding@resend.dev" --project src/Beeexy.Api
+dotnet user-secrets set "Authentication:EmailSender:Resend:SenderDisplayName" "Beeexy" --project src/Beeexy.Api
+```
+
+All four settings are required when `Provider` is `Resend`; startup fails safely when the API key, sender email, or display name is missing or invalid. User-secrets are loaded only for Development and are not committed to the repository. Environment variables with the names shown in the production example are an equivalent option.
+
+To switch back to the checked-in Development default, remove the provider override:
+
+```bash
+dotnet user-secrets remove "Authentication:EmailSender:Provider" --project src/Beeexy.Api
+```
+
+Integration tests explicitly select the deterministic in-memory sender and do not call Resend. No public endpoint exposes captured OTPs. Production startup continues to reject the in-memory provider.
 
 ## Other production secrets
 

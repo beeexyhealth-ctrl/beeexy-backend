@@ -32,6 +32,70 @@ public sealed class StartupValidationTests(PostgreSqlContainerFixture postgres)
     }
 
     [Fact]
+    public void Development_WithInMemoryEmailSender_ResolvesInMemorySender()
+    {
+        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        using var client = factory.CreateApiClient();
+
+        var concreteSender = factory.Services
+            .GetRequiredService<InMemoryAuthenticationEmailSender>();
+
+        Assert.Same(
+            concreteSender,
+            factory.Services.GetRequiredService<IAuthenticationEmailSender>());
+    }
+
+    [Fact]
+    public void Development_WithValidResendEmailSender_ResolvesResendSender()
+    {
+        using var factory = new BeeexyApiFactory(
+            postgres.ConnectionString,
+            configurationOverrides: new Dictionary<string, string?>
+            {
+                ["Authentication:EmailSender:Provider"] = "Resend"
+            });
+        using var client = factory.CreateApiClient();
+
+        Assert.Null(factory.Services.GetService<InMemoryAuthenticationEmailSender>());
+        Assert.Equal(
+            "ResendAuthenticationEmailSender",
+            factory.Services.GetRequiredService<IAuthenticationEmailSender>().GetType().Name);
+    }
+
+    [Fact]
+    public void Development_WithMissingResendConfiguration_FailsFast()
+    {
+        using var factory = new BeeexyApiFactory(
+            postgres.ConnectionString,
+            configurationOverrides: new Dictionary<string, string?>
+            {
+                ["Authentication:EmailSender:Provider"] = "Resend",
+                ["Authentication:EmailSender:Resend:ApiKey"] = ""
+            });
+
+        var exception = Assert.ThrowsAny<Exception>(() => factory.CreateApiClient());
+
+        Assert.Contains("Authentication:EmailSender:Resend", exception.ToString());
+    }
+
+    [Fact]
+    public void TestEnvironment_ResolvesDeterministicInMemorySender()
+    {
+        using var factory = new BeeexyApiFactory(
+            postgres.ConnectionString,
+            "Test");
+        using var client = factory.CreateApiClient();
+
+        var concreteSender = factory.Services
+            .GetRequiredService<InMemoryAuthenticationEmailSender>();
+
+        Assert.Same(
+            concreteSender,
+            factory.Services.GetRequiredService<IAuthenticationEmailSender>());
+        Assert.Empty(concreteSender.Messages);
+    }
+
+    [Fact]
     public void Production_DoesNotRegisterInMemoryAuthenticationEmailSender()
     {
         using var factory = new BeeexyApiFactory(
