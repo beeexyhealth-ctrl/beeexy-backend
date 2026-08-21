@@ -18,6 +18,8 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
 
     public DbSet<PatientProfile> PatientProfiles => Set<PatientProfile>();
 
+    public DbSet<CareRelationship> CareRelationships => Set<CareRelationship>();
+
     public DbSet<UserPreference> UserPreferences => Set<UserPreference>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

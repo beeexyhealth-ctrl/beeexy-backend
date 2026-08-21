@@ -43,7 +43,9 @@ internal sealed class BeeexyApiFactory : WebApplicationFactory<Program>
             ["Authentication:EmailSender:Resend:ApiKey"] =
                 "re_integration_test_key_that_is_not_a_real_secret",
             ["Authentication:EmailSender:Resend:SenderEmail"] = "auth@beeexy.test",
-            ["Authentication:EmailSender:Resend:SenderDisplayName"] = "Beeexy"
+            ["Authentication:EmailSender:Resend:SenderDisplayName"] = "Beeexy",
+            ["Authentication:Google:Enabled"] = "false",
+            ["Authentication:Google:ClientId"] = ""
         };
         if (configurationOverrides is not null)
         {
@@ -72,12 +74,12 @@ internal sealed class BeeexyApiFactory : WebApplicationFactory<Program>
                 setting.Key.Replace(":", "__", StringComparison.Ordinal)),
             StringComparer.OrdinalIgnoreCase);
 
-        Environment.SetEnvironmentVariable(connectionStringVariable, _connectionString);
+        SetEnvironmentOverride(connectionStringVariable, _connectionString);
         Environment.SetEnvironmentVariable(corsOriginVariable, _allowedCorsOrigin);
         Environment.SetEnvironmentVariable(environmentVariable, _environment);
         foreach (var (key, value) in _configurationOverrides)
         {
-            Environment.SetEnvironmentVariable(
+            SetEnvironmentOverride(
                 key.Replace(":", "__", StringComparison.Ordinal),
                 value);
         }
@@ -100,6 +102,13 @@ internal sealed class BeeexyApiFactory : WebApplicationFactory<Program>
                 Environment.SetEnvironmentVariable(key, value);
             }
         }
+    }
+
+    private static void SetEnvironmentOverride(string variable, string? value)
+    {
+        // Setting an environment variable to an empty string removes it on Linux,
+        // which would let a lower-priority appsettings value mask an invalid test value.
+        Environment.SetEnvironmentVariable(variable, value == string.Empty ? " " : value);
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)

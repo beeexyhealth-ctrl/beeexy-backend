@@ -9,7 +9,7 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class ForeignKeySchemaTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
-    public async Task Phase21ForeignKeys_ExistAndUseRestrictedDeleteBehavior()
+    public async Task PersistenceForeignKeys_ExistAndUseRestrictedDeleteBehavior()
     {
         var options = new DbContextOptionsBuilder<BeeexyDbContext>()
             .UseNpgsql(postgres.ConnectionString)
@@ -42,6 +42,10 @@ public sealed class ForeignKeySchemaTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(
             [
+                "fk_care_relationships_accounts_created_by_account_id",
+                "fk_care_relationships_accounts_revoked_by_account_id",
+                "fk_care_relationships_patient_profiles_manager_profile_id",
+                "fk_care_relationships_patient_profiles_subject_profile_id",
                 "fk_external_identities_accounts_account_id",
                 "fk_patient_profiles_accounts_account_id",
                 "fk_refresh_sessions_accounts_account_id",

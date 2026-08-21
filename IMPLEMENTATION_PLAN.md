@@ -280,6 +280,8 @@ Patient demographics are internal source data only. Exact required fields and la
 # Phase 3 — My Circle and Managed Patient Profiles
 
 **Priority:** CONDITIONAL MVP
+**Phase 3.1 status:** COMPLETE (2026-08-20)
+**Phase 3.1 verification:** Debug build completed with 0 warnings and 0 errors; 276 tests passed (161 unit, 115 integration, 0 failed/skipped); the dedicated `Phase31CareRelationshipFoundation` migration applied on PostgreSQL 16, rolled back/reapplied successfully, and EF reported no pending model changes. No Phase 3 API endpoint, application use case, FHIR mapping, or authorization behavior was introduced.
 
 ## 1. Objective
 
