@@ -226,7 +226,7 @@ public sealed class PatientAccessAuthorizationTests(PostgreSqlContainerFixture p
     }
 
     [Fact]
-    public async Task OpenApi_KeepsAuthorizationInternalAndAddsOnlyPhase35PatientGet()
+    public async Task OpenApi_KeepsAuthorizationInternalWithPatientGetAndPatch()
     {
         await EnsureMigratedAsync();
         using var factory = new BeeexyApiFactory(postgres.ConnectionString);
@@ -241,7 +241,7 @@ public sealed class PatientAccessAuthorizationTests(PostgreSqlContainerFixture p
         Assert.False(paths.TryGetProperty("/api/v1/patient-access", out _));
         var patientDetail = paths.GetProperty("/api/v1/patients/{patientId}");
         Assert.True(patientDetail.TryGetProperty("get", out _));
-        Assert.False(patientDetail.TryGetProperty("patch", out _));
+        Assert.True(patientDetail.TryGetProperty("patch", out _));
         Assert.False(paths.TryGetProperty("/api/v1/care-relationships/{id}", out _));
     }
 

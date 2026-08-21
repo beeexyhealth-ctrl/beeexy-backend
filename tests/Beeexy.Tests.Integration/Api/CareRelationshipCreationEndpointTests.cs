@@ -319,7 +319,7 @@ public sealed class CareRelationshipCreationEndpointTests(PostgreSqlContainerFix
         Assert.False(paths.TryGetProperty("/api/v1/care-relationships/{id}", out _));
         var patientDetail = paths.GetProperty("/api/v1/patients/{patientId}");
         Assert.True(patientDetail.TryGetProperty("get", out _));
-        Assert.False(patientDetail.TryGetProperty("patch", out _));
+        Assert.True(patientDetail.TryGetProperty("patch", out _));
     }
 
     private async Task<AuthenticatedContext> CreateAuthenticatedContextAsync()

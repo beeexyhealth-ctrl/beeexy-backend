@@ -52,6 +52,22 @@ internal static class PatientEndpointExtensions
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         endpoints.MapPatch(
+                "/api/v1/patients/{patientId:guid}",
+                UpdateManagedPatientAsync)
+            .WithName("UpdateManagedPatient")
+            .WithTags("Patients")
+            .WithDescription(
+                "Authorizes a patient-profile update. No PatientProfile fields are currently " +
+                "approved as mutable, so authorized requests return 422 without changing data.")
+            .RequireAuthorization()
+            .Accepts<UpdateManagedPatientRequest>("application/json")
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        endpoints.MapPatch(
                 "/api/v1/patients/me",
                 UpdatePrimaryProfileAsync)
             .WithName("UpdatePrimaryProfile")
@@ -125,6 +141,25 @@ internal static class PatientEndpointExtensions
         return Results.Ok(ToResponse(result));
     }
 
+    private static async Task<IResult> UpdateManagedPatientAsync(
+        Guid patientId,
+        UpdateManagedPatientRequest request,
+        UpdateManagedPatient useCase,
+        CancellationToken cancellationToken)
+    {
+        if (patientId == Guid.Empty)
+        {
+            throw new PatientProfileNotFoundException();
+        }
+
+        await useCase.ExecuteAsync(
+            EntityId.From(patientId),
+            new UpdateManagedPatientCommand(
+                request.RequestedFields?.Keys.ToArray() ?? []),
+            cancellationToken);
+        return Results.NoContent();
+    }
+
     private static PrimaryProfileResponse ToResponse(PrimaryProfileResult result)
     {
         return new PrimaryProfileResponse(
@@ -164,6 +199,12 @@ internal sealed record AccessiblePatientRelationshipResponse(
     string Type);
 
 internal sealed record PatientProfileResponse(Guid ProfileId, string BeeexyId);
+
+internal sealed class UpdateManagedPatientRequest
+{
+    [JsonExtensionData]
+    public IDictionary<string, JsonElement>? RequestedFields { get; init; }
+}
 
 internal sealed record UpdatePrimaryProfileRequest(string? Timezone, long Version)
 {

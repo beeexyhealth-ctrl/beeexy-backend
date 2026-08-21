@@ -352,7 +352,7 @@ public sealed class MyCircleListingEndpointTests(PostgreSqlContainerFixture post
     }
 
     [Fact]
-    public async Task OpenApi_DocumentsListingsAndPatientDetailWithoutFutureMutations()
+    public async Task OpenApi_DocumentsListingsAndPatientOperationsWithoutRevocation()
     {
         await EnsureMigratedAsync();
         using var factory = new BeeexyApiFactory(postgres.ConnectionString);
@@ -371,7 +371,7 @@ public sealed class MyCircleListingEndpointTests(PostgreSqlContainerFixture post
         AssertOperation(relationshipsGet);
         var patientDetail = paths.GetProperty("/api/v1/patients/{patientId}");
         Assert.True(patientDetail.TryGetProperty("get", out _));
-        Assert.False(patientDetail.TryGetProperty("patch", out _));
+        Assert.True(patientDetail.TryGetProperty("patch", out _));
         Assert.False(paths.TryGetProperty("/api/v1/care-relationships/{id}", out _));
     }
 

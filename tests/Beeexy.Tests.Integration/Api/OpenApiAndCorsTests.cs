@@ -65,9 +65,9 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var accessiblePatientsOperation = paths
             .GetProperty("/api/v1/patients")
             .GetProperty("get");
-        var patientDetailOperation = paths
-            .GetProperty("/api/v1/patients/{patientId}")
-            .GetProperty("get");
+        var patientDetailPath = paths.GetProperty("/api/v1/patients/{patientId}");
+        var patientDetailOperation = patientDetailPath.GetProperty("get");
+        var managedPatientPatchOperation = patientDetailPath.GetProperty("patch");
         var careRelationshipPath = paths.GetProperty("/api/v1/care-relationships");
         var careRelationshipListOperation = careRelationshipPath.GetProperty("get");
         Assert.True(careRelationshipPath.TryGetProperty("post", out _));
@@ -81,6 +81,13 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         AssertResponseCodes(patientGetOperation, "200", "401", "404", "500");
         AssertResponseCodes(accessiblePatientsOperation, "200", "401", "500");
         AssertResponseCodes(patientDetailOperation, "200", "401", "404", "500");
+        AssertResponseCodes(
+            managedPatientPatchOperation,
+            "400",
+            "401",
+            "404",
+            "422",
+            "500");
         AssertResponseCodes(careRelationshipListOperation, "200", "401", "500");
         AssertResponseCodes(
             patientPatchOperation,
@@ -98,7 +105,8 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
                      verifyOperation,
                      googleOperation,
                      refreshOperation,
-                     patientPatchOperation
+                     patientPatchOperation,
+                     managedPatientPatchOperation
                  })
         {
             Assert.True(operation.TryGetProperty("requestBody", out _));
@@ -111,6 +119,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
                      patientPatchOperation,
                      accessiblePatientsOperation,
                      patientDetailOperation,
+                     managedPatientPatchOperation,
                      careRelationshipListOperation
                  })
         {

@@ -278,7 +278,7 @@ public sealed class PatientProfileReadEndpointTests(PostgreSqlContainerFixture p
     }
 
     [Fact]
-    public async Task OpenApi_DocumentsOnlyPatientDetailGetWithUuidAndConcealedNotFound()
+    public async Task OpenApi_RetainsPatientDetailGetWithUuidAndConcealedNotFound()
     {
         await EnsureMigratedAsync();
         using var factory = new BeeexyApiFactory(postgres.ConnectionString);
@@ -293,7 +293,7 @@ public sealed class PatientProfileReadEndpointTests(PostgreSqlContainerFixture p
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(12, paths.EnumerateObject().Count());
-        Assert.False(detailPath.TryGetProperty("patch", out _));
+        Assert.True(detailPath.TryGetProperty("patch", out _));
         Assert.Equal("patientId", parameter.GetProperty("name").GetString());
         Assert.Equal("path", parameter.GetProperty("in").GetString());
         Assert.Equal("string", parameter.GetProperty("schema").GetProperty("type").GetString());
