@@ -9,7 +9,7 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
-    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase36()
+    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase41()
     {
         var options = new DbContextOptionsBuilder<BeeexyDbContext>()
             .UseNpgsql(postgres.ConnectionString)
@@ -29,7 +29,8 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                     "20260820015208_Phase24RefreshSessionRotation",
                     "20260820053544_Phase26ProfileOptimisticConcurrency",
                     "20260821015511_Phase31CareRelationshipFoundation",
-                    "20260821065021_Phase36ApprovedPatientDemographics"
+                    "20260821065021_Phase36ApprovedPatientDemographics",
+                    "20260821203135_Phase41PreTriagePersistenceFoundation"
                 ],
                 appliedMigrations);
             Assert.Empty(pendingMigrations);
@@ -61,7 +62,16 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                 "patients.care_relationships",
                 "patients.patient_profiles",
                 "patients.user_preferences",
-                "public.__EFMigrationsHistory"
+                "public.__EFMigrationsHistory",
+                "triage.answers",
+                "triage.clinical_assessments",
+                "triage.clinical_findings",
+                "triage.clinical_rule_set_versions",
+                "triage.pre_triage_episodes",
+                "triage.pre_triage_sessions",
+                "triage.questionnaire_versions",
+                "triage.questions",
+                "triage.reported_symptoms"
             ],
             tables);
     }

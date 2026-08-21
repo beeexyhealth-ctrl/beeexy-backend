@@ -30,7 +30,7 @@ public sealed class ForeignKeySchemaTests(PostgreSqlContainerFixture postgres)
             "AND rc.constraint_schema = tc.constraint_schema " +
             "AND rc.constraint_name = tc.constraint_name " +
             "WHERE tc.constraint_type = 'FOREIGN KEY' " +
-            "AND tc.table_schema IN ('identity', 'patients') " +
+            "AND tc.table_schema IN ('identity', 'patients', 'triage') " +
             "ORDER BY tc.constraint_name;";
 
         var foreignKeys = new List<(string Name, string DeleteRule)>();
@@ -42,16 +42,41 @@ public sealed class ForeignKeySchemaTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(
             [
+                "fk_answers_pre_triage_episodes_episode_version",
+                "fk_answers_pre_triage_sessions_session_version",
+                "fk_answers_questions_question_version",
                 "fk_care_relationships_accounts_created_by_account_id",
                 "fk_care_relationships_accounts_revoked_by_account_id",
                 "fk_care_relationships_patient_profiles_manager_profile_id",
                 "fk_care_relationships_patient_profiles_subject_profile_id",
+                "fk_clinical_assessments_episodes_episode_rule_set_version",
+                "fk_clinical_assessments_rule_set_versions_version_id",
+                "fk_clinical_findings_clinical_assessments_assessment_id",
                 "fk_external_identities_accounts_account_id",
                 "fk_patient_profiles_accounts_account_id",
+                "fk_pre_triage_episodes_patient_profiles_patient_profile_id",
+                "fk_pre_triage_episodes_questionnaire_versions_version_id",
+                "fk_pre_triage_episodes_rule_set_versions_version_id",
+                "fk_pre_triage_episodes_sessions_source_session_version",
+                "fk_pre_triage_sessions_patient_profiles_patient_profile_id",
+                "fk_pre_triage_sessions_questionnaire_versions_version_id",
+                "fk_questions_questionnaire_versions_questionnaire_version_id",
                 "fk_refresh_sessions_accounts_account_id",
+                "fk_reported_symptoms_pre_triage_episodes_episode_id",
+                "fk_reported_symptoms_pre_triage_sessions_session_id",
                 "fk_user_preferences_accounts_account_id"
             ],
             foreignKeys.Select(foreignKey => foreignKey.Name));
-        Assert.All(foreignKeys, foreignKey => Assert.Equal("RESTRICT", foreignKey.DeleteRule));
+        Assert.Equal(
+            [
+                "fk_answers_pre_triage_sessions_session_version",
+                "fk_reported_symptoms_pre_triage_sessions_session_id"
+            ],
+            foreignKeys
+                .Where(foreignKey => foreignKey.DeleteRule == "CASCADE")
+                .Select(foreignKey => foreignKey.Name));
+        Assert.All(
+            foreignKeys.Where(foreignKey => foreignKey.DeleteRule != "CASCADE"),
+            foreignKey => Assert.Equal("RESTRICT", foreignKey.DeleteRule));
     }
 }

@@ -11,6 +11,35 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
+    public async Task Phase41Migration_CanRollbackAndReapply()
+    {
+        await EnsureMigratedAsync();
+        var options = CreateOptions();
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            await dbContext.GetService<IMigrator>()
+                .MigrateAsync("20260821065021_Phase36ApprovedPatientDemographics");
+        }
+
+        await using (var connection = new NpgsqlConnection(postgres.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText =
+                "SELECT count(*) FROM information_schema.tables " +
+                "WHERE table_schema = 'triage';";
+            Assert.Equal(0L, (long)(await command.ExecuteScalarAsync())!);
+        }
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            await dbContext.Database.MigrateAsync();
+            Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+        }
+    }
+
+    [Fact]
     public async Task Phase36Migration_PreservesLegacyProfileAndCanRollbackAndReapply()
     {
         await EnsureMigratedAsync();
