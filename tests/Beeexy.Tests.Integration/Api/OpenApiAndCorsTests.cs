@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(10, paths.EnumerateObject().Count());
+        Assert.Equal(11, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
@@ -62,9 +62,12 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var patientMePath = paths.GetProperty("/api/v1/patients/me");
         var patientGetOperation = patientMePath.GetProperty("get");
         var patientPatchOperation = patientMePath.GetProperty("patch");
-        Assert.True(paths
-            .GetProperty("/api/v1/care-relationships")
-            .TryGetProperty("post", out _));
+        var accessiblePatientsOperation = paths
+            .GetProperty("/api/v1/patients")
+            .GetProperty("get");
+        var careRelationshipPath = paths.GetProperty("/api/v1/care-relationships");
+        var careRelationshipListOperation = careRelationshipPath.GetProperty("get");
+        Assert.True(careRelationshipPath.TryGetProperty("post", out _));
 
         AssertResponseCodes(challengeOperation, "202", "400", "422", "429", "500");
         AssertResponseCodes(verifyOperation, "200", "400", "401", "409", "422", "429", "500");
@@ -73,6 +76,8 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         AssertResponseCodes(logoutOperation, "204", "401", "500");
         AssertResponseCodes(accountMeOperation, "200", "401", "500");
         AssertResponseCodes(patientGetOperation, "200", "401", "404", "500");
+        AssertResponseCodes(accessiblePatientsOperation, "200", "401", "500");
+        AssertResponseCodes(careRelationshipListOperation, "200", "401", "500");
         AssertResponseCodes(
             patientPatchOperation,
             "200",
@@ -99,7 +104,9 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
                  {
                      accountMeOperation,
                      patientGetOperation,
-                     patientPatchOperation
+                     patientPatchOperation,
+                     accessiblePatientsOperation,
+                     careRelationshipListOperation
                  })
         {
             var security = operation.GetProperty("security");

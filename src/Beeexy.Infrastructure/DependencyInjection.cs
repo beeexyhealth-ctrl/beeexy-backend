@@ -51,6 +51,8 @@ public static class DependencyInjection
         services.AddSingleton<IAccountProfileAuditLogger, AccountProfileAuditLogger>();
         services.AddScoped<IManagedPatientCreationRepository, ManagedPatientCreationRepository>();
         services.AddSingleton<ICareRelationshipAuditLogger, CareRelationshipAuditLogger>();
+        services.AddScoped<IMyCircleReadRepository, MyCircleReadRepository>();
+        services.AddSingleton<IMyCircleAuditLogger, MyCircleAuditLogger>();
 
         services.AddSingleton(googleOptions);
         if (googleOptions.Enabled)

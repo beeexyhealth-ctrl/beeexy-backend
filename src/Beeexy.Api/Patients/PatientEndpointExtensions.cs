@@ -11,6 +11,19 @@ internal static class PatientEndpointExtensions
         this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet(
+                "/api/v1/patients",
+                ListAccessiblePatientsAsync)
+            .WithName("ListAccessiblePatients")
+            .WithTags("Patients")
+            .WithDescription(
+                "Returns the authenticated account's primary patient first, followed by " +
+                "actively managed patients ordered by relationship creation time and ID.")
+            .RequireAuthorization()
+            .Produces<AccessiblePatientsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        endpoints.MapGet(
                 "/api/v1/patients/me",
                 GetPrimaryProfileAsync)
             .WithName("GetPrimaryProfile")
@@ -42,6 +55,15 @@ internal static class PatientEndpointExtensions
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         return endpoints;
+    }
+
+    private static async Task<IResult> ListAccessiblePatientsAsync(
+        ListAccessiblePatients useCase,
+        CancellationToken cancellationToken)
+    {
+        var result = await useCase.ExecuteAsync(cancellationToken);
+        return Results.Ok(new AccessiblePatientsResponse(
+            result.Patients.Select(ToResponse).ToArray()));
     }
 
     private static async Task<IResult> GetPrimaryProfileAsync(
@@ -78,7 +100,35 @@ internal static class PatientEndpointExtensions
             new PrimaryProfilePreferencesResponse(result.Timezone),
             result.Version);
     }
+
+    private static AccessiblePatientResponse ToResponse(AccessiblePatientSummary patient)
+    {
+        var relationship = patient.Relationship is null
+            ? null
+            : new AccessiblePatientRelationshipResponse(
+                patient.Relationship.RelationshipId.Value,
+                patient.Relationship.RelationshipType.ToString());
+
+        return new AccessiblePatientResponse(
+            patient.ProfileId.Value,
+            patient.BeeexyId,
+            patient.AccessType.ToString(),
+            relationship);
+    }
 }
+
+internal sealed record AccessiblePatientsResponse(
+    IReadOnlyList<AccessiblePatientResponse> Patients);
+
+internal sealed record AccessiblePatientResponse(
+    Guid ProfileId,
+    string BeeexyId,
+    string AccessType,
+    AccessiblePatientRelationshipResponse? Relationship);
+
+internal sealed record AccessiblePatientRelationshipResponse(
+    Guid RelationshipId,
+    string Type);
 
 internal sealed record UpdatePrimaryProfileRequest(string? Timezone, long Version)
 {

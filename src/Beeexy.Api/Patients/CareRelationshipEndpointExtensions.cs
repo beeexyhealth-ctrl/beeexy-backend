@@ -10,6 +10,19 @@ internal static class CareRelationshipEndpointExtensions
     public static IEndpointRouteBuilder MapBeeexyCareRelationshipEndpoints(
         this IEndpointRouteBuilder endpoints)
     {
+        endpoints.MapGet(
+                "/api/v1/care-relationships",
+                ListCareRelationshipsAsync)
+            .WithName("ListCareRelationships")
+            .WithTags("Care Relationships")
+            .WithDescription(
+                "Returns Active and Revoked relationship history where the authenticated " +
+                "account's primary patient is the manager, ordered by creation time and ID.")
+            .RequireAuthorization()
+            .Produces<CareRelationshipsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
         endpoints.MapPost(
                 "/api/v1/care-relationships",
                 CreateManagedPatientAsync)
@@ -28,6 +41,27 @@ internal static class CareRelationshipEndpointExtensions
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         return endpoints;
+    }
+
+    private static async Task<IResult> ListCareRelationshipsAsync(
+        ListCareRelationships useCase,
+        CancellationToken cancellationToken)
+    {
+        var result = await useCase.ExecuteAsync(cancellationToken);
+        return Results.Ok(new CareRelationshipsResponse(
+            result.Relationships
+                .Select(relationship => new CareRelationshipResponse(
+                    relationship.RelationshipId.Value,
+                    new CareRelationshipSubjectResponse(
+                        relationship.SubjectProfileId.Value,
+                        relationship.SubjectBeeexyId),
+                    relationship.RelationshipType.ToString(),
+                    relationship.Status.ToString(),
+                    relationship.AttestationVersion,
+                    relationship.AttestedAt,
+                    relationship.CreatedAt,
+                    relationship.RevokedAt))
+                .ToArray()));
     }
 
     private static async Task<IResult> CreateManagedPatientAsync(
@@ -65,6 +99,21 @@ internal static class CareRelationshipEndpointExtensions
             response);
     }
 }
+
+internal sealed record CareRelationshipsResponse(
+    IReadOnlyList<CareRelationshipResponse> Relationships);
+
+internal sealed record CareRelationshipResponse(
+    Guid Id,
+    CareRelationshipSubjectResponse Subject,
+    string Type,
+    string Status,
+    string AttestationVersion,
+    DateTimeOffset AttestedAt,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? RevokedAt);
+
+internal sealed record CareRelationshipSubjectResponse(Guid ProfileId, string BeeexyId);
 
 internal sealed record CreateManagedPatientRequest(
     string? RelationshipType,
