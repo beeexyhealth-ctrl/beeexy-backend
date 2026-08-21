@@ -19,4 +19,22 @@ public sealed class MyCircleAuditLogger(
             managerProfileId.Value,
             subjectProfileId.Value);
     }
+
+    public void PatientAccessDenied(
+        EntityId accountId,
+        EntityId managerProfileId,
+        EntityId targetProfileId,
+        PatientAccessDenialCategory category,
+        DateTimeOffset occurredAt)
+    {
+        logger.LogWarning(
+            "Patient management access denied for account {AccountId}, manager profile " +
+            "{ManagerProfileId}, target profile {TargetProfileId}, category {DenialCategory}, " +
+            "at {OccurredAt}.",
+            accountId.Value,
+            managerProfileId.Value,
+            targetProfileId.Value,
+            category,
+            occurredAt);
+    }
 }

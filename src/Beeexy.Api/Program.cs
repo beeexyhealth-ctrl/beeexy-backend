@@ -59,6 +59,7 @@ builder.Services.AddScoped<UpdatePrimaryProfile>();
 builder.Services.AddScoped<CreateManagedPatient>();
 builder.Services.AddScoped<ListAccessiblePatients>();
 builder.Services.AddScoped<ListCareRelationships>();
+builder.Services.AddScoped<AuthorizePatientAccess>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentSessionIdentity, HttpCurrentSessionIdentity>();
 builder.Services

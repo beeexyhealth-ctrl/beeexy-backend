@@ -167,10 +167,19 @@ internal sealed class MyCircleListingTestFixture
     {
         public List<EntityId> DuplicateSubjectIds { get; } = [];
 
+        public List<PatientAccessDenialCategory> DenialCategories { get; } = [];
+
         public void DuplicateAccessiblePatientDetected(
             EntityId accountId,
             EntityId managerProfileId,
             EntityId subjectProfileId) => DuplicateSubjectIds.Add(subjectProfileId);
+
+        public void PatientAccessDenied(
+            EntityId accountId,
+            EntityId managerProfileId,
+            EntityId targetProfileId,
+            PatientAccessDenialCategory category,
+            DateTimeOffset occurredAt) => DenialCategories.Add(category);
     }
 
     private sealed class FakeCurrentSessionIdentity(EntityId accountId)
