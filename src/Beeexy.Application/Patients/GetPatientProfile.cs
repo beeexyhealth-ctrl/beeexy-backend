@@ -27,6 +27,12 @@ public sealed class GetPatientProfile(
         return new GetPatientProfileResult(
             profile.ProfileId,
             profile.BeeexyId,
+            profile.FirstName,
+            profile.LastName,
+            profile.DateOfBirth,
+            profile.SexAssignedAtBirth,
+            profile.State,
+            profile.Version,
             authorization.Reason);
     }
 }
@@ -34,4 +40,10 @@ public sealed class GetPatientProfile(
 public sealed record GetPatientProfileResult(
     EntityId ProfileId,
     string BeeexyId,
+    string? FirstName,
+    string? LastName,
+    DateOnly? DateOfBirth,
+    Beeexy.Domain.Patients.SexAssignedAtBirth? SexAssignedAtBirth,
+    string? State,
+    long Version,
     PatientAccessReason AuthorizationReason);

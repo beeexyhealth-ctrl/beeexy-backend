@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Beeexy.Application.Common;
@@ -30,7 +31,8 @@ internal static class PatientEndpointExtensions
             .WithName("GetPrimaryProfile")
             .WithTags("Patients")
             .WithDescription(
-                "Returns the authenticated account's owned primary profile and current version.")
+                "Returns the authenticated account's owned primary profile, approved demographics, " +
+                "PatientProfile version, timezone preference, and preference version.")
             .RequireAuthorization()
             .Produces<PrimaryProfileResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -57,13 +59,15 @@ internal static class PatientEndpointExtensions
             .WithName("UpdateManagedPatient")
             .WithTags("Patients")
             .WithDescription(
-                "Authorizes a patient-profile update. No PatientProfile fields are currently " +
-                "approved as mutable, so authorized requests return 422 without changing data.")
+                "Partially updates approved patient demographics after Primary or Managed access " +
+                "authorization. A stale PatientProfile version returns 409.")
             .RequireAuthorization()
             .Accepts<UpdateManagedPatientRequest>("application/json")
+            .Produces<PatientProfileResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
@@ -120,7 +124,13 @@ internal static class PatientEndpointExtensions
             cancellationToken);
         return Results.Ok(new PatientProfileResponse(
             result.ProfileId.Value,
-            result.BeeexyId));
+            result.BeeexyId,
+            result.FirstName,
+            result.LastName,
+            result.DateOfBirth,
+            result.SexAssignedAtBirth?.ToString(),
+            result.State,
+            result.Version));
     }
 
     private static async Task<IResult> UpdatePrimaryProfileAsync(
@@ -152,12 +162,28 @@ internal static class PatientEndpointExtensions
             throw new PatientProfileNotFoundException();
         }
 
-        await useCase.ExecuteAsync(
+        var result = await useCase.ExecuteAsync(
             EntityId.From(patientId),
             new UpdateManagedPatientCommand(
-                request.RequestedFields?.Keys.ToArray() ?? []),
+                request.Version,
+                new PatientPatchField<string>(request.FirstNameSpecified, request.FirstName),
+                new PatientPatchField<string>(request.LastNameSpecified, request.LastName),
+                new PatientPatchField<string>(request.DateOfBirthSpecified, request.DateOfBirth),
+                new PatientPatchField<string>(
+                    request.SexAssignedAtBirthSpecified,
+                    request.SexAssignedAtBirth),
+                new PatientPatchField<string>(request.StateSpecified, request.State),
+                request.UnsupportedFields?.Keys.ToArray() ?? []),
             cancellationToken);
-        return Results.NoContent();
+        return Results.Ok(new PatientProfileResponse(
+            result.ProfileId.Value,
+            result.BeeexyId,
+            result.FirstName,
+            result.LastName,
+            result.DateOfBirth,
+            result.SexAssignedAtBirth?.ToString(),
+            result.State,
+            result.Version));
     }
 
     private static PrimaryProfileResponse ToResponse(PrimaryProfileResult result)
@@ -165,6 +191,12 @@ internal static class PatientEndpointExtensions
         return new PrimaryProfileResponse(
             result.ProfileId.Value,
             result.BeeexyId,
+            result.FirstName,
+            result.LastName,
+            result.DateOfBirth,
+            result.SexAssignedAtBirth?.ToString(),
+            result.State,
+            result.ProfileVersion,
             new PrimaryProfilePreferencesResponse(result.Timezone),
             result.Version);
     }
@@ -180,6 +212,8 @@ internal static class PatientEndpointExtensions
         return new AccessiblePatientResponse(
             patient.ProfileId.Value,
             patient.BeeexyId,
+            patient.FirstName,
+            patient.LastName,
             patient.AccessType.ToString(),
             relationship);
     }
@@ -191,6 +225,8 @@ internal sealed record AccessiblePatientsResponse(
 internal sealed record AccessiblePatientResponse(
     Guid ProfileId,
     string BeeexyId,
+    string? FirstName,
+    string? LastName,
     string AccessType,
     AccessiblePatientRelationshipResponse? Relationship);
 
@@ -198,12 +234,107 @@ internal sealed record AccessiblePatientRelationshipResponse(
     Guid RelationshipId,
     string Type);
 
-internal sealed record PatientProfileResponse(Guid ProfileId, string BeeexyId);
+internal sealed record PatientProfileResponse(
+    Guid ProfileId,
+    string BeeexyId,
+    string? FirstName,
+    string? LastName,
+    [property: DataType(DataType.Date)] DateOnly? DateOfBirth,
+    [property: AllowedValues("Male", "Female")] string? SexAssignedAtBirth,
+    [property: RegularExpression(PatientApiValidationPatterns.UsState)] string? State,
+    long Version);
+
+internal static class PatientApiValidationPatterns
+{
+    public const string UsState =
+        "^(?i:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|" +
+        "MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|" +
+        "TN|TX|UT|VT|VA|WA|WV|WI|WY)$";
+}
 
 internal sealed class UpdateManagedPatientRequest
 {
+    private string? _firstName;
+    private string? _lastName;
+    private string? _dateOfBirth;
+    private string? _sexAssignedAtBirth;
+    private string? _state;
+
+    [Range(1, long.MaxValue)]
+    public long? Version { get; init; }
+
+    [StringLength(100, MinimumLength = 1)]
+    public string? FirstName
+    {
+        get => _firstName;
+        init
+        {
+            _firstName = value;
+            FirstNameSpecified = true;
+        }
+    }
+
+    [StringLength(100, MinimumLength = 1)]
+    public string? LastName
+    {
+        get => _lastName;
+        init
+        {
+            _lastName = value;
+            LastNameSpecified = true;
+        }
+    }
+
+    [DataType(DataType.Date)]
+    public string? DateOfBirth
+    {
+        get => _dateOfBirth;
+        init
+        {
+            _dateOfBirth = value;
+            DateOfBirthSpecified = true;
+        }
+    }
+
+    [AllowedValues("Male", "Female")]
+    public string? SexAssignedAtBirth
+    {
+        get => _sexAssignedAtBirth;
+        init
+        {
+            _sexAssignedAtBirth = value;
+            SexAssignedAtBirthSpecified = true;
+        }
+    }
+
+    [RegularExpression(PatientApiValidationPatterns.UsState)]
+    public string? State
+    {
+        get => _state;
+        init
+        {
+            _state = value;
+            StateSpecified = true;
+        }
+    }
+
+    [JsonIgnore]
+    public bool FirstNameSpecified { get; private set; }
+
+    [JsonIgnore]
+    public bool LastNameSpecified { get; private set; }
+
+    [JsonIgnore]
+    public bool DateOfBirthSpecified { get; private set; }
+
+    [JsonIgnore]
+    public bool SexAssignedAtBirthSpecified { get; private set; }
+
+    [JsonIgnore]
+    public bool StateSpecified { get; private set; }
+
     [JsonExtensionData]
-    public IDictionary<string, JsonElement>? RequestedFields { get; init; }
+    public IDictionary<string, JsonElement>? UnsupportedFields { get; init; }
 }
 
 internal sealed record UpdatePrimaryProfileRequest(string? Timezone, long Version)
@@ -215,6 +346,12 @@ internal sealed record UpdatePrimaryProfileRequest(string? Timezone, long Versio
 internal sealed record PrimaryProfileResponse(
     Guid ProfileId,
     string BeeexyId,
+    string? FirstName,
+    string? LastName,
+    [property: DataType(DataType.Date)] DateOnly? DateOfBirth,
+    [property: AllowedValues("Male", "Female")] string? SexAssignedAtBirth,
+    [property: RegularExpression(PatientApiValidationPatterns.UsState)] string? State,
+    long ProfileVersion,
     PrimaryProfilePreferencesResponse Preferences,
     long Version);
 

@@ -50,6 +50,9 @@ public static class DependencyInjection
         services.AddScoped<ICurrentAccountProfileRepository, CurrentAccountProfileRepository>();
         services.AddSingleton<IAccountProfileAuditLogger, AccountProfileAuditLogger>();
         services.AddScoped<IManagedPatientCreationRepository, ManagedPatientCreationRepository>();
+        services.AddScoped<
+            ICareRelationshipRevocationRepository,
+            CareRelationshipRevocationRepository>();
         services.AddSingleton<ICareRelationshipAuditLogger, CareRelationshipAuditLogger>();
         services.AddScoped<IMyCircleReadRepository, MyCircleReadRepository>();
         services.AddSingleton<IMyCircleAuditLogger, MyCircleAuditLogger>();
@@ -57,6 +60,8 @@ public static class DependencyInjection
             IPatientAccessAuthorizationRepository,
             PatientAccessAuthorizationRepository>();
         services.AddScoped<IPatientProfileReadRepository, PatientProfileReadRepository>();
+        services.AddScoped<IPatientProfileUpdateRepository, PatientProfileUpdateRepository>();
+        services.AddSingleton<IPatientProfileAuditLogger, PatientProfileAuditLogger>();
 
         services.AddSingleton(googleOptions);
         if (googleOptions.Enabled)

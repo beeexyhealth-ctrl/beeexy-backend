@@ -19,7 +19,7 @@ public sealed class ManagedPatientUpdateEndpointTests(PostgreSqlContainerFixture
     private const string RelationshipsEndpoint = "/api/v1/care-relationships";
 
     [Fact]
-    public async Task PrimaryTarget_IsAuthorizedBeforeConservativeNoFieldsValidation()
+    public async Task PrimaryTarget_CanUpdateDemographicsWithoutChangingPreference()
     {
         using var context = await CreateAuthenticatedContextAsync();
         var profileId = EntityId.From(context.Authentication.Account.ProfileId);
@@ -32,18 +32,20 @@ public sealed class ManagedPatientUpdateEndpointTests(PostgreSqlContainerFixture
 
         using var response = await context.Client.PatchAsJsonAsync(
             PatientEndpoint(profileId.Value),
-            new { });
-        var problem = await ReadProblemAsync(response);
+            new { firstName = "Maria", version = beforeProfile.Version });
+        var result = await response.Content.ReadFromJsonAsync<PatientResponse>();
 
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
-        Assert.Equal("patient.no_mutable_fields", problem.ErrorCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(result);
+        Assert.Equal("Maria", result.FirstName);
+        Assert.Equal(beforeProfile.Version + 1, result.Version);
         await using var afterContext = CreateDbContext();
         var afterProfile = await afterContext.PatientProfiles.AsNoTracking().SingleAsync(
             profile => profile.Id == profileId);
         var afterPreference = await afterContext.UserPreferences.AsNoTracking().SingleAsync(
             preference => preference.AccountId == accountId);
-        Assert.Equal(beforeProfile.BeeexyId, afterProfile.BeeexyId);
-        Assert.Equal(beforeProfile.UpdatedAt, afterProfile.UpdatedAt);
+        Assert.Equal("Maria", afterProfile.FirstName?.Value);
+        Assert.Equal(beforeProfile.Version + 1, afterProfile.Version);
         Assert.Equal(beforePreference.TimeZone, afterPreference.TimeZone);
         Assert.Equal(beforePreference.Version, afterPreference.Version);
     }
@@ -60,7 +62,7 @@ public sealed class ManagedPatientUpdateEndpointTests(PostgreSqlContainerFixture
 
         using var response = await context.Client.PatchAsJsonAsync(
             PatientEndpoint(seeded.Subject.Id.Value),
-            new { timezone = "America/Lima" });
+            new { timezone = "America/Lima", version = seeded.Subject.Version });
         var problem = await ReadProblemAsync(response);
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
@@ -74,6 +76,91 @@ public sealed class ManagedPatientUpdateEndpointTests(PostgreSqlContainerFixture
         Assert.Null(persistedSubject.UpdatedAt);
         Assert.Equal(preference.TimeZone, persistedPreference.TimeZone);
         Assert.Equal(preference.Version, persistedPreference.Version);
+    }
+
+    [Fact]
+    public async Task SameValuePatch_ReturnsCurrentVersionWithoutPersistenceChange()
+    {
+        using var context = await CreateAuthenticatedContextAsync();
+        var seeded = await SeedRelationshipAsync(context.Authentication);
+
+        using var response = await context.Client.PatchAsJsonAsync(
+            PatientEndpoint(seeded.Subject.Id.Value),
+            new { firstName = "Maria", version = 1 });
+        var result = await response.Content.ReadFromJsonAsync<PatientResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(result);
+        Assert.Equal(1, result.Version);
+        await using var dbContext = CreateDbContext();
+        var persisted = await dbContext.PatientProfiles.AsNoTracking().SingleAsync(
+            profile => profile.Id == seeded.Subject.Id);
+        Assert.Equal(1, persisted.Version);
+        Assert.Null(persisted.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task StalePatientVersion_ReturnsConflictWithoutOverwritingWinner()
+    {
+        using var context = await CreateAuthenticatedContextAsync();
+        var seeded = await SeedRelationshipAsync(context.Authentication);
+
+        using var accepted = await context.Client.PatchAsJsonAsync(
+            PatientEndpoint(seeded.Subject.Id.Value),
+            new { state = "CA", version = 1 });
+        using var stale = await context.Client.PatchAsJsonAsync(
+            PatientEndpoint(seeded.Subject.Id.Value),
+            new { state = "FL", version = 1 });
+
+        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+        await using var dbContext = CreateDbContext();
+        var persisted = await dbContext.PatientProfiles.AsNoTracking().SingleAsync(
+            profile => profile.Id == seeded.Subject.Id);
+        Assert.Equal("CA", persisted.State?.Code);
+        Assert.Equal(2, persisted.Version);
+    }
+
+    [Theory]
+    [InlineData("firstName", "", "patient.invalid_first_name")]
+    [InlineData("dateOfBirth", "2999-01-01", "patient.invalid_date_of_birth")]
+    [InlineData("sexAssignedAtBirth", "female", "patient.invalid_sex_assigned_at_birth")]
+    [InlineData("state", "XX", "patient.invalid_state")]
+    public async Task InvalidPatchDemographic_ReturnsUnprocessableEntity(
+        string field,
+        string value,
+        string expectedCode)
+    {
+        using var context = await CreateAuthenticatedContextAsync();
+        var seeded = await SeedRelationshipAsync(context.Authentication);
+        var patch = new Dictionary<string, object?>
+        {
+            ["version"] = 1,
+            [field] = value
+        };
+
+        using var response = await context.Client.PatchAsJsonAsync(
+            PatientEndpoint(seeded.Subject.Id.Value),
+            patch);
+        var problem = await ReadProblemAsync(response);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal(expectedCode, problem.ErrorCode);
+    }
+
+    [Fact]
+    public async Task MissingPatientVersion_ReturnsUnprocessableEntity()
+    {
+        using var context = await CreateAuthenticatedContextAsync();
+        var seeded = await SeedRelationshipAsync(context.Authentication);
+
+        using var response = await context.Client.PatchAsJsonAsync(
+            PatientEndpoint(seeded.Subject.Id.Value),
+            new { firstName = "Ana" });
+        var problem = await ReadProblemAsync(response);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("patient.invalid_version", problem.ErrorCode);
     }
 
     [Fact]
@@ -150,7 +237,7 @@ public sealed class ManagedPatientUpdateEndpointTests(PostgreSqlContainerFixture
     }
 
     [Fact]
-    public async Task MultipleManagers_AreIndependentlyAuthorizedAndRevocationRemovesOnlyOne()
+    public async Task ConcurrentManagers_ProduceOneWinnerThenRevocationRemovesOnlyOne()
     {
         await EnsureMigratedAsync();
         using var factory = new BeeexyApiFactory(postgres.ConnectionString);
@@ -171,12 +258,16 @@ public sealed class ManagedPatientUpdateEndpointTests(PostgreSqlContainerFixture
         }
 
         var attempts = await Task.WhenAll(
-            clientA.PatchAsJsonAsync(PatientEndpoint(subject.Id.Value), new { }),
-            clientB.PatchAsJsonAsync(PatientEndpoint(subject.Id.Value), new { }));
+            clientA.PatchAsJsonAsync(
+                PatientEndpoint(subject.Id.Value),
+                new { firstName = "Ana", version = 1 }),
+            clientB.PatchAsJsonAsync(
+                PatientEndpoint(subject.Id.Value),
+                new { firstName = "Elena", version = 1 }));
         try
         {
-            Assert.All(attempts, response =>
-                Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode));
+            Assert.Single(attempts, response => response.StatusCode == HttpStatusCode.OK);
+            Assert.Single(attempts, response => response.StatusCode == HttpStatusCode.Conflict);
         }
         finally
         {
@@ -196,12 +287,12 @@ public sealed class ManagedPatientUpdateEndpointTests(PostgreSqlContainerFixture
 
         using var aAfter = await clientA.PatchAsJsonAsync(
             PatientEndpoint(subject.Id.Value),
-            new { });
+            new { state = "CA", version = 2 });
         using var bAfter = await clientB.PatchAsJsonAsync(
             PatientEndpoint(subject.Id.Value),
-            new { });
+            new { state = "FL", version = 2 });
         Assert.Equal(HttpStatusCode.NotFound, aAfter.StatusCode);
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, bAfter.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, bAfter.StatusCode);
         await using var verification = CreateDbContext();
         Assert.True(await verification.PatientProfiles.AnyAsync(profile => profile.Id == subject.Id));
         Assert.Equal(
@@ -266,7 +357,7 @@ public sealed class ManagedPatientUpdateEndpointTests(PostgreSqlContainerFixture
     }
 
     [Fact]
-    public async Task Phase32CreateReadUpdateAttempt_PreservesCreatedManagedPatient()
+    public async Task Phase32CreateReadUpdate_PersistsAndReturnsNewVersion()
     {
         using var context = await CreateAuthenticatedContextAsync();
         using var creationResponse = await context.Client.PostAsJsonAsync(
@@ -275,7 +366,8 @@ public sealed class ManagedPatientUpdateEndpointTests(PostgreSqlContainerFixture
             {
                 relationshipType = "Child",
                 attestationVersion = "phase-3.6-create-update",
-                attestationAccepted = true
+                attestationAccepted = true,
+                patient = ValidPatientRequest()
             });
         var created = await creationResponse.Content.ReadFromJsonAsync<CreateResponse>();
         Assert.Equal(HttpStatusCode.Created, creationResponse.StatusCode);
@@ -286,16 +378,18 @@ public sealed class ManagedPatientUpdateEndpointTests(PostgreSqlContainerFixture
         var before = await beforeResponse.Content.ReadFromJsonAsync<PatientResponse>();
         using var patchResponse = await context.Client.PatchAsJsonAsync(
             PatientEndpoint(created.Patient.ProfileId),
-            new { name = "not-approved" });
+            new { firstName = "Maria Fernanda", state = "fl", version = before!.Version });
         using var afterResponse = await context.Client.GetAsync(
             PatientEndpoint(created.Patient.ProfileId));
         var after = await afterResponse.Content.ReadFromJsonAsync<PatientResponse>();
 
         Assert.Equal(HttpStatusCode.OK, beforeResponse.StatusCode);
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, patchResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, patchResponse.StatusCode);
         Assert.Equal(HttpStatusCode.OK, afterResponse.StatusCode);
-        Assert.Equal(before, after);
-        Assert.Equal(created.Patient, after);
+        Assert.NotNull(after);
+        Assert.Equal("Maria Fernanda", after.FirstName);
+        Assert.Equal("FL", after.State);
+        Assert.Equal(before.Version + 1, after.Version);
     }
 
     [Fact]
@@ -322,7 +416,7 @@ public sealed class ManagedPatientUpdateEndpointTests(PostgreSqlContainerFixture
     }
 
     [Fact]
-    public async Task OpenApi_AddsOnlyConservativePatientPatchOnExistingDetailPath()
+    public async Task OpenApi_DocumentsDemographicPatientPatchAndConcurrency()
     {
         await EnsureMigratedAsync();
         using var factory = new BeeexyApiFactory(postgres.ConnectionString);
@@ -335,22 +429,22 @@ public sealed class ManagedPatientUpdateEndpointTests(PostgreSqlContainerFixture
         var patch = detail.GetProperty("patch");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(12, paths.EnumerateObject().Count());
+        Assert.Equal(13, paths.EnumerateObject().Count());
         Assert.True(detail.TryGetProperty("get", out _));
         Assert.True(patch.TryGetProperty("requestBody", out _));
         Assert.Contains(
-            "No PatientProfile fields are currently approved as mutable",
+            "approved patient demographics",
             patch.GetProperty("description").GetString(),
             StringComparison.Ordinal);
-        foreach (var status in new[] { "400", "401", "404", "422", "500" })
+        foreach (var status in new[] { "200", "400", "401", "404", "409", "422", "500" })
         {
             Assert.True(patch.GetProperty("responses").TryGetProperty(status, out _));
         }
-        Assert.False(patch.GetProperty("responses").TryGetProperty("200", out _));
-        Assert.False(patch.GetProperty("responses").TryGetProperty("409", out _));
         var security = Assert.Single(patch.GetProperty("security").EnumerateArray());
         Assert.True(security.TryGetProperty("Bearer", out _));
-        Assert.False(paths.TryGetProperty("/api/v1/care-relationships/{id}", out _));
+        Assert.True(paths
+            .GetProperty("/api/v1/care-relationships/{id}")
+            .TryGetProperty("delete", out _));
     }
 
     [Fact]
@@ -428,9 +522,23 @@ public sealed class ManagedPatientUpdateEndpointTests(PostgreSqlContainerFixture
     }
 
     private static PatientProfile CreateManagedProfile(DateTimeOffset createdAt) =>
-        PatientProfile.Create(
+        PatientProfile.CreateManaged(
             BeeexyId.Create($"BXY-{Guid.NewGuid():N}".ToUpperInvariant()),
+            PatientName.Create("Maria"),
+            PatientName.Create("Arias"),
+            new DateOnly(2012, 5, 12),
+            SexAssignedAtBirth.Female,
+            UsState.Create("NY"),
             createdAt);
+
+    private static object ValidPatientRequest() => new
+    {
+        firstName = "Maria",
+        lastName = "Arias",
+        dateOfBirth = "2012-05-12",
+        sexAssignedAtBirth = "Female",
+        state = "NY"
+    };
 
     private static CareRelationship CreateRelationship(
         AuthenticationResult manager,
@@ -513,11 +621,20 @@ public sealed class ManagedPatientUpdateEndpointTests(PostgreSqlContainerFixture
         string? Detail,
         string? ErrorCode);
 
-    private sealed record PatientResponse(Guid ProfileId, string BeeexyId);
+    private sealed record PatientResponse(
+        Guid ProfileId,
+        string BeeexyId,
+        string? FirstName,
+        string? LastName,
+        DateOnly? DateOfBirth,
+        string? SexAssignedAtBirth,
+        string? State,
+        long Version);
 
     private sealed record PrimaryPatientResponse(
         Guid ProfileId,
         string BeeexyId,
+        long ProfileVersion,
         JsonElement Preferences,
         long Version);
 

@@ -20,6 +20,14 @@ public sealed class PatientProfileReadRepository(BeeexyDbContext dbContext)
 
         return profile is null
             ? null
-            : new PatientProfileReadRecord(profile.Id, profile.BeeexyId.Value);
+            : new PatientProfileReadRecord(
+                profile.Id,
+                profile.BeeexyId.Value,
+                profile.FirstName?.Value,
+                profile.LastName?.Value,
+                profile.DateOfBirth,
+                profile.SexAssignedAtBirth,
+                profile.State?.Code,
+                profile.Version);
     }
 }

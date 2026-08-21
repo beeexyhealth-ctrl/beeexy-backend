@@ -11,6 +11,58 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
+    public async Task Phase36Migration_PreservesLegacyProfileAndCanRollbackAndReapply()
+    {
+        await EnsureMigratedAsync();
+        var options = CreateOptions();
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            await dbContext.GetService<IMigrator>()
+                .MigrateAsync("20260821015511_Phase31CareRelationshipFoundation");
+        }
+
+        var profileId = Guid.NewGuid();
+        await using (var connection = new NpgsqlConnection(postgres.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var insert = connection.CreateCommand();
+            insert.CommandText =
+                "INSERT INTO patients.patient_profiles " +
+                "(id, account_id, beeexy_id, created_at, updated_at) " +
+                "VALUES (@id, NULL, @beeexyId, @createdAt, NULL);";
+            insert.Parameters.AddWithValue("id", profileId);
+            insert.Parameters.AddWithValue("beeexyId", $"BXY-{profileId:N}".ToUpperInvariant());
+            insert.Parameters.AddWithValue("createdAt", DateTimeOffset.UtcNow);
+            await insert.ExecuteNonQueryAsync();
+        }
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            await dbContext.Database.MigrateAsync();
+            Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+        }
+
+        await using (var connection = new NpgsqlConnection(postgres.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText =
+                "SELECT first_name, last_name, date_of_birth, " +
+                "sex_assigned_at_birth, state, version " +
+                "FROM patients.patient_profiles WHERE id = @id;";
+            command.Parameters.AddWithValue("id", profileId);
+            await using var reader = await command.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.True(reader.IsDBNull(0));
+            Assert.True(reader.IsDBNull(1));
+            Assert.True(reader.IsDBNull(2));
+            Assert.True(reader.IsDBNull(3));
+            Assert.True(reader.IsDBNull(4));
+            Assert.Equal(1L, reader.GetInt64(5));
+        }
+    }
+
+    [Fact]
     public async Task Phase21Migration_CreatesRequiredPartialIndexes()
     {
         await EnsureMigratedAsync();

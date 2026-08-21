@@ -21,6 +21,8 @@ public sealed class ListAccessiblePatients(
             new(
                 current.PrimaryProfile.Id,
                 current.PrimaryProfile.BeeexyId.Value,
+                current.PrimaryProfile.FirstName?.Value,
+                current.PrimaryProfile.LastName?.Value,
                 PatientAccessType.Primary,
                 null)
         };
@@ -43,6 +45,8 @@ public sealed class ListAccessiblePatients(
             patients.Add(new AccessiblePatientSummary(
                 managedPatient.ProfileId,
                 managedPatient.BeeexyId,
+                managedPatient.FirstName,
+                managedPatient.LastName,
                 PatientAccessType.Managed,
                 new AccessiblePatientRelationshipSummary(
                     managedPatient.RelationshipId,
@@ -65,6 +69,8 @@ public sealed record ListAccessiblePatientsResult(
 public sealed record AccessiblePatientSummary(
     EntityId ProfileId,
     string BeeexyId,
+    string? FirstName,
+    string? LastName,
     PatientAccessType AccessType,
     AccessiblePatientRelationshipSummary? Relationship);
 

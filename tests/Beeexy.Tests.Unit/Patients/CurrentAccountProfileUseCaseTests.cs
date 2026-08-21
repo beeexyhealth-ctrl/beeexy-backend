@@ -26,6 +26,12 @@ public sealed class CurrentAccountProfileUseCaseTests
         Assert.Equal(fixture.Profile.BeeexyId.Value, account.BeeexyId);
         Assert.Equal("Etc/UTC", account.Timezone);
         Assert.Equal(fixture.Profile.Id, profile.ProfileId);
+        Assert.Null(profile.FirstName);
+        Assert.Null(profile.LastName);
+        Assert.Null(profile.DateOfBirth);
+        Assert.Null(profile.SexAssignedAtBirth);
+        Assert.Null(profile.State);
+        Assert.Equal(1, profile.ProfileVersion);
         Assert.Equal("Etc/UTC", profile.Timezone);
         Assert.Equal(1, profile.Version);
     }

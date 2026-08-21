@@ -39,7 +39,14 @@ public sealed class PatientProfileReadEndpointTests(PostgreSqlContainerFixture p
         Assert.Equal(context.Authentication.Account.BeeexyId, detail.BeeexyId);
         Assert.Equal(me.ProfileId, detail.ProfileId);
         Assert.Equal(me.BeeexyId, detail.BeeexyId);
-        Assert.Equal(2, detailDocument.RootElement.EnumerateObject().Count());
+        Assert.Equal(8, detailDocument.RootElement.EnumerateObject().Count());
+        Assert.Null(detail.FirstName);
+        Assert.Null(detail.LastName);
+        Assert.Null(detail.DateOfBirth);
+        Assert.Null(detail.SexAssignedAtBirth);
+        Assert.Null(detail.State);
+        Assert.Equal(1, detail.Version);
+        Assert.Equal(detail.Version, me.ProfileVersion);
         Assert.False(detailDocument.RootElement.TryGetProperty("preferences", out _));
         Assert.False(detailDocument.RootElement.TryGetProperty("authorizationReason", out _));
     }
@@ -58,9 +65,14 @@ public sealed class PatientProfileReadEndpointTests(PostgreSqlContainerFixture p
         Assert.NotNull(patient);
         Assert.Equal(seeded.Subject.Id.Value, patient.ProfileId);
         Assert.Equal(seeded.Subject.BeeexyId.Value, patient.BeeexyId);
-        Assert.Equal(2, document.RootElement.EnumerateObject().Count());
+        Assert.Equal("Maria", patient.FirstName);
+        Assert.Equal("Arias", patient.LastName);
+        Assert.Equal(new DateOnly(2012, 5, 12), patient.DateOfBirth);
+        Assert.Equal("Female", patient.SexAssignedAtBirth);
+        Assert.Equal("NY", patient.State);
+        Assert.Equal(1, patient.Version);
+        Assert.Equal(8, document.RootElement.EnumerateObject().Count());
         Assert.False(document.RootElement.TryGetProperty("preferences", out _));
-        Assert.False(document.RootElement.TryGetProperty("version", out _));
     }
 
     [Fact]
@@ -237,7 +249,8 @@ public sealed class PatientProfileReadEndpointTests(PostgreSqlContainerFixture p
             {
                 relationshipType = "Child",
                 attestationVersion = "phase-3.5-create-read",
-                attestationAccepted = true
+                attestationAccepted = true,
+                patient = ValidPatientRequest()
             });
         var created = await creationResponse.Content.ReadFromJsonAsync<CreateResponse>();
         Assert.Equal(HttpStatusCode.Created, creationResponse.StatusCode);
@@ -292,7 +305,7 @@ public sealed class PatientProfileReadEndpointTests(PostgreSqlContainerFixture p
         var parameter = Assert.Single(operation.GetProperty("parameters").EnumerateArray());
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(12, paths.EnumerateObject().Count());
+        Assert.Equal(13, paths.EnumerateObject().Count());
         Assert.True(detailPath.TryGetProperty("patch", out _));
         Assert.Equal("patientId", parameter.GetProperty("name").GetString());
         Assert.Equal("path", parameter.GetProperty("in").GetString());
@@ -302,7 +315,9 @@ public sealed class PatientProfileReadEndpointTests(PostgreSqlContainerFixture p
         {
             Assert.True(operation.GetProperty("responses").TryGetProperty(status, out _));
         }
-        Assert.False(paths.TryGetProperty("/api/v1/care-relationships/{id}", out _));
+        Assert.True(paths
+            .GetProperty("/api/v1/care-relationships/{id}")
+            .TryGetProperty("delete", out _));
     }
 
     [Fact]
@@ -378,9 +393,23 @@ public sealed class PatientProfileReadEndpointTests(PostgreSqlContainerFixture p
     }
 
     private static PatientProfile CreateManagedProfile(DateTimeOffset createdAt) =>
-        PatientProfile.Create(
+        PatientProfile.CreateManaged(
             BeeexyId.Create($"BXY-{Guid.NewGuid():N}".ToUpperInvariant()),
+            PatientName.Create("Maria"),
+            PatientName.Create("Arias"),
+            new DateOnly(2012, 5, 12),
+            SexAssignedAtBirth.Female,
+            UsState.Create("NY"),
             createdAt);
+
+    private static object ValidPatientRequest() => new
+    {
+        firstName = "Maria",
+        lastName = "Arias",
+        dateOfBirth = "2012-05-12",
+        sexAssignedAtBirth = "Female",
+        state = "NY"
+    };
 
     private static CareRelationship CreateRelationship(
         AuthenticationResult manager,
@@ -446,11 +475,20 @@ public sealed class PatientProfileReadEndpointTests(PostgreSqlContainerFixture p
         Guid ProfileId,
         string BeeexyId);
 
-    private sealed record PatientResponse(Guid ProfileId, string BeeexyId);
+    private sealed record PatientResponse(
+        Guid ProfileId,
+        string BeeexyId,
+        string? FirstName,
+        string? LastName,
+        DateOnly? DateOfBirth,
+        string? SexAssignedAtBirth,
+        string? State,
+        long Version);
 
     private sealed record PrimaryPatientResponse(
         Guid ProfileId,
         string BeeexyId,
+        long ProfileVersion,
         JsonElement Preferences,
         long Version);
 

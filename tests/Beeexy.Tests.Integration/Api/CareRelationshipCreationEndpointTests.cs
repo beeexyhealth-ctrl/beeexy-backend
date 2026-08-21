@@ -42,6 +42,12 @@ public sealed class CareRelationshipCreationEndpointTests(PostgreSqlContainerFix
         Assert.Equal("Child", body.Relationship.Type);
         Assert.Equal("Active", body.Relationship.Status);
         Assert.Equal("phase-3.2-test", body.Relationship.AttestationVersion);
+        Assert.Equal("Maria", body.Patient.FirstName);
+        Assert.Equal("Arias", body.Patient.LastName);
+        Assert.Equal(new DateOnly(2012, 5, 12), body.Patient.DateOfBirth);
+        Assert.Equal("Female", body.Patient.SexAssignedAtBirth);
+        Assert.Equal("NY", body.Patient.State);
+        Assert.Equal(1, body.Patient.Version);
         Assert.InRange(body.Relationship.AttestedAt, before, after);
         Assert.Equal($"/api/v1/patients/{body.Patient.ProfileId}", response.Headers.Location?.ToString());
 
@@ -62,6 +68,12 @@ public sealed class CareRelationshipCreationEndpointTests(PostgreSqlContainerFix
         Assert.Equal(2, profiles.Count);
         Assert.Null(subject.AccountId);
         Assert.Equal(body.Patient.BeeexyId, subject.BeeexyId.Value);
+        Assert.Equal(body.Patient.FirstName, subject.FirstName?.Value);
+        Assert.Equal(body.Patient.LastName, subject.LastName?.Value);
+        Assert.Equal(body.Patient.DateOfBirth, subject.DateOfBirth);
+        Assert.Equal(SexAssignedAtBirth.Female, subject.SexAssignedAtBirth);
+        Assert.Equal(body.Patient.State, subject.State?.Code);
+        Assert.Equal(body.Patient.Version, subject.Version);
         Assert.Equal(manager.Id, relationship.ManagerProfileId);
         Assert.Equal(subject.Id, relationship.SubjectProfileId);
         Assert.Equal(account.Id, relationship.CreatedByAccountId);
@@ -119,7 +131,8 @@ public sealed class CareRelationshipCreationEndpointTests(PostgreSqlContainerFix
             new
             {
                 relationshipType = "Parent",
-                attestationVersion = "phase-3.2-test"
+                attestationVersion = "phase-3.2-test",
+                patient = ValidPatient()
             });
 
         await AssertValidationProblemAsync(
@@ -137,12 +150,67 @@ public sealed class CareRelationshipCreationEndpointTests(PostgreSqlContainerFix
             new
             {
                 relationshipType = "Parent",
-                attestationAccepted = true
+                attestationAccepted = true,
+                patient = ValidPatient()
             });
 
         await AssertValidationProblemAsync(
             response,
             "care_relationship.invalid_attestation_version");
+    }
+
+    [Fact]
+    public async Task MissingPatientDemographics_ReturnsSafeUnprocessableEntity()
+    {
+        using var context = await CreateAuthenticatedContextAsync();
+
+        using var response = await context.Client.PostAsJsonAsync(
+            Endpoint,
+            new
+            {
+                relationshipType = "Parent",
+                attestationVersion = "phase-3.2-test",
+                attestationAccepted = true
+            });
+
+        await AssertValidationProblemAsync(response, "patient.demographics_required");
+    }
+
+    [Theory]
+    [InlineData("firstName", "", "patient.invalid_first_name")]
+    [InlineData("lastName", "   ", "patient.invalid_last_name")]
+    [InlineData("dateOfBirth", "2026-08-22", "patient.invalid_date_of_birth")]
+    [InlineData("dateOfBirth", "05/12/2012", "patient.invalid_date_of_birth")]
+    [InlineData("sexAssignedAtBirth", "female", "patient.invalid_sex_assigned_at_birth")]
+    [InlineData("sexAssignedAtBirth", "Unknown", "patient.invalid_sex_assigned_at_birth")]
+    [InlineData("state", "XX", "patient.invalid_state")]
+    public async Task InvalidPatientDemographic_ReturnsSafeUnprocessableEntity(
+        string field,
+        string value,
+        string expectedCode)
+    {
+        using var context = await CreateAuthenticatedContextAsync();
+        var patient = new Dictionary<string, object?>
+        {
+            ["firstName"] = "Maria",
+            ["lastName"] = "Arias",
+            ["dateOfBirth"] = "2012-05-12",
+            ["sexAssignedAtBirth"] = "Female",
+            ["state"] = "NY"
+        };
+        patient[field] = value;
+
+        using var response = await context.Client.PostAsJsonAsync(
+            Endpoint,
+            new
+            {
+                relationshipType = "Parent",
+                attestationVersion = "phase-3.2-test",
+                attestationAccepted = true,
+                patient
+            });
+
+        await AssertValidationProblemAsync(response, expectedCode);
     }
 
     [Fact]
@@ -316,7 +384,9 @@ public sealed class CareRelationshipCreationEndpointTests(PostgreSqlContainerFix
             Assert.True(operation.GetProperty("responses").TryGetProperty(status, out _));
         }
 
-        Assert.False(paths.TryGetProperty("/api/v1/care-relationships/{id}", out _));
+        Assert.True(paths
+            .GetProperty("/api/v1/care-relationships/{id}")
+            .TryGetProperty("delete", out _));
         var patientDetail = paths.GetProperty("/api/v1/patients/{patientId}");
         Assert.True(patientDetail.TryGetProperty("get", out _));
         Assert.True(patientDetail.TryGetProperty("patch", out _));
@@ -394,7 +464,17 @@ public sealed class CareRelationshipCreationEndpointTests(PostgreSqlContainerFix
     {
         relationshipType,
         attestationVersion = "phase-3.2-test",
-        attestationAccepted = true
+        attestationAccepted = true,
+        patient = ValidPatient()
+    };
+
+    private static object ValidPatient() => new
+    {
+        firstName = "Maria",
+        lastName = "Arias",
+        dateOfBirth = "2012-05-12",
+        sexAssignedAtBirth = "Female",
+        state = "NY"
     };
 
     private static async Task AssertValidationProblemAsync(
@@ -471,5 +551,13 @@ public sealed class CareRelationshipCreationEndpointTests(PostgreSqlContainerFix
         string AttestationVersion,
         DateTimeOffset AttestedAt);
 
-    private sealed record PatientResponse(Guid ProfileId, string BeeexyId);
+    private sealed record PatientResponse(
+        Guid ProfileId,
+        string BeeexyId,
+        string FirstName,
+        string LastName,
+        DateOnly DateOfBirth,
+        string SexAssignedAtBirth,
+        string State,
+        long Version);
 }

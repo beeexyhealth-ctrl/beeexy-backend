@@ -66,6 +66,8 @@ internal sealed class MyCircleListingTestFixture
         return new ManagedPatientAccessRecord(
             resolvedProfileId,
             $"BXY-{resolvedProfileId.Value:N}".ToUpperInvariant(),
+            "Maria",
+            "Arias",
             relationshipId ?? EntityId.New(),
             CareRelationshipType.Child,
             status,
@@ -82,6 +84,8 @@ internal sealed class MyCircleListingTestFixture
             relationshipId ?? EntityId.New(),
             subjectId,
             $"BXY-{subjectId.Value:N}".ToUpperInvariant(),
+            "Maria",
+            "Arias",
             CareRelationshipType.Caregiver,
             status,
             "phase-3.3-test",

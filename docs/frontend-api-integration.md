@@ -6,7 +6,7 @@ This document is the implementation-oriented handoff for a frontend integrating 
 
 ## 2. Current Backend Scope
 
-Phase 2 currently provides passwordless email authentication, optional Google authentication, rotating Beeexy sessions, and one primary patient profile per account. Phase 1 provides public liveness/readiness checks.
+The current backend provides Phase 1 health checks, Phase 2 authentication/profile preferences, and the Phase 3 My Circle patient-management APIs through relationship revocation and approved patient demographics.
 
 Current public/business endpoints:
 
@@ -20,6 +20,12 @@ Current public/business endpoints:
 | `GET` | `/api/v1/auth/me` | Bearer access token | Read the authenticated account |
 | `GET` | `/api/v1/patients/me` | Bearer access token | Read the current primary profile |
 | `PATCH` | `/api/v1/patients/me` | Bearer access token | Update the current primary profile |
+| `GET` | `/api/v1/patients` | Bearer access token | List primary and actively managed patients |
+| `GET` | `/api/v1/patients/{patientId}` | Bearer access token | Read authorized patient demographics |
+| `PATCH` | `/api/v1/patients/{patientId}` | Bearer access token | Partially update authorized patient demographics |
+| `GET` | `/api/v1/care-relationships` | Bearer access token | List relationship history |
+| `POST` | `/api/v1/care-relationships` | Bearer access token | Create a managed patient and active relationship |
+| `DELETE` | `/api/v1/care-relationships/{id}` | Bearer access token | Irreversibly revoke a manager-owned relationship |
 
 Health/deployment endpoints:
 
@@ -28,7 +34,7 @@ Health/deployment endpoints:
 | `GET` | `/health/live` | None | Process liveness; does not require PostgreSQL |
 | `GET` | `/health/ready` | None | PostgreSQL/application readiness |
 
-There are no password, Apple, caregiver, dependent, clinical, FHIR, or general patient-list APIs in the current backend.
+There are no password, Apple, clinical, FHIR, invitation, profile-claiming, or granular relationship-permission APIs in the current backend.
 
 ## 3. Base URL and Environments
 
@@ -303,6 +309,12 @@ Success: `200 OK`:
 {
   "profileId": "00000000-0000-0000-0000-000000000000",
   "beeexyId": "BXY-...",
+  "firstName": null,
+  "lastName": null,
+  "dateOfBirth": null,
+  "sexAssignedAtBirth": null,
+  "state": null,
+  "profileVersion": 1,
   "preferences": {
     "timezone": "Etc/UTC"
   },
@@ -310,7 +322,7 @@ Success: `200 OK`:
 }
 ```
 
-`version` is the optimistic-concurrency value required for profile updates.
+`profileVersion` belongs to `PatientProfile` demographics. `version` belongs only to the account-scoped timezone preference. Provisioned or historical primary profiles can return `null` demographics until profile completion.
 
 Important statuses:
 
@@ -350,6 +362,12 @@ Success: `200 OK` with the updated profile response and its new version:
 {
   "profileId": "00000000-0000-0000-0000-000000000000",
   "beeexyId": "BXY-...",
+  "firstName": null,
+  "lastName": null,
+  "dateOfBirth": null,
+  "sexAssignedAtBirth": null,
+  "state": null,
+  "profileVersion": 1,
   "preferences": {
     "timezone": "America/Lima"
   },
@@ -376,7 +394,83 @@ another PATCH version 3 → 409
 
 Related next step: update local profile state from the returned response; after `409`, call GET again before attempting another update.
 
-### 6.9 `GET /health/live`
+### 6.9 My Circle and approved demographics
+
+The only approved demographic fields are `firstName`, `lastName`, `dateOfBirth`, `sexAssignedAtBirth` (`Male` or `Female`), and `state` (a valid two-letter code for one of the 50 U.S. states). Dates use `YYYY-MM-DD`. State input is trimmed and normalized to uppercase. Unknown fields are rejected with `422`.
+
+Create a managed patient and relationship with `POST /api/v1/care-relationships`:
+
+```json
+{
+  "relationshipType": "Child",
+  "attestationVersion": "phase-3.6-approved",
+  "attestationAccepted": true,
+  "patient": {
+    "firstName": "Maria",
+    "lastName": "Arias",
+    "dateOfBirth": "2012-05-12",
+    "sexAssignedAtBirth": "Female",
+    "state": "NY"
+  }
+}
+```
+
+Success is `201 Created`:
+
+```json
+{
+  "relationship": {
+    "id": "00000000-0000-0000-0000-000000000000",
+    "type": "Child",
+    "status": "Active",
+    "attestationVersion": "phase-3.6-approved",
+    "attestedAt": "2026-08-21T12:00:00+00:00"
+  },
+  "patient": {
+    "profileId": "00000000-0000-0000-0000-000000000000",
+    "beeexyId": "BXY-...",
+    "firstName": "Maria",
+    "lastName": "Arias",
+    "dateOfBirth": "2012-05-12",
+    "sexAssignedAtBirth": "Female",
+    "state": "NY",
+    "version": 1
+  }
+}
+```
+
+`GET /api/v1/patients` returns the primary patient first and active managed patients after it. Each summary contains only `profileId`, `beeexyId`, nullable `firstName`/`lastName`, `accessType`, and the nullable relationship summary; DOB, sex, state, and version are intentionally omitted. `GET /api/v1/care-relationships` retains Active and Revoked history and adds only nullable `firstName`/`lastName` to each `subject` summary.
+
+`GET /api/v1/patients/{patientId}` returns the complete authorized detail:
+
+```json
+{
+  "profileId": "00000000-0000-0000-0000-000000000000",
+  "beeexyId": "BXY-...",
+  "firstName": "Maria",
+  "lastName": "Arias",
+  "dateOfBirth": "2012-05-12",
+  "sexAssignedAtBirth": "Female",
+  "state": "NY",
+  "version": 1
+}
+```
+
+Partially update any subset of the five fields with `PATCH /api/v1/patients/{patientId}` and the latest patient `version`:
+
+```json
+{
+  "firstName": "Maria Fernanda",
+  "state": "FL",
+  "version": 1
+}
+```
+
+Success is `200` with the same full detail shape and version 2. An effective update increments the patient version once. A same-value update returns `200` without incrementing it. A stale version returns `409`; refetch detail before reconciling. Missing/invalid version, invalid demographics, an empty demographic patch, or unknown fields return `422`. Absent, unrelated, or revoked access returns the same concealed `404`, including when the body is invalid.
+
+All My Circle routes require Bearer authentication. A UUID is the route selector; neither a Beeexy ID nor knowledge of a relationship/creator identifier grants access. Revocation uses `DELETE /api/v1/care-relationships/{id}`, returns `204`, is idempotent for its owning manager, and immediately removes that manager's patient read/update access without deleting history.
+
+### 6.10 `GET /health/live`
 
 Purpose: deployment/process liveness. Public and unauthenticated. PostgreSQL is not required for this check.
 
@@ -391,7 +485,7 @@ Success: `200 OK`:
 
 `503` indicates process-level health failure. This is generally for deployment monitoring, not application session bootstrap.
 
-### 6.10 `GET /health/ready`
+### 6.11 `GET /health/ready`
 
 Purpose: deployment readiness, including PostgreSQL availability. Public and unauthenticated.
 
@@ -443,7 +537,7 @@ The backend does not expose internal exception class names as its public error c
 
 ## 8. Optimistic Concurrency
 
-The profile PATCH uses the `version` returned by GET/PATCH. It is a compare-and-swap guard, not a timestamp and not a profile selector. A stale version produces `409` without overwriting current state. Re-fetch `/api/v1/patients/me`, reconcile the UI, and send the new version.
+There are two deliberately separate compare-and-swap tokens. `/patients/me` timezone PATCH uses the preference `version`; patient-demographic PATCH uses the detail `version` (shown as `profileVersion` only in `/patients/me`). A stale token produces `409` without overwriting current state. Re-fetch the owning resource, reconcile the UI, and send its latest token.
 
 ## 9. Frontend Authentication Flows
 
@@ -558,6 +652,12 @@ interface CurrentAccountResponse {
 interface CurrentPatientResponse {
   profileId: string;
   beeexyId: string;
+  firstName: string | null;
+  lastName: string | null;
+  dateOfBirth: string | null; // YYYY-MM-DD
+  sexAssignedAtBirth: "Male" | "Female" | null;
+  state: string | null;
+  profileVersion: number;
   preferences: {
     timezone: string;
   };
@@ -567,6 +667,26 @@ interface CurrentPatientResponse {
 interface UpdatePatientRequest {
   timezone: string | null;
   version: number;
+}
+
+interface PatientDetailResponse {
+  profileId: string;
+  beeexyId: string;
+  firstName: string | null;
+  lastName: string | null;
+  dateOfBirth: string | null;
+  sexAssignedAtBirth: "Male" | "Female" | null;
+  state: string | null;
+  version: number;
+}
+
+interface UpdatePatientDemographicsRequest {
+  version: number;
+  firstName?: string;
+  lastName?: string;
+  dateOfBirth?: string;
+  sexAssignedAtBirth?: "Male" | "Female";
+  state?: string;
 }
 ```
 
@@ -615,8 +735,7 @@ The current backend does not provide APIs for:
 
 - Apple authentication.
 - Password authentication.
-- Caregiver accounts or dependent claiming.
-- Managed/dependent profile workflows (Phase 3).
+- Caregiver-only accounts, invitations, or dependent profile claiming.
 - Additional demographics not approved/implemented in the current profile contract.
 - Clinical records, FHIR resources, triage, care plans, visits, AI, sharing, scheduling, notifications, or other later phases.
 
@@ -634,7 +753,11 @@ The current backend does not provide APIs for:
 - [ ] Logout integrated.
 - [ ] `/auth/me` bootstrap integrated.
 - [ ] `/patients/me` integrated.
-- [ ] Patient `version`/concurrency handling integrated.
+- [ ] Separate preference `version` and patient `profileVersion` handling integrated.
+- [ ] My Circle patient/relationship lists integrated with name-only summaries.
+- [ ] Managed-patient creation and demographic validation integrated.
+- [ ] Patient detail/PATCH stale-`409` reconciliation integrated.
+- [ ] Relationship revocation and concealed-`404` handling integrated.
 - [ ] Google Identity Services integrated.
 - [ ] Google credential sent to Beeexy as an ID token.
 - [ ] `401` handling implemented.
@@ -645,6 +768,6 @@ The current backend does not provide APIs for:
 
 ## 16. Verification Notes
 
-The eight Phase 2 routes were verified against the actual endpoint mappings, DTO records, JWT/session implementation, exception handler, OpenAPI declarations, and integration tests. The two Phase 1 health routes were also verified against their mappings and tests.
+The Phase 1 health, Phase 2 authentication/preference, and Phase 3 My Circle routes were verified against the endpoint mappings, DTO records, authorization services, migrations, exception handler, OpenAPI declarations, and PostgreSQL integration tests. The complete backend suite passes 469 tests (261 unit and 208 integration) with no failures or skips.
 
-No discrepancy was found between the current implementation plan, endpoint mappings, OpenAPI declarations, and tested request/response contracts for these routes. The implementation plan describes broader future phases, but those are not current frontend APIs. The frontend still needs its deployment-specific API origin, its Google Web Client ID when Google is enabled, and a CORS origin configured to match the frontend host.
+No discrepancy was found between the current implementation plan, endpoint mappings, OpenAPI declarations, and tested request/response contracts for these routes. Broader future phases are not current frontend APIs. The frontend still needs its deployment-specific API origin, its Google Web Client ID when Google is enabled, and a CORS origin configured to match the frontend host.

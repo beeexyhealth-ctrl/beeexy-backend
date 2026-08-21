@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(12, paths.EnumerateObject().Count());
+        Assert.Equal(13, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
@@ -71,6 +71,9 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var careRelationshipPath = paths.GetProperty("/api/v1/care-relationships");
         var careRelationshipListOperation = careRelationshipPath.GetProperty("get");
         Assert.True(careRelationshipPath.TryGetProperty("post", out _));
+        var careRelationshipDeleteOperation = paths
+            .GetProperty("/api/v1/care-relationships/{id}")
+            .GetProperty("delete");
 
         AssertResponseCodes(challengeOperation, "202", "400", "422", "429", "500");
         AssertResponseCodes(verifyOperation, "200", "400", "401", "409", "422", "429", "500");
@@ -83,12 +86,15 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         AssertResponseCodes(patientDetailOperation, "200", "401", "404", "500");
         AssertResponseCodes(
             managedPatientPatchOperation,
+            "200",
             "400",
             "401",
             "404",
+            "409",
             "422",
             "500");
         AssertResponseCodes(careRelationshipListOperation, "200", "401", "500");
+        AssertResponseCodes(careRelationshipDeleteOperation, "204", "401", "404", "500");
         AssertResponseCodes(
             patientPatchOperation,
             "200",
@@ -120,7 +126,8 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
                      accessiblePatientsOperation,
                      patientDetailOperation,
                      managedPatientPatchOperation,
-                     careRelationshipListOperation
+                     careRelationshipListOperation,
+                     careRelationshipDeleteOperation
                  })
         {
             var security = operation.GetProperty("security");
@@ -137,6 +144,31 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             "stale version returns 409",
             patientPatchOperation.GetProperty("description").GetString(),
             StringComparison.OrdinalIgnoreCase);
+
+        var schemas = document.RootElement.GetProperty("components").GetProperty("schemas");
+        var updateSchema = schemas.GetProperty("UpdateManagedPatientRequest");
+        var updateProperties = updateSchema.GetProperty("properties");
+        Assert.Equal("date", updateProperties.GetProperty("dateOfBirth").GetProperty("format").GetString());
+        Assert.Equal(
+            ["Male", "Female"],
+            updateProperties.GetProperty("sexAssignedAtBirth")
+                .GetProperty("enum")
+                .EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.Contains(
+            "AL|AK",
+            updateProperties.GetProperty("state").GetProperty("pattern").GetString(),
+            StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            updateProperties.GetProperty("version").GetProperty("minimum").GetInt64());
+
+        var creationPatient = schemas.GetProperty("ManagedPatientRequest");
+        Assert.Equal(
+            ["dateOfBirth", "firstName", "lastName", "sexAssignedAtBirth", "state"],
+            creationPatient.GetProperty("required")
+                .EnumerateArray()
+                .Select(value => value.GetString()));
 
         var logoutSecurity = logoutOperation.GetProperty("security");
         Assert.Single(logoutSecurity.EnumerateArray());

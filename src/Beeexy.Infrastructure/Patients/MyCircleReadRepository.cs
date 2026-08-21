@@ -32,6 +32,8 @@ public sealed class MyCircleReadRepository(BeeexyDbContext dbContext)
             .Select(row => new ManagedPatientAccessRecord(
                 row.Subject.Id,
                 row.Subject.BeeexyId.Value,
+                row.Subject.FirstName?.Value,
+                row.Subject.LastName?.Value,
                 row.Relationship.Id,
                 row.Relationship.RelationshipType,
                 row.Relationship.Status,
@@ -61,6 +63,8 @@ public sealed class MyCircleReadRepository(BeeexyDbContext dbContext)
                 row.Relationship.Id,
                 row.Subject.Id,
                 row.Subject.BeeexyId.Value,
+                row.Subject.FirstName?.Value,
+                row.Subject.LastName?.Value,
                 row.Relationship.RelationshipType,
                 row.Relationship.Status,
                 row.Relationship.Attestation.Version,

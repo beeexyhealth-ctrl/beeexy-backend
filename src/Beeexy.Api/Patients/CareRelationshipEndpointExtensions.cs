@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Beeexy.Application.Common;
@@ -40,6 +41,20 @@ internal static class CareRelationshipEndpointExtensions
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
+        endpoints.MapDelete(
+                "/api/v1/care-relationships/{id:guid}",
+                RevokeCareRelationshipAsync)
+            .WithName("RevokeCareRelationship")
+            .WithTags("Care Relationships")
+            .WithDescription(
+                "Irreversibly revokes a relationship owned by the authenticated account's " +
+                "primary manager profile. Repeated revocation by that manager is idempotent.")
+            .RequireAuthorization()
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
         return endpoints;
     }
 
@@ -54,7 +69,9 @@ internal static class CareRelationshipEndpointExtensions
                     relationship.RelationshipId.Value,
                     new CareRelationshipSubjectResponse(
                         relationship.SubjectProfileId.Value,
-                        relationship.SubjectBeeexyId),
+                        relationship.SubjectBeeexyId,
+                        relationship.SubjectFirstName,
+                        relationship.SubjectLastName),
                     relationship.RelationshipType.ToString(),
                     relationship.Status.ToString(),
                     relationship.AttestationVersion,
@@ -76,11 +93,26 @@ internal static class CareRelationshipEndpointExtensions
                 "The care relationship request contains an unsupported field.");
         }
 
+        if (request.Patient?.UnsupportedFields is { Count: > 0 })
+        {
+            throw new RequestValidationException(
+                "patient.unsupported_field",
+                "The managed patient contains an unsupported field.");
+        }
+
         var result = await useCase.ExecuteAsync(
             new CreateManagedPatientCommand(
                 request.RelationshipType,
                 request.AttestationVersion,
-                request.AttestationAccepted),
+                request.AttestationAccepted,
+                request.Patient is null
+                    ? null
+                    : new ManagedPatientDemographicsCommand(
+                        request.Patient.FirstName,
+                        request.Patient.LastName,
+                        request.Patient.DateOfBirth,
+                        request.Patient.SexAssignedAtBirth,
+                        request.Patient.State)),
             cancellationToken);
 
         var response = new CreateManagedPatientResponse(
@@ -92,11 +124,28 @@ internal static class CareRelationshipEndpointExtensions
                 result.AttestedAt),
             new CreatedManagedPatientResponse(
                 result.PatientProfileId.Value,
-                result.BeeexyId));
+                result.BeeexyId,
+                result.FirstName,
+                result.LastName,
+                result.DateOfBirth,
+                result.SexAssignedAtBirth.ToString(),
+                result.State,
+                result.Version));
 
         return Results.Created(
             $"/api/v1/patients/{result.PatientProfileId.Value}",
             response);
+    }
+
+    private static async Task<IResult> RevokeCareRelationshipAsync(
+        Guid id,
+        RevokeCareRelationship useCase,
+        CancellationToken cancellationToken)
+    {
+        await useCase.ExecuteAsync(
+            Beeexy.Domain.Common.EntityId.From(id),
+            cancellationToken);
+        return Results.NoContent();
     }
 }
 
@@ -113,12 +162,28 @@ internal sealed record CareRelationshipResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset? RevokedAt);
 
-internal sealed record CareRelationshipSubjectResponse(Guid ProfileId, string BeeexyId);
+internal sealed record CareRelationshipSubjectResponse(
+    Guid ProfileId,
+    string BeeexyId,
+    string? FirstName,
+    string? LastName);
 
 internal sealed record CreateManagedPatientRequest(
     string? RelationshipType,
     string? AttestationVersion,
-    bool AttestationAccepted)
+    bool AttestationAccepted,
+    ManagedPatientRequest? Patient)
+{
+    [JsonExtensionData]
+    public IDictionary<string, JsonElement>? UnsupportedFields { get; init; }
+}
+
+internal sealed record ManagedPatientRequest(
+    [property: Required, StringLength(100, MinimumLength = 1)] string? FirstName,
+    [property: Required, StringLength(100, MinimumLength = 1)] string? LastName,
+    [property: Required, DataType(DataType.Date)] string? DateOfBirth,
+    [property: Required, AllowedValues("Male", "Female")] string? SexAssignedAtBirth,
+    [property: Required, RegularExpression(PatientApiValidationPatterns.UsState)] string? State)
 {
     [JsonExtensionData]
     public IDictionary<string, JsonElement>? UnsupportedFields { get; init; }
@@ -135,4 +200,12 @@ internal sealed record CreatedCareRelationshipResponse(
     string AttestationVersion,
     DateTimeOffset AttestedAt);
 
-internal sealed record CreatedManagedPatientResponse(Guid ProfileId, string BeeexyId);
+internal sealed record CreatedManagedPatientResponse(
+    Guid ProfileId,
+    string BeeexyId,
+    string FirstName,
+    string LastName,
+    [property: DataType(DataType.Date)] DateOnly DateOfBirth,
+    [property: AllowedValues("Male", "Female")] string SexAssignedAtBirth,
+    [property: RegularExpression(PatientApiValidationPatterns.UsState)] string State,
+    long Version);

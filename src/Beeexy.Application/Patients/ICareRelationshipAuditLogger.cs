@@ -17,4 +17,12 @@ public interface ICareRelationshipAuditLogger
         EntityId creatorAccountId,
         EntityId managerProfileId,
         CareRelationshipType relationshipType);
+
+    void RevocationSucceeded(
+        EntityId actorAccountId,
+        EntityId managerProfileId,
+        EntityId subjectProfileId,
+        EntityId relationshipId,
+        CareRelationshipType relationshipType,
+        DateTimeOffset occurredAt);
 }

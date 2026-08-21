@@ -21,15 +21,20 @@ public sealed class CreateManagedPatient(
         ValidateAttestationAcceptance(command.AttestationAccepted);
         var now = clock.UtcNow;
         var attestation = ParseAttestation(command.AttestationVersion, now);
+        var demographics = ParseDemographics(command.Patient, now);
 
         await transaction.BeginAsync(cancellationToken);
         var current = await currentAccountResolver.ResolveAsync(cancellationToken);
 
         var subjectProfileId = EntityId.New();
-        var subject = PatientProfile.Create(
+        var subject = PatientProfile.CreateManaged(
             BeeexyId.Create($"BXY-{subjectProfileId.Value:N}".ToUpperInvariant()),
+            demographics.FirstName,
+            demographics.LastName,
+            demographics.DateOfBirth,
+            demographics.SexAssignedAtBirth,
+            demographics.State,
             now,
-            accountId: null,
             subjectProfileId);
         var relationship = CareRelationship.Create(
             current.PrimaryProfile.Id,
@@ -69,7 +74,13 @@ public sealed class CreateManagedPatient(
             relationship.Attestation.Version,
             relationship.Attestation.AttestedAt,
             subject.Id,
-            subject.BeeexyId.Value);
+            subject.BeeexyId.Value,
+            subject.FirstName!.Value,
+            subject.LastName!.Value,
+            subject.DateOfBirth!.Value,
+            subject.SexAssignedAtBirth!.Value,
+            subject.State!.Code,
+            subject.Version);
     }
 
     private static CareRelationshipType ParseRelationshipType(string? value)
@@ -116,12 +127,53 @@ public sealed class CreateManagedPatient(
                 "A valid attestation version is required.");
         }
     }
+
+    private static ManagedPatientDemographics ParseDemographics(
+        ManagedPatientDemographicsCommand? command,
+        DateTimeOffset currentTime)
+    {
+        if (command is null)
+        {
+            throw new RequestValidationException(
+                "patient.demographics_required",
+                "Managed patient demographics are required.");
+        }
+
+        return new ManagedPatientDemographics(
+            PatientDemographicValidation.ParseRequiredName(
+                command.FirstName,
+                "first_name"),
+            PatientDemographicValidation.ParseRequiredName(
+                command.LastName,
+                "last_name"),
+            PatientDemographicValidation.ParseRequiredDateOfBirth(
+                command.DateOfBirth,
+                currentTime),
+            PatientDemographicValidation.ParseRequiredSexAssignedAtBirth(
+                command.SexAssignedAtBirth),
+            PatientDemographicValidation.ParseRequiredState(command.State));
+    }
+
+    private sealed record ManagedPatientDemographics(
+        PatientName FirstName,
+        PatientName LastName,
+        DateOnly DateOfBirth,
+        SexAssignedAtBirth SexAssignedAtBirth,
+        UsState State);
 }
 
 public sealed record CreateManagedPatientCommand(
     string? RelationshipType,
     string? AttestationVersion,
-    bool AttestationAccepted);
+    bool AttestationAccepted,
+    ManagedPatientDemographicsCommand? Patient);
+
+public sealed record ManagedPatientDemographicsCommand(
+    string? FirstName,
+    string? LastName,
+    string? DateOfBirth,
+    string? SexAssignedAtBirth,
+    string? State);
 
 public sealed record CreateManagedPatientResult(
     EntityId RelationshipId,
@@ -130,4 +182,10 @@ public sealed record CreateManagedPatientResult(
     string AttestationVersion,
     DateTimeOffset AttestedAt,
     EntityId PatientProfileId,
-    string BeeexyId);
+    string BeeexyId,
+    string FirstName,
+    string LastName,
+    DateOnly DateOfBirth,
+    SexAssignedAtBirth SexAssignedAtBirth,
+    string State,
+    long Version);

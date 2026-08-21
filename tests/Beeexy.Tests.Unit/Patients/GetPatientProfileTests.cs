@@ -98,7 +98,7 @@ public sealed class GetPatientProfileTests
     }
 
     [Fact]
-    public void ResultContract_ContainsNoUnsupportedDemographics()
+    public void ResultContract_ContainsOnlyApprovedDemographicsAndVersion()
     {
         var propertyNames = typeof(GetPatientProfileResult)
             .GetProperties()
@@ -107,7 +107,18 @@ public sealed class GetPatientProfileTests
             .ToArray();
 
         Assert.Equal(
-            new[] { "AuthorizationReason", "BeeexyId", "ProfileId" },
+            new[]
+            {
+                "AuthorizationReason",
+                "BeeexyId",
+                "DateOfBirth",
+                "FirstName",
+                "LastName",
+                "ProfileId",
+                "SexAssignedAtBirth",
+                "State",
+                "Version"
+            },
             propertyNames);
     }
 
@@ -123,7 +134,7 @@ public sealed class GetPatientProfileTests
 
         Assert.DoesNotContain(
             typeof(GetPatientProfileResult).GetProperties(),
-            property => property.Name is "Preferences" or "Timezone" or "Version");
+            property => property.Name is "Preferences" or "Timezone");
         Assert.DoesNotContain(fixture.ProfileFixture.Preference.TimeZone.Value, result.BeeexyId);
     }
 
@@ -175,7 +186,13 @@ public sealed class GetPatientProfileTests
         public void AddReadable(PatientProfile profile) =>
             ReadRepository.Profiles[profile.Id] = new PatientProfileReadRecord(
                 profile.Id,
-                profile.BeeexyId.Value);
+                profile.BeeexyId.Value,
+                profile.FirstName?.Value,
+                profile.LastName?.Value,
+                profile.DateOfBirth,
+                profile.SexAssignedAtBirth,
+                profile.State?.Code,
+                profile.Version);
 
         public Task<GetPatientProfileResult> GetAsync(EntityId targetProfileId)
         {

@@ -88,6 +88,12 @@ public sealed class CurrentAccountProfileEndpointTests(PostgreSqlContainerFixtur
         var profile = await GetProfileAsync(client, authentication.AccessToken);
         Assert.Equal(authentication.Account.ProfileId, profile.ProfileId);
         Assert.Equal(authentication.Account.BeeexyId, profile.BeeexyId);
+        Assert.Null(profile.FirstName);
+        Assert.Null(profile.LastName);
+        Assert.Null(profile.DateOfBirth);
+        Assert.Null(profile.SexAssignedAtBirth);
+        Assert.Null(profile.State);
+        Assert.Equal(1, profile.ProfileVersion);
         Assert.Equal("Etc/UTC", profile.Preferences.Timezone);
         Assert.Equal(1, profile.Version);
 
@@ -587,6 +593,12 @@ public sealed class CurrentAccountProfileEndpointTests(PostgreSqlContainerFixtur
     private sealed record PrimaryProfileResponse(
         Guid ProfileId,
         string BeeexyId,
+        string? FirstName,
+        string? LastName,
+        DateOnly? DateOfBirth,
+        string? SexAssignedAtBirth,
+        string? State,
+        long ProfileVersion,
         PreferencesResponse Preferences,
         long Version);
 

@@ -168,6 +168,16 @@ internal sealed class ApiExceptionHandler(
             };
         }
 
+        if (exception is CareRelationshipNotFoundException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Care relationship not found.",
+                Detail = "The requested care relationship could not be found."
+            };
+        }
+
         if (exception is BadHttpRequestException)
         {
             return new ProblemDetails

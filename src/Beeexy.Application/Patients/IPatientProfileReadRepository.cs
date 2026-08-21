@@ -1,4 +1,5 @@
 using Beeexy.Domain.Common;
+using Beeexy.Domain.Patients;
 
 namespace Beeexy.Application.Patients;
 
@@ -11,4 +12,10 @@ public interface IPatientProfileReadRepository
 
 public sealed record PatientProfileReadRecord(
     EntityId ProfileId,
-    string BeeexyId);
+    string BeeexyId,
+    string? FirstName,
+    string? LastName,
+    DateOnly? DateOfBirth,
+    SexAssignedAtBirth? SexAssignedAtBirth,
+    string? State,
+    long Version);

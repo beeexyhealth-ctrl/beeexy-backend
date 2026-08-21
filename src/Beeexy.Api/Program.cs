@@ -59,6 +59,7 @@ builder.Services.AddScoped<UpdatePrimaryProfile>();
 builder.Services.AddScoped<CreateManagedPatient>();
 builder.Services.AddScoped<ListAccessiblePatients>();
 builder.Services.AddScoped<ListCareRelationships>();
+builder.Services.AddScoped<RevokeCareRelationship>();
 builder.Services.AddScoped<AuthorizePatientAccess>();
 builder.Services.AddScoped<GetPatientProfile>();
 builder.Services.AddScoped<UpdateManagedPatient>();
@@ -139,6 +140,7 @@ builder.Services.AddSwaggerGen(options =>
             Description = "Signed Beeexy access token."
         });
     options.DocumentFilter<BearerAuthorizationDocumentFilter>();
+    options.SchemaFilter<PatientDemographicsSchemaFilter>();
 });
 
 

@@ -20,7 +20,8 @@ public sealed class CreateManagedPatientTests
         var result = await fixture.UseCase.ExecuteAsync(new CreateManagedPatientCommand(
             "LegalGuardian",
             "draft-2026-08",
-            true));
+            true,
+            ValidPatient()));
 
         var subject = Assert.IsType<PatientProfile>(fixture.Repository.Subject);
         var relationship = Assert.IsType<CareRelationship>(fixture.Repository.Relationship);
@@ -28,6 +29,12 @@ public sealed class CreateManagedPatientTests
         Assert.Null(subject.AccountId);
         Assert.Equal(result.BeeexyId, subject.BeeexyId.Value);
         Assert.StartsWith("BXY-", subject.BeeexyId.Value);
+        Assert.Equal("Maria", subject.FirstName?.Value);
+        Assert.Equal("Arias", subject.LastName?.Value);
+        Assert.Equal(new DateOnly(2012, 5, 12), subject.DateOfBirth);
+        Assert.Equal(SexAssignedAtBirth.Female, subject.SexAssignedAtBirth);
+        Assert.Equal("NY", subject.State?.Code);
+        Assert.Equal(1, subject.Version);
         Assert.Equal(fixture.PrimaryProfile.Id, relationship.ManagerProfileId);
         Assert.Equal(subject.Id, relationship.SubjectProfileId);
         Assert.Equal(fixture.Account.Id, relationship.CreatedByAccountId);
@@ -58,7 +65,8 @@ public sealed class CreateManagedPatientTests
         var result = await fixture.UseCase.ExecuteAsync(new CreateManagedPatientCommand(
             requestedType,
             "draft",
-            true));
+            true,
+            ValidPatient()));
 
         Assert.Equal(expectedType, result.RelationshipType);
     }
@@ -76,7 +84,8 @@ public sealed class CreateManagedPatientTests
             fixture.UseCase.ExecuteAsync(new CreateManagedPatientCommand(
                 type,
                 "draft",
-                true)));
+                true,
+                ValidPatient())));
 
         Assert.Equal("care_relationship.invalid_type", exception.Code);
         Assert.False(fixture.Transaction.Began);
@@ -92,7 +101,8 @@ public sealed class CreateManagedPatientTests
             fixture.UseCase.ExecuteAsync(new CreateManagedPatientCommand(
                 "Parent",
                 "draft",
-                false)));
+                false,
+                ValidPatient())));
 
         Assert.Equal("care_relationship.attestation_required", exception.Code);
         Assert.False(fixture.Transaction.Began);
@@ -110,7 +120,8 @@ public sealed class CreateManagedPatientTests
             fixture.UseCase.ExecuteAsync(new CreateManagedPatientCommand(
                 "Parent",
                 version,
-                true)));
+                true,
+                ValidPatient())));
 
         Assert.Equal("care_relationship.invalid_attestation_version", exception.Code);
         Assert.False(fixture.Transaction.Began);
@@ -175,7 +186,10 @@ public sealed class CreateManagedPatientTests
     }
 
     private static CreateManagedPatientCommand ValidCommand() =>
-        new("Child", "draft", true);
+        new("Child", "draft", true, ValidPatient());
+
+    private static ManagedPatientDemographicsCommand ValidPatient() =>
+        new("Maria", "Arias", "2012-05-12", "Female", "NY");
 
     private static Fixture CreateFixture()
     {
@@ -337,6 +351,16 @@ public sealed class CreateManagedPatientTests
             EntityId creatorAccountId,
             EntityId managerProfileId,
             CareRelationshipType relationshipType) => ConflictCount++;
+
+        public void RevocationSucceeded(
+            EntityId actorAccountId,
+            EntityId managerProfileId,
+            EntityId subjectProfileId,
+            EntityId relationshipId,
+            CareRelationshipType relationshipType,
+            DateTimeOffset occurredAt)
+        {
+        }
     }
 
     private sealed class FakeClock : IClock

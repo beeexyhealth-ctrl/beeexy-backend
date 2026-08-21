@@ -17,6 +17,8 @@ public interface IMyCircleReadRepository
 public sealed record ManagedPatientAccessRecord(
     EntityId ProfileId,
     string BeeexyId,
+    string? FirstName,
+    string? LastName,
     EntityId RelationshipId,
     CareRelationshipType RelationshipType,
     CareRelationshipStatus RelationshipStatus,
@@ -26,6 +28,8 @@ public sealed record CareRelationshipListRecord(
     EntityId RelationshipId,
     EntityId SubjectProfileId,
     string SubjectBeeexyId,
+    string? SubjectFirstName,
+    string? SubjectLastName,
     CareRelationshipType RelationshipType,
     CareRelationshipStatus Status,
     string AttestationVersion,

@@ -174,7 +174,15 @@ public sealed class PatientAccessAuthorizationTests(PostgreSqlContainerFixture p
             {
                 relationshipType = "Child",
                 attestationVersion = "phase-3.4-e2e",
-                attestationAccepted = true
+                attestationAccepted = true,
+                patient = new
+                {
+                    firstName = "Maria",
+                    lastName = "Arias",
+                    dateOfBirth = "2012-05-12",
+                    sexAssignedAtBirth = "Female",
+                    state = "NY"
+                }
             });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var created = await response.Content.ReadFromJsonAsync<CreateResponse>();
@@ -237,12 +245,14 @@ public sealed class PatientAccessAuthorizationTests(PostgreSqlContainerFixture p
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var paths = document.RootElement.GetProperty("paths");
 
-        Assert.Equal(12, paths.EnumerateObject().Count());
+        Assert.Equal(13, paths.EnumerateObject().Count());
         Assert.False(paths.TryGetProperty("/api/v1/patient-access", out _));
         var patientDetail = paths.GetProperty("/api/v1/patients/{patientId}");
         Assert.True(patientDetail.TryGetProperty("get", out _));
         Assert.True(patientDetail.TryGetProperty("patch", out _));
-        Assert.False(paths.TryGetProperty("/api/v1/care-relationships/{id}", out _));
+        Assert.True(paths
+            .GetProperty("/api/v1/care-relationships/{id}")
+            .TryGetProperty("delete", out _));
     }
 
     private async Task<PatientAccessAuthorizationResult> AuthorizeAsync(

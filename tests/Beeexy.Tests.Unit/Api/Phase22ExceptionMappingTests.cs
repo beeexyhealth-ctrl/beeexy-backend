@@ -50,6 +50,7 @@ public sealed class Phase22ExceptionMappingTests
     [InlineData(typeof(ExternalIdentityProviderUnavailableException), StatusCodes.Status503ServiceUnavailable)]
     [InlineData(typeof(ProfileUpdateConcurrencyException), StatusCodes.Status409Conflict)]
     [InlineData(typeof(ManagedPatientCreationConflictException), StatusCodes.Status409Conflict)]
+    [InlineData(typeof(CareRelationshipNotFoundException), StatusCodes.Status404NotFound)]
     [InlineData(typeof(AccountProfileInvariantException), StatusCodes.Status500InternalServerError)]
     public void VerificationFailures_MapToPhase23StatusWithoutSecretDetails(
         Type exceptionType,

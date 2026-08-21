@@ -40,4 +40,24 @@ public sealed class CareRelationshipAuditLogger(
             managerProfileId.Value,
             relationshipType);
     }
+
+    public void RevocationSucceeded(
+        EntityId actorAccountId,
+        EntityId managerProfileId,
+        EntityId subjectProfileId,
+        EntityId relationshipId,
+        CareRelationshipType relationshipType,
+        DateTimeOffset occurredAt)
+    {
+        logger.LogInformation(
+            "Care relationship revocation succeeded for actor account {ActorAccountId}, " +
+            "manager profile {ManagerProfileId}, subject profile {SubjectProfileId}, " +
+            "relationship {RelationshipId}, type {RelationshipType}, at {OccurredAt}.",
+            actorAccountId.Value,
+            managerProfileId.Value,
+            subjectProfileId.Value,
+            relationshipId.Value,
+            relationshipType,
+            occurredAt);
+    }
 }

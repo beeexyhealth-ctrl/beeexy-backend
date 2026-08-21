@@ -44,7 +44,8 @@ public sealed class MyCircleListingEndpointTests(PostgreSqlContainerFixture post
             {
                 relationshipType = "Child",
                 attestationVersion = "phase-3.3-e2e",
-                attestationAccepted = true
+                attestationAccepted = true,
+                patient = ValidPatientRequest()
             });
         Assert.Equal(HttpStatusCode.Created, creationResponse.StatusCode);
         var created = await creationResponse.Content.ReadFromJsonAsync<CreateResponse>();
@@ -58,6 +59,8 @@ public sealed class MyCircleListingEndpointTests(PostgreSqlContainerFixture post
         var managed = patients.Patients[1];
         Assert.Equal(created.Patient.ProfileId, managed.ProfileId);
         Assert.Equal(created.Patient.BeeexyId, managed.BeeexyId);
+        Assert.Equal("Maria", managed.FirstName);
+        Assert.Equal("Arias", managed.LastName);
         Assert.Equal("Managed", managed.AccessType);
         Assert.Equal(created.Relationship.Id, managed.Relationship?.RelationshipId);
         Assert.Equal("Child", managed.Relationship?.Type);
@@ -65,6 +68,8 @@ public sealed class MyCircleListingEndpointTests(PostgreSqlContainerFixture post
         var relationship = Assert.Single(relationships.Relationships);
         Assert.Equal(created.Relationship.Id, relationship.Id);
         Assert.Equal(created.Patient.ProfileId, relationship.Subject.ProfileId);
+        Assert.Equal("Maria", relationship.Subject.FirstName);
+        Assert.Equal("Arias", relationship.Subject.LastName);
         Assert.Equal("Active", relationship.Status);
         Assert.Equal("phase-3.3-e2e", relationship.AttestationVersion);
     }
@@ -257,7 +262,8 @@ public sealed class MyCircleListingEndpointTests(PostgreSqlContainerFixture post
             {
                 relationshipType = "Child",
                 attestationVersion = "phase-3.3-isolation",
-                attestationAccepted = true
+                attestationAccepted = true,
+                patient = ValidPatientRequest()
             });
         createResponse.EnsureSuccessStatusCode();
         var secondManaged = await createResponse.Content.ReadFromJsonAsync<CreateResponse>();
@@ -352,7 +358,7 @@ public sealed class MyCircleListingEndpointTests(PostgreSqlContainerFixture post
     }
 
     [Fact]
-    public async Task OpenApi_DocumentsListingsAndPatientOperationsWithoutRevocation()
+    public async Task OpenApi_DocumentsListingsPatientOperationsAndRevocation()
     {
         await EnsureMigratedAsync();
         using var factory = new BeeexyApiFactory(postgres.ConnectionString);
@@ -372,7 +378,9 @@ public sealed class MyCircleListingEndpointTests(PostgreSqlContainerFixture post
         var patientDetail = paths.GetProperty("/api/v1/patients/{patientId}");
         Assert.True(patientDetail.TryGetProperty("get", out _));
         Assert.True(patientDetail.TryGetProperty("patch", out _));
-        Assert.False(paths.TryGetProperty("/api/v1/care-relationships/{id}", out _));
+        Assert.True(paths
+            .GetProperty("/api/v1/care-relationships/{id}")
+            .TryGetProperty("delete", out _));
     }
 
     private async Task<AuthenticatedContext> CreateAuthenticatedContextAsync()
@@ -411,8 +419,13 @@ public sealed class MyCircleListingEndpointTests(PostgreSqlContainerFixture post
         DateTimeOffset createdAt,
         bool revoked = false)
     {
-        var subject = PatientProfile.Create(
+        var subject = PatientProfile.CreateManaged(
             BeeexyId.Create($"BXY-{Guid.NewGuid():N}".ToUpperInvariant()),
+            PatientName.Create("Maria"),
+            PatientName.Create("Arias"),
+            new DateOnly(2012, 5, 12),
+            SexAssignedAtBirth.Female,
+            UsState.Create("NY"),
             createdAt);
         var relationship = CreateRelationship(
             authentication,
@@ -477,6 +490,15 @@ public sealed class MyCircleListingEndpointTests(PostgreSqlContainerFixture post
     private static void SetBearer(HttpClient client, string token) =>
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
+    private static object ValidPatientRequest() => new
+    {
+        firstName = "Maria",
+        lastName = "Arias",
+        dateOfBirth = "2012-05-12",
+        sexAssignedAtBirth = "Female",
+        state = "NY"
+    };
+
     private BeeexyDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<BeeexyDbContext>()
@@ -523,6 +545,8 @@ public sealed class MyCircleListingEndpointTests(PostgreSqlContainerFixture post
     private sealed record AccessiblePatientResponse(
         Guid ProfileId,
         string BeeexyId,
+        string? FirstName,
+        string? LastName,
         string AccessType,
         AccessiblePatientRelationshipResponse? Relationship);
 
@@ -543,7 +567,11 @@ public sealed class MyCircleListingEndpointTests(PostgreSqlContainerFixture post
         DateTimeOffset CreatedAt,
         DateTimeOffset? RevokedAt);
 
-    private sealed record CareRelationshipSubjectResponse(Guid ProfileId, string BeeexyId);
+    private sealed record CareRelationshipSubjectResponse(
+        Guid ProfileId,
+        string BeeexyId,
+        string? FirstName,
+        string? LastName);
 
     private sealed record CreateResponse(
         CreatedRelationshipResponse Relationship,
