@@ -409,6 +409,8 @@ None until Andrea defines any relationship/consent mapping.
 
 # Phase 4 — Anonymous and Authenticated Pre-Triage
 
+**Phase 4 status:** COMPLETE (2026-08-22)
+
 **Priority:** MVP CORE
 
 ## 1. Objective
@@ -868,6 +870,10 @@ Phase 4.1 remains the authoritative, clinically content-neutral technical founda
 **Dependencies on previous subphases:** Phase 4.7 and Phase 4.9.
 
 ## Phase 4.11 — Demo Security + Acceptance Closure
+
+**Phase 4.11 status:** COMPLETE (2026-08-22)
+**Phase 4.11 implementation:** Audited the retained Phase 4.1 through Phase 4.10 implementation, tests, migrations, five-route OpenAPI surface, Phase 3 identity/managed-patient authorization reuse, capability and expiry boundaries, row-lock ordering, cleanup worker/startup configuration, clinical-definition artifacts, AI safety boundary, neutral completion/result/claim/projection contracts, and privacy-safe telemetry. Existing coverage already proved the endpoint credential matrices, invalid-Bearer non-downgrade, capability isolation/hash-only persistence, IDOR concealment, managed authorization and revocation, structured and natural-language intake validation, adversarial/provider-unavailable behavior, anonymous completion/claim/cleanup journeys, lifecycle boundaries, immutability/version isolation, rollback, and PostgreSQL races. Closure adds an explicit six-case authenticated-primary/managed-patient by three-supported-pathway journey matrix that verifies canonical retrieval, non-clinical provenance, neutral assessment persistence, exact patient ownership, no anonymous retention marker, and exactly one projection record. It also adds a compact allow-list regression for the public neutral result and internal projection shapes plus a guard that executable triage type surfaces remain free of vendor-specific and FHIR/HL7 coupling. No endpoint, clinical rule, migration, provider mandate, FHIR artifact, history route/UI, or Phase 5 authority was added.
+**Phase 4.11 verification:** Two focused closure unit tests and six focused real-PostgreSQL patient-owned journey cases passed. The complete suites passed 748 tests: 444 unit and 304 real-PostgreSQL integration, with 0 failed and 0 skipped. The explicit concurrency/race filter passed 17 cases, including all nine Phase 4 PostgreSQL answer, completion, projection, claim, and cleanup concurrency/race tests. All 14 migration regressions passed, including clean full-chain application through Phase 4.10 and the Phase 4 rollback/reapply matrix; EF reported no pending model changes. The focused development OpenAPI regression passed with exactly 18 paths and exactly the five documented Phase 4 endpoints. The final Debug solution build completed with 0 warnings and 0 errors; formatting verification changed 0 of 334 files; `git diff --check` passed; and no live AI credentials were required. Phase 4 is closed as a neutral, non-clinically-authoritative demo increment. Phase 5 Clinical History endpoints/events/UI/amendments, FHIR, AI Conversation History, production AI-provider selection, additional pathways, and all clinical-rule/urgency/disposition/diagnostic authority remain deferred.
 
 **Objective:** Close the demo increment with end-to-end evidence for controlled intake, safety, authorization, lifecycle, neutral completion, and explicit absence of clinical conclusions.
 

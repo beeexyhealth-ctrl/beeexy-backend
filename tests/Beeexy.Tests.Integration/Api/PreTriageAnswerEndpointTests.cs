@@ -622,6 +622,91 @@ public sealed class PreTriageAnswerEndpointTests(
         Assert.All(records, value => Assert.Equal(value.CompletedAt, value.CreatedAt));
     }
 
+    [Theory]
+    [InlineData("HEADACHE", "Headache", false)]
+    [InlineData("ABDOMINAL_PAIN", "Stomach pain", false)]
+    [InlineData("FEVER", "Fever", false)]
+    [InlineData("HEADACHE", "Headache", true)]
+    [InlineData("ABDOMINAL_PAIN", "Stomach pain", true)]
+    [InlineData("FEVER", "Fever", true)]
+    public async Task Phase411_PatientOwnedJourney_CompletesEverySupportedPathwayNeutrally(
+        string pathway,
+        string display,
+        bool managedPatient)
+    {
+        var identity = await CreateIdentityAsync(
+            $"phase411-{pathway.ToLowerInvariant()}-{(managedPatient ? "managed" : "primary")}");
+        var patientId = identity.ProfileId;
+        if (managedPatient)
+        {
+            var managed = await CreateManagedPatientAsync($"phase411-{pathway}");
+            await CreateRelationshipAsync(identity, managed.Id);
+            patientId = managed.Id;
+        }
+
+        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        using var client = factory.CreateApiClient();
+        SetBearer(client, identity.Token);
+        var sessionId = await StartAuthenticatedAsync(
+            client,
+            managedPatient ? patientId.Value : null,
+            pathway);
+        var additionalSymptoms = pathway == "FEVER"
+            ? new[] { "NAUSEA", "DIARRHEA" }
+            : new[] { "NAUSEA", "FEVER" };
+        await MakeReadyAuthenticatedAsync(client, sessionId, additionalSymptoms);
+
+        using var completion = await client.PostAsync(CompleteEndpoint(sessionId), null);
+        var completed = await completion.Content.ReadFromJsonAsync<ResultResponse>();
+        using var retrieval = await client.GetAsync(ResultEndpoint(sessionId));
+        var retrieved = await retrieval.Content.ReadFromJsonAsync<ResultResponse>();
+
+        Assert.Equal(HttpStatusCode.Created, completion.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, retrieval.StatusCode);
+        Assert.Equivalent(completed, retrieved, strict: true);
+        Assert.Equal(pathway, completed!.PrimarySymptom.Code);
+        Assert.Equal(display, completed.PrimarySymptom.Display);
+        Assert.Equal(2, completed.Duration.Value);
+        Assert.Equal("DAYS", completed.Duration.Unit);
+        Assert.Equal(7, completed.Intensity);
+        Assert.Equal(additionalSymptoms, completed.AdditionalSymptoms);
+        Assert.Equal(
+            SimplifiedDemoDefinitionPackages.VersionIdentifier,
+            completed.Questionnaire.Version);
+        Assert.Equal(completed.Questionnaire.Version, completed.Package.Version);
+        Assert.Equal("PRODUCT_DEMO_DEFINED", completed.ClinicalContent.Source);
+        Assert.Equal("NOT_APPLICABLE", completed.ClinicalContent.ReviewStatus);
+        Assert.Equal(
+            "NOT_CLINICALLY_APPROVED",
+            completed.ClinicalContent.ClinicalApproval);
+
+        await using var verify = CreateDbContext();
+        var sessionEntityId = EntityId.From(sessionId);
+        var session = await verify.PreTriageSessions
+            .AsNoTracking()
+            .SingleAsync(value => value.Id == sessionEntityId);
+        var episode = await verify.PreTriageEpisodes
+            .AsNoTracking()
+            .SingleAsync(value => value.SourceSessionId == sessionEntityId);
+        var assessment = await verify.ClinicalAssessments
+            .AsNoTracking()
+            .Include(value => value.Findings)
+            .SingleAsync(value => value.EpisodeId == episode.Id);
+        var projection = await verify.PreTriageHistoryProjectionRecords
+            .AsNoTracking()
+            .SingleAsync(value => value.SourceEpisodeId == episode.Id);
+
+        Assert.Equal(PreTriageSessionStatus.Completed, session.Status);
+        Assert.Equal(patientId, session.PatientProfileId);
+        Assert.Equal(patientId, episode.PatientProfileId);
+        Assert.Null(episode.AnonymousExpiresAt);
+        Assert.Null(assessment.UrgencyCode);
+        Assert.Empty(assessment.Findings);
+        Assert.Equal(patientId, projection.PatientProfileId);
+        Assert.Equal(episode.CompletedAt, projection.CompletedAt);
+        Assert.Equal(episode.CompletedAt, projection.CreatedAt);
+    }
+
     [Fact]
     public async Task AssessmentPersistenceFailure_RollsBackEntireCompletion()
     {
@@ -1347,11 +1432,12 @@ public sealed class PreTriageAnswerEndpointTests(
 
     private static async Task<Guid> StartAuthenticatedAsync(
         HttpClient client,
-        Guid? patientId)
+        Guid? patientId,
+        string pathway = "HEADACHE")
     {
         using var response = await client.PostAsJsonAsync(
             StartEndpoint,
-            new { pathway = "HEADACHE", patientId });
+            new { pathway, patientId });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<AuthenticatedSession>())!.SessionId;
     }
@@ -1398,7 +1484,8 @@ public sealed class PreTriageAnswerEndpointTests(
 
     private static async Task MakeReadyAuthenticatedAsync(
         HttpClient client,
-        Guid sessionId)
+        Guid sessionId,
+        IReadOnlyList<string>? additionalSymptoms = null)
     {
         using var response = await client.PostAsJsonAsync(AnswerEndpoint(sessionId), new
         {
@@ -1406,7 +1493,7 @@ public sealed class PreTriageAnswerEndpointTests(
             {
                 duration = new { value = 2, unit = "DAYS" },
                 intensity = 7,
-                additionalSymptoms = Array.Empty<string>()
+                additionalSymptoms = additionalSymptoms ?? Array.Empty<string>()
             }
         });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
