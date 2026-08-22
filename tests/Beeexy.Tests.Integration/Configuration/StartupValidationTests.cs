@@ -1,6 +1,7 @@
 using Beeexy.Tests.Integration.Support;
 using Beeexy.Application.Identity;
 using Beeexy.Infrastructure.Identity;
+using Beeexy.Infrastructure.Triage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -173,6 +174,41 @@ public sealed class StartupValidationTests(PostgreSqlContainerFixture postgres)
         var exception = Assert.ThrowsAny<Exception>(() => factory.CreateApiClient());
 
         Assert.Contains("Authentication:Google:ClientId", exception.ToString());
+        Assert.DoesNotContain(postgres.ConnectionString, exception.ToString());
+    }
+
+    [Fact]
+    public void PreTriageCleanupConfiguration_RegistersValidatedPolicyAndWorker()
+    {
+        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        using var client = factory.CreateApiClient();
+
+        var options = factory.Services.GetRequiredService<PreTriageCleanupOptions>();
+
+        Assert.Equal(TimeSpan.FromMinutes(15), options.Cadence);
+        Assert.Equal(100, options.Policy.BatchSize);
+        Assert.Equal(10, options.Policy.MaximumBatchesPerRun);
+        Assert.Contains(
+            factory.Services.GetServices<IHostedService>(),
+            service => service.GetType().Name == "PreTriageCleanupWorker");
+    }
+
+    [Theory]
+    [InlineData("PreTriageCleanup:CadenceMinutes")]
+    [InlineData("PreTriageCleanup:BatchSize")]
+    [InlineData("PreTriageCleanup:MaximumBatchesPerRun")]
+    public void InvalidPreTriageCleanupConfiguration_FailsFast(string setting)
+    {
+        using var factory = new BeeexyApiFactory(
+            postgres.ConnectionString,
+            configurationOverrides: new Dictionary<string, string?>
+            {
+                [setting] = "0"
+            });
+
+        var exception = Assert.ThrowsAny<Exception>(() => factory.CreateApiClient());
+
+        Assert.Contains(setting, exception.ToString());
         Assert.DoesNotContain(postgres.ConnectionString, exception.ToString());
     }
 }

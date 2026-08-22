@@ -1,6 +1,7 @@
 using Beeexy.Application.Identity;
 using Beeexy.Infrastructure.Identity;
 using Beeexy.Infrastructure.Persistence;
+using Beeexy.Infrastructure.Triage;
 using Microsoft.Extensions.Hosting;
 
 namespace Beeexy.Api.Configuration;
@@ -15,6 +16,7 @@ internal static class StartupConfiguration
     private const string ResendEmailSenderSectionKey = "Authentication:EmailSender:Resend";
     private const string TokenSectionKey = "Authentication:Tokens";
     private const string GoogleSectionKey = "Authentication:Google";
+    private const string PreTriageCleanupSectionKey = "PreTriageCleanup";
 
     public static string GetRequiredDatabaseConnectionString(IConfiguration configuration)
     {
@@ -214,6 +216,30 @@ internal static class StartupConfiguration
         }
 
         return new GoogleAuthenticationStartupSettings(enabled, enabled ? clientId : null);
+    }
+
+    public static PreTriageCleanupOptions GetRequiredPreTriageCleanupOptions(
+        IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        var section = configuration.GetSection(PreTriageCleanupSectionKey);
+        var cadenceMinutes = GetRequiredPositiveInt(section, "CadenceMinutes");
+        var batchSize = GetRequiredPositiveInt(section, "BatchSize");
+        var maximumBatches = GetRequiredPositiveInt(section, "MaximumBatchesPerRun");
+
+        try
+        {
+            return new PreTriageCleanupOptions(
+                TimeSpan.FromMinutes(cadenceMinutes),
+                batchSize,
+                maximumBatches);
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            throw new InvalidOperationException(
+                $"Configuration section '{PreTriageCleanupSectionKey}' is invalid.",
+                exception);
+        }
     }
 
     private static bool IsValidOrigin(string origin)

@@ -21,7 +21,8 @@ public static class DependencyInjection
         AuthenticationTokenPolicy authenticationTokenPolicy,
         GoogleExternalIdentityOptions googleOptions,
         string otpHashingKey,
-        AuthenticationEmailSenderOptions authenticationEmailSenderOptions)
+        AuthenticationEmailSenderOptions authenticationEmailSenderOptions,
+        PreTriageCleanupOptions preTriageCleanupOptions)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
         ArgumentNullException.ThrowIfNull(emailChallengePolicy);
@@ -29,6 +30,7 @@ public static class DependencyInjection
         ArgumentNullException.ThrowIfNull(googleOptions);
         ArgumentException.ThrowIfNullOrWhiteSpace(otpHashingKey);
         ArgumentNullException.ThrowIfNull(authenticationEmailSenderOptions);
+        ArgumentNullException.ThrowIfNull(preTriageCleanupOptions);
 
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton(emailChallengePolicy);
@@ -83,6 +85,11 @@ public static class DependencyInjection
         services.AddSingleton<IPreTriageCompletionAuditLogger, PreTriageCompletionAuditLogger>();
         services.AddScoped<IPreTriageClaimRepository, PreTriageClaimRepository>();
         services.AddSingleton<IPreTriageClaimAuditLogger, PreTriageClaimAuditLogger>();
+        services.AddSingleton(preTriageCleanupOptions);
+        services.AddSingleton(preTriageCleanupOptions.Policy);
+        services.AddScoped<IPreTriageCleanupRepository, PreTriageCleanupRepository>();
+        services.AddSingleton<IPreTriageCleanupTelemetry, PreTriageCleanupTelemetry>();
+        services.AddHostedService<PreTriageCleanupWorker>();
 
         services.AddSingleton(googleOptions);
         if (googleOptions.Enabled)

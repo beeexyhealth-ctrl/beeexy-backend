@@ -37,6 +37,8 @@ var authenticationTokenPolicy = StartupConfiguration.GetRequiredAuthenticationTo
     builder.Configuration);
 var googleAuthenticationSettings = StartupConfiguration.GetGoogleAuthenticationSettings(
     builder.Configuration);
+var preTriageCleanupOptions = StartupConfiguration.GetRequiredPreTriageCleanupOptions(
+    builder.Configuration);
 
 builder.Services.AddInfrastructure(
     databaseConnectionString,
@@ -44,9 +46,10 @@ builder.Services.AddInfrastructure(
     authenticationTokenPolicy,
     new GoogleExternalIdentityOptions(
         googleAuthenticationSettings.Enabled,
-        googleAuthenticationSettings.ClientId),
+    googleAuthenticationSettings.ClientId),
     emailChallengeSettings.OtpHashingKey,
-    emailChallengeSettings.EmailSender);
+    emailChallengeSettings.EmailSender,
+    preTriageCleanupOptions);
 builder.Services.AddScoped<RequestEmailChallenge>();
 builder.Services.AddScoped<ProvisionAccountAndPrimaryProfile>();
 builder.Services.AddScoped<VerifyEmailChallenge>();
@@ -72,6 +75,8 @@ builder.Services.AddScoped<NeutralClinicalAssessmentFactory>();
 builder.Services.AddScoped<CompletePreTriage>();
 builder.Services.AddScoped<GetPreTriageResult>();
 builder.Services.AddScoped<ClaimAnonymousPreTriage>();
+builder.Services.AddScoped<ExpireAnonymousPreTriage>();
+builder.Services.AddScoped<PreTriageCleanupService>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentSessionIdentity, HttpCurrentSessionIdentity>();
 builder.Services
