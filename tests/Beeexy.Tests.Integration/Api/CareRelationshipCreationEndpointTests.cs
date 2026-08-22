@@ -179,7 +179,7 @@ public sealed class CareRelationshipCreationEndpointTests(PostgreSqlContainerFix
     [Theory]
     [InlineData("firstName", "", "patient.invalid_first_name")]
     [InlineData("lastName", "   ", "patient.invalid_last_name")]
-    [InlineData("dateOfBirth", "2026-08-22", "patient.invalid_date_of_birth")]
+    [InlineData("dateOfBirth", "2999-01-01", "patient.invalid_date_of_birth")]
     [InlineData("dateOfBirth", "05/12/2012", "patient.invalid_date_of_birth")]
     [InlineData("sexAssignedAtBirth", "female", "patient.invalid_sex_assigned_at_birth")]
     [InlineData("sexAssignedAtBirth", "Unknown", "patient.invalid_sex_assigned_at_birth")]

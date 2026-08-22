@@ -1,10 +1,12 @@
 using Beeexy.Application.Identity;
 using Beeexy.Application.Patients;
+using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
 using Beeexy.Infrastructure.Identity;
 using Beeexy.Infrastructure.Patients;
 using Beeexy.Infrastructure.Persistence;
 using Beeexy.Infrastructure.Time;
+using Beeexy.Infrastructure.Triage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -62,6 +64,10 @@ public static class DependencyInjection
         services.AddScoped<IPatientProfileReadRepository, PatientProfileReadRepository>();
         services.AddScoped<IPatientProfileUpdateRepository, PatientProfileUpdateRepository>();
         services.AddSingleton<IPatientProfileAuditLogger, PatientProfileAuditLogger>();
+        services.AddSingleton<ClinicalDefinitionPackageValidator>();
+        services.AddScoped<IClinicalDefinitionImporter, ClinicalDefinitionImporter>();
+        services.AddScoped<IClinicalDefinitionProvider, ClinicalDefinitionProvider>();
+        services.AddScoped<IClinicalPathwayRegistry, ClinicalPathwayRegistry>();
 
         services.AddSingleton(googleOptions);
         if (googleOptions.Enabled)

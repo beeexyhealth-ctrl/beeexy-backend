@@ -122,24 +122,24 @@ internal sealed class CareRelationshipConfiguration
             .HasColumnType("timestamp with time zone");
 
         builder.HasIndex(relationship => new
-            {
-                relationship.ManagerProfileId,
-                relationship.Status
-            })
+        {
+            relationship.ManagerProfileId,
+            relationship.Status
+        })
             .HasDatabaseName("ix_care_relationships_manager_status");
 
         builder.HasIndex(relationship => new
-            {
-                relationship.SubjectProfileId,
-                relationship.Status
-            })
+        {
+            relationship.SubjectProfileId,
+            relationship.Status
+        })
             .HasDatabaseName("ix_care_relationships_subject_status");
 
         builder.HasIndex(relationship => new
-            {
-                relationship.ManagerProfileId,
-                relationship.SubjectProfileId
-            })
+        {
+            relationship.ManagerProfileId,
+            relationship.SubjectProfileId
+        })
             .IsUnique()
             .HasFilter("status = 'active'")
             .HasDatabaseName("ux_care_relationships_active_manager_subject");

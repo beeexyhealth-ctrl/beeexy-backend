@@ -3,6 +3,7 @@ using System;
 using Beeexy.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Beeexy.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(BeeexyDbContext))]
-    partial class BeeexyDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260822035009_Phase42ClinicalDefinitionPackages")]
+    partial class Phase42ClinicalDefinitionPackages
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1162,7 +1165,7 @@ namespace Beeexy.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_care_relationships_patient_profiles_subject_profile_id");
 
-                    b.OwnsOne("Beeexy.Domain.Patients.CareRelationship.Attestation#Beeexy.Domain.Patients.AuthorizationAttestation", "Attestation", b1 =>
+                    b.OwnsOne("Beeexy.Domain.Patients.AuthorizationAttestation", "Attestation", b1 =>
                         {
                             b1.Property<Guid>("CareRelationshipId")
                                 .HasColumnType("uuid");
