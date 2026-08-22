@@ -483,7 +483,7 @@ internal static class DemoTriageAnswerCodec
         }).ToArray();
     }
 
-    private static ClinicalAiCandidateValue Decode(
+    internal static ClinicalAiCandidateValue Decode(
         string json,
         QuestionCode code,
         ClinicalDefinitionPackage package)
@@ -491,6 +491,7 @@ internal static class DemoTriageAnswerCodec
         var demo = package.RuleDefinitions.DemoIntake!;
         if (code == demo.DurationQuestionCode)
         {
+            EnsureExactJsonShape(json, "value", "unit");
             var value = JsonSerializer.Deserialize<DurationPayload>(json, Options) ??
                 throw new InvalidOperationException("Stored duration answer is invalid.");
             return new ClinicalAiDurationValue(
@@ -509,6 +510,7 @@ internal static class DemoTriageAnswerCodec
 
         if (code == demo.IntensityQuestionCode)
         {
+            EnsureExactJsonShape(json, "value");
             var value = JsonSerializer.Deserialize<IntensityPayload>(json, Options) ??
                 throw new InvalidOperationException("Stored intensity answer is invalid.");
             return new ClinicalAiIntegerValue(value.Value);
@@ -516,12 +518,32 @@ internal static class DemoTriageAnswerCodec
 
         if (code == demo.AdditionalSymptomsQuestionCode)
         {
+            EnsureExactJsonShape(json, "values");
             var value = JsonSerializer.Deserialize<AdditionalSymptomsPayload>(json, Options) ??
                 throw new InvalidOperationException("Stored additional-symptom answer is invalid.");
             return new ClinicalAiMultipleChoiceValue(value.Values);
         }
 
         throw new InvalidOperationException("Stored answer is outside the demo questionnaire.");
+    }
+
+    private static void EnsureExactJsonShape(string json, params string[] expectedProperties)
+    {
+        using var document = JsonDocument.Parse(json);
+        if (document.RootElement.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException("Stored answer must be a JSON object.");
+        }
+
+        var actual = document.RootElement.EnumerateObject()
+            .Select(property => property.Name)
+            .ToArray();
+        if (actual.Length != expectedProperties.Length ||
+            actual.Distinct(StringComparer.Ordinal).Count() != actual.Length ||
+            expectedProperties.Any(expected => !actual.Contains(expected, StringComparer.Ordinal)))
+        {
+            throw new InvalidOperationException("Stored answer has an invalid representation.");
+        }
     }
 
     private static string DurationUnitCode(ClinicalDurationUnit unit) => unit switch

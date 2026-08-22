@@ -65,7 +65,88 @@ internal static class PreTriageEndpointExtensions
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
+        endpoints.MapPost(
+                "/api/v1/pre-triage/sessions/{id:guid}/complete",
+                CompleteSessionAsync)
+            .WithName("CompletePreTriageSession")
+            .WithTags("Pre-Triage")
+            .WithDescription(
+                "Atomically completes an exact pinned simplified demo questionnaire and " +
+                "returns its canonical neutral symptom summary. The first completion returns " +
+                $"201; authorized repeats return the same immutable result with 200. Anonymous " +
+                $"sessions require {AnonymousCapabilityHeader}; patient sessions require a " +
+                "currently authorized Bearer identity. No clinical rules, urgency, disposition, " +
+                "diagnosis, recommendation, or probability are produced.")
+            .WithMetadata(new OptionalBearerAuthorizationMetadata())
+            .Produces<NeutralPreTriageResultResponse>(StatusCodes.Status201Created)
+            .Produces<NeutralPreTriageResultResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        endpoints.MapGet(
+                "/api/v1/pre-triage/sessions/{id:guid}/result",
+                GetResultAsync)
+            .WithName("GetPreTriageResult")
+            .WithTags("Pre-Triage")
+            .WithDescription(
+                "Returns the canonical immutable neutral symptom summary for a completed " +
+                $"session. Anonymous sessions require {AnonymousCapabilityHeader}; patient " +
+                "sessions require a currently authorized Bearer identity. The response freezes " +
+                "the exact questionnaire/package provenance and intentionally omits all clinical " +
+                "authority and AI/provider fields.")
+            .WithMetadata(new OptionalBearerAuthorizationMetadata())
+            .Produces<NeutralPreTriageResultResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
         return endpoints;
+    }
+
+    private static async Task<IResult> CompleteSessionAsync(
+        Guid id,
+        HttpContext httpContext,
+        CompletePreTriage useCase,
+        [FromHeader(Name = AnonymousCapabilityHeader)] string? anonymousCapability,
+        CancellationToken cancellationToken)
+    {
+        var callerMode = ResolveCallerMode(httpContext);
+        if (id == Guid.Empty)
+        {
+            throw new PreTriageSessionNotFoundException();
+        }
+
+        var result = await useCase.ExecuteAsync(
+            new CompletePreTriageCommand(EntityId.From(id), callerMode, anonymousCapability),
+            cancellationToken);
+        return Results.Json(
+            ToResponse(result.Result),
+            statusCode: result.IsNewlyCompleted
+                ? StatusCodes.Status201Created
+                : StatusCodes.Status200OK);
+    }
+
+    private static async Task<IResult> GetResultAsync(
+        Guid id,
+        HttpContext httpContext,
+        GetPreTriageResult useCase,
+        [FromHeader(Name = AnonymousCapabilityHeader)] string? anonymousCapability,
+        CancellationToken cancellationToken)
+    {
+        var callerMode = ResolveCallerMode(httpContext);
+        if (id == Guid.Empty)
+        {
+            throw new PreTriageSessionNotFoundException();
+        }
+
+        var result = await useCase.ExecuteAsync(
+            new GetPreTriageResultQuery(EntityId.From(id), callerMode, anonymousCapability),
+            cancellationToken);
+        return Results.Ok(ToResponse(result));
     }
 
     private static async Task<IResult> SubmitAnswersAsync(
@@ -81,20 +162,12 @@ internal static class PreTriageEndpointExtensions
             throw new PreTriageSessionNotFoundException();
         }
 
-        var authorizationSupplied = httpContext.Request.Headers.ContainsKey(
-            HeaderNames.Authorization);
-        var authenticated = httpContext.User.Identity?.IsAuthenticated == true;
-        if (authorizationSupplied && !authenticated)
-        {
-            throw new SessionAuthenticationException();
-        }
+        var callerMode = ResolveCallerMode(httpContext);
 
         var result = await useCase.ExecuteAsync(
             new SubmitTriageAnswersCommand(
                 EntityId.From(id),
-                authenticated
-                    ? PreTriageCallerMode.Authenticated
-                    : PreTriageCallerMode.Anonymous,
+                callerMode,
                 anonymousCapability,
                 request.QuestionnaireVersion,
                 request.Structured is null
@@ -121,13 +194,7 @@ internal static class PreTriageEndpointExtensions
         StartPreTriage useCase,
         CancellationToken cancellationToken)
     {
-        var authorizationSupplied = httpContext.Request.Headers.ContainsKey(
-            HeaderNames.Authorization);
-        var authenticated = httpContext.User.Identity?.IsAuthenticated == true;
-        if (authorizationSupplied && !authenticated)
-        {
-            throw new SessionAuthenticationException();
-        }
+        var callerMode = ResolveCallerMode(httpContext);
 
         var result = await useCase.ExecuteAsync(
             new StartPreTriageCommand(
@@ -135,9 +202,7 @@ internal static class PreTriageEndpointExtensions
                 request.PatientId.HasValue
                     ? ParsePatientId(request.PatientId.Value)
                     : null,
-                authenticated
-                    ? PreTriageCallerMode.Authenticated
-                    : PreTriageCallerMode.Anonymous,
+                callerMode,
                 request.UnsupportedFields?.Keys.ToArray() ?? []),
             cancellationToken);
 
@@ -154,6 +219,21 @@ internal static class PreTriageEndpointExtensions
         }
 
         return EntityId.From(patientId);
+    }
+
+    private static PreTriageCallerMode ResolveCallerMode(HttpContext httpContext)
+    {
+        var authorizationSupplied = httpContext.Request.Headers.ContainsKey(
+            HeaderNames.Authorization);
+        var authenticated = httpContext.User.Identity?.IsAuthenticated == true;
+        if (authorizationSupplied && !authenticated)
+        {
+            throw new SessionAuthenticationException();
+        }
+
+        return authenticated
+            ? PreTriageCallerMode.Authenticated
+            : PreTriageCallerMode.Anonymous;
     }
 
     private static PreTriageSessionStartResponse ToResponse(StartPreTriageResult result) =>
@@ -203,6 +283,28 @@ internal static class PreTriageEndpointExtensions
                 result.ClarificationClassification.HasValue
                     ? ToApiEnum(result.ClarificationClassification.Value)
                     : null));
+
+    private static NeutralPreTriageResultResponse ToResponse(NeutralPreTriageResult result) =>
+        new(
+            result.SessionId.Value,
+            result.EpisodeId.Value,
+            new PrimarySymptomResponse(
+                result.PrimarySymptom.Value,
+                result.PrimarySymptomDisplay),
+            new DurationResultResponse(result.DurationValue, result.DurationUnit),
+            result.Intensity,
+            result.AdditionalSymptoms,
+            result.CompletedAt,
+            new ClinicalDefinitionReferenceResponse(
+                result.QuestionnaireCode.Value,
+                result.QuestionnaireVersion.Value),
+            new ClinicalDefinitionReferenceResponse(
+                result.PackageCode.Value,
+                result.PackageVersion.Value),
+            new ClinicalContentStatusResponse(
+                ToApiValue(result.ContentStatus.Source),
+                ToApiValue(result.ContentStatus.ReviewStatus),
+                ToApiValue(result.ContentStatus.ApprovalStatus)));
 
     private static string ToApiEnum<T>(T value) where T : struct, Enum =>
         JsonNamingPolicy.SnakeCaseUpper.ConvertName(value.ToString());
@@ -331,3 +433,19 @@ internal sealed record IntakeClarificationResponse(
     string Code,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     string? Classification);
+
+internal sealed record NeutralPreTriageResultResponse(
+    Guid SessionId,
+    Guid EpisodeId,
+    PrimarySymptomResponse PrimarySymptom,
+    DurationResultResponse Duration,
+    int Intensity,
+    IReadOnlyList<string> AdditionalSymptoms,
+    DateTimeOffset CompletedAt,
+    ClinicalDefinitionReferenceResponse Questionnaire,
+    ClinicalDefinitionReferenceResponse Package,
+    ClinicalContentStatusResponse ClinicalContent);
+
+internal sealed record PrimarySymptomResponse(string Code, string Display);
+
+internal sealed record DurationResultResponse(decimal Value, string Unit);

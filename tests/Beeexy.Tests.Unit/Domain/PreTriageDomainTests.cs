@@ -219,7 +219,7 @@ public sealed class PreTriageDomainTests
 
         Assert.Equal(episode.Id, assessment.EpisodeId);
         Assert.Equal(episode.ClinicalRuleSetVersionId, assessment.ClinicalRuleSetVersionId);
-        Assert.Equal("test-only-urgency", assessment.UrgencyCode.Value);
+        Assert.Equal("test-only-urgency", assessment.UrgencyCode!.Value);
         var finding = Assert.Single(assessment.Findings);
         Assert.Equal("test-finding", finding.FindingCode);
         Assert.Equal("test-source-rule", finding.SourceRuleCode);

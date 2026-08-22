@@ -15,7 +15,7 @@ internal sealed class ClinicalAssessmentConfiguration
             "triage",
             table => table.HasCheckConstraint(
                 "ck_clinical_assessments_urgency_code",
-                "length(btrim(urgency_code)) > 0"));
+                "urgency_code IS NULL OR length(btrim(urgency_code)) > 0"));
 
         builder.HasKey(assessment => assessment.Id)
             .HasName("pk_clinical_assessments");
@@ -37,9 +37,11 @@ internal sealed class ClinicalAssessmentConfiguration
 
         builder.Property(assessment => assessment.UrgencyCode)
             .HasColumnName("urgency_code")
-            .HasConversion(code => code.Value, value => UrgencyCode.Create(value))
+            .HasConversion(
+                code => code == null ? null : code.Value,
+                value => value == null ? null : UrgencyCode.Create(value))
             .HasMaxLength(UrgencyCode.MaximumLength)
-            .IsRequired();
+            .IsRequired(false);
 
         builder.Property(assessment => assessment.ResultMessageReference)
             .HasColumnName("result_message_reference")

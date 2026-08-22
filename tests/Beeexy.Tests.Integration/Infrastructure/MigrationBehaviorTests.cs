@@ -15,6 +15,61 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
+    public async Task Phase47Migration_MakesOnlyUrgencyNullableAndCanRollbackAndReapply()
+    {
+        await EnsureMigratedAsync();
+        Assert.Equal("YES", await LoadUrgencyNullabilityAsync());
+        var options = CreateOptions();
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            await dbContext.GetService<IMigrator>()
+                .MigrateAsync("20260822061610_Phase45ConfirmedDemoPackages");
+        }
+
+        Assert.Equal("NO", await LoadUrgencyNullabilityAsync());
+        var now = DateTimeOffset.UtcNow;
+        var package = SimplifiedDemoDefinitionPackages.Create(ClinicalPathways.Headache);
+        ClinicalAssessment historicalAssessment;
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            var importer = new ClinicalDefinitionImporter(
+                dbContext,
+                new ClinicalDefinitionPackageValidator(),
+                NullLogger<ClinicalDefinitionImporter>.Instance);
+            await importer.ImportAsync(package);
+            var session = PreTriageSession.CreateAnonymous(
+                package.Questionnaire.Id,
+                AnonymousCapabilityHash.FromHash(Guid.NewGuid().ToString("N")),
+                now.AddHours(24),
+                now);
+            var episode = PreTriageEpisode.CreateFrom(
+                session,
+                package.RuleSet.Id,
+                now.AddMinutes(1),
+                now.AddHours(24));
+            historicalAssessment = ClinicalAssessment.Create(
+                episode,
+                UrgencyCode.Create("historical-test-urgency"),
+                episode.CompletedAt);
+            dbContext.AddRange(session, episode, historicalAssessment);
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            await dbContext.Database.MigrateAsync();
+            Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+            var preserved = await dbContext.ClinicalAssessments
+                .AsNoTracking()
+                .SingleAsync(value => value.Id == historicalAssessment.Id);
+            Assert.Equal("historical-test-urgency", preserved.UrgencyCode!.Value);
+        }
+
+        Assert.Equal("YES", await LoadUrgencyNullabilityAsync());
+    }
+
+    [Fact]
     public async Task Phase45Migration_PreservesDemoDefinitionsAcrossRollbackAndReapply()
     {
         await EnsureMigratedAsync();
@@ -364,6 +419,18 @@ public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
             "WHERE version = @version ORDER BY pathway_code LIMIT 1;";
         command.Parameters.AddWithValue(
             "version", SimplifiedDemoDefinitionPackages.VersionIdentifier);
+        return (string)(await command.ExecuteScalarAsync())!;
+    }
+
+    private async Task<string> LoadUrgencyNullabilityAsync()
+    {
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT is_nullable FROM information_schema.columns " +
+            "WHERE table_schema = 'triage' AND table_name = 'clinical_assessments' " +
+            "AND column_name = 'urgency_code';";
         return (string)(await command.ExecuteScalarAsync())!;
     }
 }

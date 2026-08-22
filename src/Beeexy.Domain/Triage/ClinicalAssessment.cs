@@ -8,14 +8,13 @@ public sealed class ClinicalAssessment
 
     private ClinicalAssessment()
     {
-        UrgencyCode = null!;
     }
 
     private ClinicalAssessment(
         EntityId id,
         EntityId episodeId,
         EntityId clinicalRuleSetVersionId,
-        UrgencyCode urgencyCode,
+        UrgencyCode? urgencyCode,
         string? resultMessageReference,
         DateTimeOffset createdAt)
     {
@@ -33,7 +32,7 @@ public sealed class ClinicalAssessment
 
     public EntityId ClinicalRuleSetVersionId { get; private set; }
 
-    public UrgencyCode UrgencyCode { get; private set; }
+    public UrgencyCode? UrgencyCode { get; private set; }
 
     public string? ResultMessageReference { get; private set; }
 
@@ -81,5 +80,22 @@ public sealed class ClinicalAssessment
         }
 
         return assessment;
+    }
+
+    public static ClinicalAssessment CreateNeutral(
+        PreTriageEpisode episode,
+        DateTimeOffset createdAt,
+        EntityId? id = null)
+    {
+        ArgumentNullException.ThrowIfNull(episode);
+        InstantGuard.EnsureNotBefore(createdAt, episode.CompletedAt, nameof(createdAt));
+
+        return new ClinicalAssessment(
+            id ?? EntityId.New(),
+            episode.Id,
+            episode.ClinicalRuleSetVersionId,
+            urgencyCode: null,
+            resultMessageReference: null,
+            createdAt);
     }
 }
