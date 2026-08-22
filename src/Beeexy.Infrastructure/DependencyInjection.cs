@@ -72,6 +72,11 @@ public static class DependencyInjection
         services.AddSingleton<IClinicalSafetyPolicy, ClinicalSafetyPolicy>();
         services.AddScoped<IClinicalAiOutputValidator, ClinicalAiOutputValidator>();
         services.AddScoped<InterpretClinicalInput>();
+        services.AddSingleton<
+            IAnonymousPreTriageCapabilityService,
+            CryptographicAnonymousPreTriageCapabilityService>();
+        services.AddScoped<IPreTriageSessionRepository, PreTriageSessionRepository>();
+        services.AddSingleton<IPreTriageSessionAuditLogger, PreTriageSessionAuditLogger>();
 
         services.AddSingleton(googleOptions);
         if (googleOptions.Enabled)

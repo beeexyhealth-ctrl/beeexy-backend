@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(13, paths.EnumerateObject().Count());
+        Assert.Equal(14, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
@@ -74,6 +74,9 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var careRelationshipDeleteOperation = paths
             .GetProperty("/api/v1/care-relationships/{id}")
             .GetProperty("delete");
+        var preTriageStartOperation = paths
+            .GetProperty("/api/v1/pre-triage/sessions")
+            .GetProperty("post");
 
         AssertResponseCodes(challengeOperation, "202", "400", "422", "429", "500");
         AssertResponseCodes(verifyOperation, "200", "400", "401", "409", "422", "429", "500");
@@ -102,6 +105,14 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             "401",
             "404",
             "409",
+            "422",
+            "500");
+        AssertResponseCodes(
+            preTriageStartOperation,
+            "201",
+            "400",
+            "401",
+            "404",
             "422",
             "500");
 
@@ -176,6 +187,12 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             logoutSecurity[0].TryGetProperty("Bearer", out _),
             logoutSecurity[0].GetRawText());
         Assert.False(refreshOperation.TryGetProperty("security", out _));
+
+        var preTriageSecurity = preTriageStartOperation.GetProperty("security");
+        Assert.Equal(2, preTriageSecurity.GetArrayLength());
+        Assert.Empty(preTriageSecurity[0].EnumerateObject());
+        Assert.True(preTriageSecurity[1].TryGetProperty("Bearer", out _));
+        Assert.True(preTriageStartOperation.TryGetProperty("requestBody", out _));
 
         var securitySchemes = document.RootElement
             .GetProperty("components")

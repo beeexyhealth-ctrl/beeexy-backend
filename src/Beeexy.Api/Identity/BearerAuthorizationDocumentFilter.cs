@@ -11,8 +11,12 @@ internal sealed class BearerAuthorizationDocumentFilter : IDocumentFilter
         foreach (var apiDescription in context.ApiDescriptions)
         {
             var metadata = apiDescription.ActionDescriptor.EndpointMetadata;
-            if (!metadata.OfType<IAuthorizeData>().Any() ||
-                metadata.OfType<IAllowAnonymous>().Any() ||
+            var optionalBearer = metadata
+                .OfType<OptionalBearerAuthorizationMetadata>()
+                .Any();
+            var requiredBearer = metadata.OfType<IAuthorizeData>().Any() &&
+                !metadata.OfType<IAllowAnonymous>().Any();
+            if ((!requiredBearer && !optionalBearer) ||
                 apiDescription.HttpMethod is null ||
                 apiDescription.RelativePath is null)
             {
@@ -29,13 +33,13 @@ internal sealed class BearerAuthorizationDocumentFilter : IDocumentFilter
                 continue;
             }
 
-            operation.Security =
-            [
-                new OpenApiSecurityRequirement
-                {
-                    [new OpenApiSecuritySchemeReference("Bearer", document, null)] = []
-                }
-            ];
+            var bearerRequirement = new OpenApiSecurityRequirement
+            {
+                [new OpenApiSecuritySchemeReference("Bearer", document, null)] = []
+            };
+            operation.Security = optionalBearer
+                ? [new OpenApiSecurityRequirement(), bearerRequirement]
+                : [bearerRequirement];
         }
     }
 
@@ -60,3 +64,5 @@ internal sealed class BearerAuthorizationDocumentFilter : IDocumentFilter
         return $"/{string.Join('/', segments)}";
     }
 }
+
+internal sealed class OptionalBearerAuthorizationMetadata;

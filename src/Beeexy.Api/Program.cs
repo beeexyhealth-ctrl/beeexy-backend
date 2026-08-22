@@ -4,8 +4,10 @@ using Beeexy.Api.Health;
 using Beeexy.Api.Identity;
 using Beeexy.Api.Middleware;
 using Beeexy.Api.Patients;
+using Beeexy.Api.Triage;
 using Beeexy.Application.Identity;
 using Beeexy.Application.Patients;
+using Beeexy.Application.Triage;
 using Beeexy.Infrastructure;
 using Beeexy.Infrastructure.Identity;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -63,6 +65,7 @@ builder.Services.AddScoped<RevokeCareRelationship>();
 builder.Services.AddScoped<AuthorizePatientAccess>();
 builder.Services.AddScoped<GetPatientProfile>();
 builder.Services.AddScoped<UpdateManagedPatient>();
+builder.Services.AddScoped<StartPreTriage>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentSessionIdentity, HttpCurrentSessionIdentity>();
 builder.Services
@@ -174,6 +177,7 @@ app.MapBeeexyHealthEndpoints();
 app.MapBeeexyAuthenticationEndpoints();
 app.MapBeeexyPatientEndpoints();
 app.MapBeeexyCareRelationshipEndpoints();
+app.MapBeeexyPreTriageEndpoints();
 
 app.Run();
 
