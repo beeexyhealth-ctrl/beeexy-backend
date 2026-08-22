@@ -66,6 +66,7 @@ builder.Services.AddScoped<AuthorizePatientAccess>();
 builder.Services.AddScoped<GetPatientProfile>();
 builder.Services.AddScoped<UpdateManagedPatient>();
 builder.Services.AddScoped<StartPreTriage>();
+builder.Services.AddScoped<SubmitTriageAnswers>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentSessionIdentity, HttpCurrentSessionIdentity>();
 builder.Services

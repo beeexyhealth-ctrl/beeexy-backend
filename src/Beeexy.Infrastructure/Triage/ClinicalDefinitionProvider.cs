@@ -1,4 +1,5 @@
 using Beeexy.Application.Triage;
+using Beeexy.Domain.Common;
 using Beeexy.Domain.Triage;
 using Beeexy.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -63,6 +64,21 @@ public sealed class ClinicalDefinitionProvider(
             .Include(value => value.Questions)
             .SingleOrDefaultAsync(
                 value => value.Pathway == pathway && value.Version == version,
+                cancellationToken);
+        return questionnaire is null
+            ? null
+            : await BuildPackageAsync(questionnaire, cancellationToken);
+    }
+
+    public async Task<ClinicalDefinitionPackage?> GetDefinitionByQuestionnaireIdAsync(
+        EntityId questionnaireVersionId,
+        CancellationToken cancellationToken = default)
+    {
+        var questionnaire = await dbContext.QuestionnaireVersions
+            .AsNoTracking()
+            .Include(value => value.Questions)
+            .SingleOrDefaultAsync(
+                value => value.Id == questionnaireVersionId,
                 cancellationToken);
         return questionnaire is null
             ? null

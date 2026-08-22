@@ -77,6 +77,8 @@ public static class DependencyInjection
             CryptographicAnonymousPreTriageCapabilityService>();
         services.AddScoped<IPreTriageSessionRepository, PreTriageSessionRepository>();
         services.AddSingleton<IPreTriageSessionAuditLogger, PreTriageSessionAuditLogger>();
+        services.AddScoped<IPreTriageAnswerRepository, PreTriageAnswerRepository>();
+        services.AddSingleton<IPreTriageIntakeAuditLogger, PreTriageIntakeAuditLogger>();
 
         services.AddSingleton(googleOptions);
         if (googleOptions.Enabled)

@@ -1,6 +1,7 @@
 using Beeexy.Application.Common;
 using Beeexy.Application.Identity;
 using Beeexy.Application.Patients;
+using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
@@ -165,6 +166,26 @@ internal sealed class ApiExceptionHandler(
                 Status = StatusCodes.Status404NotFound,
                 Title = "Patient profile not found.",
                 Detail = "The requested patient profile could not be found."
+            };
+        }
+
+        if (exception is PreTriageSessionNotFoundException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Pre-triage session not found.",
+                Detail = "The requested pre-triage session could not be found."
+            };
+        }
+
+        if (exception is PreTriageSessionStateConflictException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Pre-triage session conflict.",
+                Detail = exception.Message
             };
         }
 

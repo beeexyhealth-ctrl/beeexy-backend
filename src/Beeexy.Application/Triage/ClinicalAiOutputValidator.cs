@@ -48,7 +48,8 @@ public sealed class ClinicalAiOutputValidator(IClinicalPathwayRegistry pathwayRe
                 ClinicalAiValidationIssue.RecognizedButUnsupportedPathway);
         }
 
-        if (pathwayResolution.ActiveDefinition is null)
+        var definition = request.PinnedDefinition ?? pathwayResolution.ActiveDefinition;
+        if (definition is null)
         {
             return Unsupported(
                 pathwayResolution,
@@ -64,11 +65,21 @@ public sealed class ClinicalAiOutputValidator(IClinicalPathwayRegistry pathwayRe
                 pathwayResolution.Pathway);
         }
 
+        if (definition.Pathway != pathwayResolution.Pathway ||
+            request.PinnedDefinition is not null &&
+            request.PinnedDefinition.Pathway != request.SelectedPathway)
+        {
+            return Rejected(
+                ClinicalAiValidationIssue.PathwayMismatch,
+                pathwayResolution.Status,
+                pathwayResolution.Pathway);
+        }
+
         var issues = new List<ClinicalAiValidationIssue>();
         var facts = ValidateFacts(
             request,
             output.Facts!,
-            pathwayResolution.ActiveDefinition,
+            definition,
             issues);
         var symptoms = await ValidateSymptomsAsync(
             output.Symptoms!,
@@ -186,7 +197,10 @@ public sealed class ClinicalAiOutputValidator(IClinicalPathwayRegistry pathwayRe
             }
             else
             {
-                issue = ValidateValue(candidate.Value, question!.Answer);
+                issue = ClinicalAnswerValueValidator.Validate(
+                    candidate.Value,
+                    question!,
+                    definition);
                 if (issue.HasValue)
                 {
                     status = ClinicalAiCandidateStatus.Rejected;
@@ -275,116 +289,6 @@ public sealed class ClinicalAiOutputValidator(IClinicalPathwayRegistry pathwayRe
         }
 
         return validated;
-    }
-
-    private static ClinicalAiValidationIssue? ValidateValue(
-        ClinicalAiCandidateValue value,
-        ClinicalAnswerDefinition answer)
-    {
-        if (value is null)
-        {
-            return ClinicalAiValidationIssue.WrongAnswerType;
-        }
-
-        return answer.Type switch
-        {
-            ClinicalAnswerType.FreeText => value is ClinicalAiTextValue text &&
-                !string.IsNullOrWhiteSpace(text.Value)
-                    ? null
-                    : ClinicalAiValidationIssue.WrongAnswerType,
-            ClinicalAnswerType.SingleChoice => ValidateChoice(value, answer),
-            ClinicalAnswerType.SymptomSelection => ValidateChoice(value, answer),
-            ClinicalAnswerType.MultipleChoice => ValidateMultipleChoice(value, answer),
-            ClinicalAnswerType.IntegerScale => ValidateInteger(value, answer),
-            ClinicalAnswerType.Boolean => value is ClinicalAiBooleanValue
-                ? null
-                : ClinicalAiValidationIssue.WrongAnswerType,
-            ClinicalAnswerType.Duration => ValidateDuration(value),
-            ClinicalAnswerType.Temperature => ValidateTemperature(value, answer),
-            _ => ClinicalAiValidationIssue.WrongAnswerType
-        };
-    }
-
-    private static ClinicalAiValidationIssue? ValidateChoice(
-        ClinicalAiCandidateValue value,
-        ClinicalAnswerDefinition answer)
-    {
-        if (value is not ClinicalAiChoiceValue choice ||
-            string.IsNullOrWhiteSpace(choice.Value))
-        {
-            return ClinicalAiValidationIssue.WrongAnswerType;
-        }
-
-        return answer.AllowedValues is { Count: > 0 } allowed &&
-            !allowed.Contains(choice.Value, StringComparer.Ordinal)
-                ? ClinicalAiValidationIssue.InvalidChoice
-                : null;
-    }
-
-    private static ClinicalAiValidationIssue? ValidateMultipleChoice(
-        ClinicalAiCandidateValue value,
-        ClinicalAnswerDefinition answer)
-    {
-        if (value is not ClinicalAiMultipleChoiceValue multiple ||
-            multiple.Values is null ||
-            multiple.Values.Count == 0 ||
-            multiple.Values.Any(string.IsNullOrWhiteSpace) ||
-            multiple.Values.Distinct(StringComparer.Ordinal).Count() != multiple.Values.Count)
-        {
-            return ClinicalAiValidationIssue.WrongAnswerType;
-        }
-
-        return answer.AllowedValues is { Count: > 0 } allowed &&
-            multiple.Values.Any(value => !allowed.Contains(value, StringComparer.Ordinal))
-                ? ClinicalAiValidationIssue.InvalidChoice
-                : null;
-    }
-
-    private static ClinicalAiValidationIssue? ValidateInteger(
-        ClinicalAiCandidateValue value,
-        ClinicalAnswerDefinition answer)
-    {
-        if (value is not ClinicalAiIntegerValue integer)
-        {
-            return ClinicalAiValidationIssue.WrongAnswerType;
-        }
-
-        return (answer.Minimum.HasValue && integer.Value < answer.Minimum.Value) ||
-            (answer.Maximum.HasValue && integer.Value > answer.Maximum.Value)
-            ? ClinicalAiValidationIssue.ValueOutsideRange
-            : null;
-    }
-
-    private static ClinicalAiValidationIssue? ValidateDuration(ClinicalAiCandidateValue value)
-    {
-        return value is ClinicalAiDurationValue duration &&
-            duration.Value > 0 &&
-            Enum.IsDefined(duration.Unit)
-                ? null
-                : ClinicalAiValidationIssue.InvalidDuration;
-    }
-
-    private static ClinicalAiValidationIssue? ValidateTemperature(
-        ClinicalAiCandidateValue value,
-        ClinicalAnswerDefinition answer)
-    {
-        if (value is not ClinicalAiTemperatureValue temperature ||
-            !Enum.IsDefined(temperature.Unit))
-        {
-            return ClinicalAiValidationIssue.InvalidTemperature;
-        }
-
-        if (answer.Unit is null)
-        {
-            return null;
-        }
-
-        return !string.Equals(
-            answer.Unit,
-            temperature.Unit.ToString(),
-            StringComparison.OrdinalIgnoreCase)
-                ? ClinicalAiValidationIssue.InvalidTemperature
-                : null;
     }
 
     private static ClinicalAiValidationOutcome DetermineOutcome(

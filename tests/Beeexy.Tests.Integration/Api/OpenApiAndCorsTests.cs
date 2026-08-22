@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(14, paths.EnumerateObject().Count());
+        Assert.Equal(15, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
@@ -77,6 +77,9 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var preTriageStartOperation = paths
             .GetProperty("/api/v1/pre-triage/sessions")
             .GetProperty("post");
+        var preTriageAnswerOperation = paths
+            .GetProperty("/api/v1/pre-triage/sessions/{id}/answers")
+            .GetProperty("post");
 
         AssertResponseCodes(challengeOperation, "202", "400", "422", "429", "500");
         AssertResponseCodes(verifyOperation, "200", "400", "401", "409", "422", "429", "500");
@@ -113,6 +116,15 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             "400",
             "401",
             "404",
+            "422",
+            "500");
+        AssertResponseCodes(
+            preTriageAnswerOperation,
+            "200",
+            "400",
+            "401",
+            "404",
+            "409",
             "422",
             "500");
 
@@ -193,6 +205,20 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.Empty(preTriageSecurity[0].EnumerateObject());
         Assert.True(preTriageSecurity[1].TryGetProperty("Bearer", out _));
         Assert.True(preTriageStartOperation.TryGetProperty("requestBody", out _));
+        var preTriageAnswerSecurity = preTriageAnswerOperation.GetProperty("security");
+        Assert.Equal(2, preTriageAnswerSecurity.GetArrayLength());
+        Assert.Empty(preTriageAnswerSecurity[0].EnumerateObject());
+        Assert.True(preTriageAnswerSecurity[1].TryGetProperty("Bearer", out _));
+        Assert.True(preTriageAnswerOperation.TryGetProperty("requestBody", out _));
+        var answerDescription = preTriageAnswerOperation.GetProperty("description").GetString();
+        Assert.Contains("X-Pre-Triage-Capability", answerDescription,
+            StringComparison.Ordinal);
+        Assert.Contains("intensity is 1-10", answerDescription,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("NAUSEA, DIARRHEA, and FEVER", answerDescription,
+            StringComparison.Ordinal);
+        Assert.Contains("FEVER is excluded", answerDescription,
+            StringComparison.Ordinal);
 
         var securitySchemes = document.RootElement
             .GetProperty("components")

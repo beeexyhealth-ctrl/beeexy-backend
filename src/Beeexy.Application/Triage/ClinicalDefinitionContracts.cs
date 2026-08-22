@@ -1,3 +1,4 @@
+using Beeexy.Domain.Common;
 using Beeexy.Domain.Triage;
 
 namespace Beeexy.Application.Triage;
@@ -21,6 +22,11 @@ public interface IClinicalDefinitionProvider
         ClinicalPathwayCode pathway,
         DefinitionVersion version,
         CancellationToken cancellationToken = default);
+
+    Task<ClinicalDefinitionPackage?> GetDefinitionByQuestionnaireIdAsync(
+        EntityId questionnaireVersionId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<ClinicalDefinitionPackage?>(null);
 }
 
 public enum ClinicalPathwayResolutionStatus

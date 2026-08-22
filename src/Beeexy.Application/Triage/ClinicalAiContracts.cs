@@ -103,12 +103,14 @@ public sealed class ClinicalAiInterpretationRequest
         string userMessage,
         ClinicalPathwayCode? selectedPathway = null,
         IReadOnlyList<ClinicalAiKnownFact>? knownFacts = null,
-        IReadOnlyList<QuestionCode>? allowedFactCodes = null)
+        IReadOnlyList<QuestionCode>? allowedFactCodes = null,
+        ClinicalDefinitionPackage? pinnedDefinition = null)
     {
         UserMessage = userMessage ?? throw new ArgumentNullException(nameof(userMessage));
         SelectedPathway = selectedPathway;
         KnownFacts = knownFacts?.ToArray() ?? [];
         AllowedFactCodes = allowedFactCodes?.ToArray() ?? [];
+        PinnedDefinition = pinnedDefinition;
     }
 
     public string UserMessage { get; }
@@ -118,6 +120,8 @@ public sealed class ClinicalAiInterpretationRequest
     public IReadOnlyList<ClinicalAiKnownFact> KnownFacts { get; }
 
     public IReadOnlyList<QuestionCode> AllowedFactCodes { get; }
+
+    public ClinicalDefinitionPackage? PinnedDefinition { get; }
 }
 
 public sealed record ClinicalAiProviderOutput(
