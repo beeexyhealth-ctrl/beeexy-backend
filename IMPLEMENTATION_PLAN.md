@@ -413,47 +413,50 @@ None until Andrea defines any relationship/consent mapping.
 
 ## 1. Objective
 
-Deliver an AI-assisted conversational Pre-Triage experience for anonymous and authenticated users while retaining deterministic, versioned clinical authority. Natural-language interpretation may make intake easier, but only validated clinical facts, controlled questionnaire branching, and deterministic rules produce urgency and disposition.
+Deliver a controlled AI-assisted symptom-intake demo for anonymous and authenticated users. The demo collects a minimum structured dataset for the three confirmed pathways `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`, completes it into an immutable episode, and returns a neutral symptom summary. `ABDOMINAL_PAIN` is displayed as "Stomach pain" in the frontend. Natural-language interpretation may make intake easier, but validated package-defined answers, deterministic questionnaire progression, and a deterministic completeness check remain authoritative. The current demo does not classify clinical urgency, calculate disposition, diagnose, prescribe, or approximate a production triage protocol.
 
 ## 2. Scope
 
 - Temporary active sessions for anonymous/authenticated flows.
 - Provider-independent AI-assisted intent classification and structured interpretation of natural-language symptom input.
 - Application-level clinical-AI safety policies and schema/output validation before extracted data can affect workflow state.
-- Multiple symptoms and free text with optional terminology normalization metadata.
+- Extraction of a selected primary symptom, duration, intensity from 1 through 10, and controlled additional-symptom selections from exactly `NAUSEA`, `DIARRHEA`, and `FEVER`; one message may populate multiple fields and no fourth additional-symptom option exists.
 - Provisional, immutable, versioned clinical-definition packages with explicit source, review, approval, and activation provenance.
-- A supported-pathway registry: `ABDOMINAL_PAIN` is the only current detailed pathway; `HEADACHE`, `CHEST_PAIN`, `FEVER`, `RESPIRATORY_SYMPTOMS`, `BACK_PAIN`, and `OTHER_SYMPTOMS` are recognized but unsupported until dedicated packages exist.
-- Versioned symptom-dependent questionnaire definitions and deterministic branch resolution.
-- Versioned deterministic clinical rules, stable urgency vocabulary, separate disposition definitions, and red-flag precedence.
-- Completed episode persistence/result retrieval.
-- Optional guarded AI-assisted patient-friendly phrasing after the canonical result exists.
+- A demo-supported-pathway registry containing exactly `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`. `CHEST_PAIN` and `OTHER_SYMPTOMS` remain recognized but unsupported for the frontend demo and receive no clinical protocol. The already recognized backend-only `RESPIRATORY_SYMPTOMS` and `BACK_PAIN` also remain unsupported and unchanged.
+- Simplified immutable questionnaire-package versions for the three supported demo pathways. Each package contains only the controlled demo fields and progression needed for symptom, duration, intensity, and selected additional symptoms. Applicability is deterministic: the `FEVER` primary pathway excludes `FEVER` from its additional-symptom choices, leaving only `NAUSEA` and `DIARRHEA` applicable for that pathway.
+- Deterministic questionnaire progression, validation, already-answered-question skipping, and minimum-completeness evaluation.
+- Immutable completed episode/assessment persistence and secure neutral result retrieval.
+- Optional guarded AI-assisted neutral phrasing after the canonical structured summary exists.
 - Secure, idempotent anonymous claim and 24-hour expiry.
+- Abandonment cleanup and the completed-episode-only Clinical History projection boundary.
 
 ## 3. Explicitly Out of Scope
 
 - Resume after abandonment.
-- Autonomous AI clinical decision-making, LLM-determined urgency/disposition, authoritative AI diagnoses, numeric disease probabilities, prescription generation, autonomous agents, and AI changes to completed clinical records.
+- Clinical urgency classification, including user-facing `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, or `VERY_LOW` outcomes.
+- Clinical disposition calculation, red-flag-based escalation, deterministic urgency-rule execution, emergency-level recommendations, diagnostic probabilities, treatment recommendations, or detailed symptom protocols intended to approximate production clinical triage.
+- Autonomous AI clinical decision-making, AI diagnoses, prescriptions, treatment invention, authoritative recommendations, autonomous agents, and AI changes to completed records.
 - Python, Google ADK, a separate AI microservice, or vendor-specific domain design without a later demonstrated requirement.
-- Invented or unapproved clinical pathways, thresholds, red flags, rules, or emergency wording.
-- Detailed execution for any symptom pathway other than `ABDOMINAL_PAIN`.
-- Dynamic AI questioning outside the controlled, versioned questionnaire and deterministic branch graph.
+- Supporting every frontend symptom option. Only `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER` receive simplified packages; `CHEST_PAIN` and `OTHER_SYMPTOMS` remain recognized but unsupported.
+- Invented or unapproved pathways, clinical thresholds, red flags, urgency rules, dispositions, emergency wording, or full protocols.
+- Dynamic AI questioning outside the controlled, versioned demo questionnaire.
+- FHIR generation, SNOMED production integration, and full Clinical History feature implementation.
 
 ## 4. Domain Model
 
 - Entities: `PreTriageSession`, `PreTriageEpisode`, `QuestionnaireDefinitionVersion`, `TriageQuestion`, `TriageAnswer`, `ReportedSymptom`, `ClinicalRuleSetVersion`, `ClinicalAssessment`, `ClinicalFinding`.
-- Reuse the Phase 4.1 aggregates and versioning model. Phase 4.2 may add only the metadata needed to distinguish `ClinicalContentSource`, `ClinicalReviewStatus`, and `ClinicalApprovalStatus`, or equivalent concepts, when existing provenance cannot express them. Provider/model fields do not belong in Domain.
-- Package/registry concepts: `ClinicalDefinitionPackage`, `ClinicalPathwayCode`, `IClinicalDefinitionProvider`, and `IClinicalPathwayRegistry`, or equivalent boundaries that map a pathway to exact questionnaire, rule-set, disposition, and message versions.
+- Reuse the completed Phase 4.1 aggregates and versioning model. Do not delete or redesign `ClinicalRuleSetVersion`, `ClinicalFinding`, urgency fields, or other future-clinical structures merely because the demo does not execute them.
+- `ClinicalAssessment` represents a structured symptom-intake summary for the demo. The current model requires a non-null urgency code, so Phase 4.7 must add the smallest backward-compatible domain/persistence adjustment that permits a neutral assessment with no urgency rather than storing a fake urgency sentinel. Existing future-clinical assessment creation may retain its stricter invariant. This is the only currently identified Phase 4.1 compatibility adjustment.
+- Package/registry concepts remain `ClinicalDefinitionPackage`, `ClinicalPathwayCode`, `IClinicalDefinitionProvider`, and `IClinicalPathwayRegistry`, or equivalent boundaries that map a pathway to an exact immutable questionnaire and package provenance. An existing rule-set version reference may remain for provenance/FK compatibility but is not executed by the demo and must contain no demo urgency/disposition authority.
 - AI boundary concepts live in Application/Infrastructure rather than controlling Domain: `ClinicalIntent`, `StructuredSymptomExtraction`, validated fact candidates, and temporary extraction provenance. Concrete provider/model configuration remains outside Domain.
 - `PreTriageSession` and its in-progress answers are temporary workflow state. They are not part of Clinical History and are not permanent clinical records.
-- Lifecycle: Start Pre-Triage -> temporary `PreTriageSession` -> temporary answers -> Complete -> create permanent `PreTriageEpisode` + `ClinicalAssessment` -> project the completed episode into Clinical History.
+- Lifecycle: Start Pre-Triage -> temporary `PreTriageSession` -> validated temporary demo answers -> minimum-completeness check -> create permanent immutable `PreTriageEpisode` + neutral `ClinicalAssessment` summary -> project only the completed episode into Clinical History.
 - Abandonment lifecycle: `PreTriageSession` -> expires/is discarded -> no `PreTriageEpisode`, `ClinicalAssessment`, or Clinical History record is created.
 - Session states: `Active -> Completed`; an anonymous completed episode may become `Claimed` or expire unclaimed.
-- Value objects: anonymous token hash, question code, symptom text/code, rule/questionnaire version, pathway code, urgency code, disposition code, and clinical-content status.
-- Stable urgency codes are `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, and `VERY_LOW`, ordered `VERY_LOW < LOW < MEDIUM < HIGH < CRITICAL`. Urgency and disposition are separate concepts. A lower-priority rule can never downgrade a higher urgency or red-flag result.
-- `CRITICAL` is supported in the vocabulary, but Phase 4 does not invent an exhaustive set of `CRITICAL` rules absent from the provisional abdominal package.
-- Invariants: only completed `PreTriageEpisode` records represent permanent clinical assessments and enter history; completion atomically creates the episode/assessment; Clinical History projection consumes only completed episodes and is idempotent; completed records are immutable; red flags have required precedence; result records exact definition versions and provenance; no numeric disease probabilities exist.
+- Current demo value objects include anonymous capability hash, question code, pathway code, duration value/unit, intensity, controlled option codes, questionnaire/package version, and content provenance. Existing urgency/disposition value objects remain dormant for future compatibility.
+- Invariants: only completed `PreTriageEpisode` records are permanent and history-eligible; completion atomically creates exactly one episode and neutral assessment after minimum completeness; projection is idempotent; completed records are immutable; results preserve exact definition versions/provenance; and no urgency, disposition, diagnosis, prescription, treatment recommendation, or numeric disease probability is generated.
 
-### Deterministic clinical authority
+### Deterministic demo workflow authority
 
 ```text
 User natural-language input
@@ -462,48 +465,54 @@ AI interpretation / structured extraction
         ↓
 Application validation / safety guardrails
         ↓
-Versioned questionnaire + deterministic branching
+Versioned simplified questionnaire
         ↓
-Validated clinical facts
+Deterministic progression + completeness check
         ↓
-Versioned deterministic clinical rule engine
+Validated symptom-intake summary
         ↓
-Urgency + disposition
+Immutable episode + neutral assessment
         ↓
-Optional AI-assisted patient-friendly phrasing
+Secure canonical result / optional neutral phrasing
 ```
 
-> The AI layer assists interpretation and conversation; it does not own clinical authority. Urgency and disposition are produced only by the deterministic, versioned clinical rule engine from validated clinical facts.
+> AI assists interpretation and neutral conversation only. Application code owns validation, questionnaire state, completeness, and persistence. Neither AI nor a deterministic urgency engine produces clinical urgency or disposition in the current demo.
 
 ## 5. Database Changes
 
 - `triage.pre_triage_sessions`, `pre_triage_episodes`, `questionnaire_versions`, `questions`, `answers`, `reported_symptoms`, `clinical_rule_set_versions`, `clinical_assessments`, `clinical_findings`.
 - UUID PKs; nullable patient FK before anonymous claim; unique session-to-episode; token hash unique; claim idempotency constraint.
 - Index token hash/expiry, patient/completed time, question/rule versions.
-- Add only additive persistence needed for package/pathway references, disposition definitions, and explicit clinical-content source/review/approval status. Provisional and later approved versions must coexist; historical episodes retain their exact referenced versions and statuses.
+- Preserve the completed Phase 4.1 and Phase 4.2 migrations and all existing clinical-rule/finding structures for future compatibility. Prefer additive definition imports and registry configuration; do not remove columns, tables, constraints, or the detailed abdominal package.
+- Add immutable simplified questionnaire/package versions for only `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`. Do not mutate the existing abdominal package in place.
+- The existing provenance vocabulary cannot truthfully distinguish Andrea-defined non-clinical demo content from reference-platform-derived clinical content. Phase 4.5 must define an explicit demo/non-clinical provenance value before importing simplified packages; because the current database constrains allowed provenance values, this likely requires one narrow additive enum/check-constraint migration. Do not label demo content medically approved or reference-platform-derived when it is not.
+- Phase 4.7 must make the current required `clinical_assessments.urgency_code` nullable, or implement an equally small truthful representation, so a neutral symptom summary does not persist a fabricated urgency. Prefer a nullable field with a dedicated neutral-assessment factory over a sentinel urgency code. No destructive migration is allowed.
 - If temporary AI-extraction provenance is persisted, keep it in temporary workflow/application-owned storage, exclude provider-specific fields from core Domain, apply minimum retention, and never treat raw or unvalidated extraction as a clinical fact.
 - Session and in-progress answer rows are temporary workflow storage, including when stored server-side for anonymous execution. Completion materializes the permanent episode/assessment records; abandoned sessions never do.
 - Unclaimed anonymous temporary data and completed episodes expire after 24 hours; a completed anonymous episode may be claimed by an authenticated primary patient within that period.
 - Abandoned authenticated sessions are expired/discarded by cleanup, cannot be resumed in the MVP, and never create permanent clinical or history records.
-- Clinical definitions are immutable versioned import artifacts, never derived from prototype values. The initial abdominal versions preserve semantics equivalent to `REFERENCE_PLATFORM_DERIVED`, `PROVISIONAL`, and `PENDING_FORMAL_REVIEW`; they are never automatically presented as approved.
+- Clinical definitions are immutable versioned import artifacts. The existing abdominal versions retain `REFERENCE_PLATFORM_DERIVED`, `PROVISIONAL`, and `PENDING_FORMAL_REVIEW`; new simplified demo versions retain truthful demo provenance and are never presented as approved clinical protocols.
 
 ## 6. API Endpoints
 
 | Method / route | Authentication | Authorization | Purpose | Response | Validation and errors |
 |---|---|---|---|---|---|
-| `POST /api/v1/pre-triage/sessions` | Optional Bearer | Anonymous or owner/active manager for patient | Start current assessment and resolve a supported pathway | `201`; anonymous token returned once | Unauthorized patient `404`; recognized-but-unsupported pathway `422`; ambiguous input requests clarification |
-| `POST /api/v1/pre-triage/sessions/{id}/answers` | Bearer owner/manager or anonymous token header | Matching session capability | Submit explicit or natural-language answer(s), validate facts, and get next question | `200` progress | Invalid extraction/branch/answer `422` or clarification; completed/expired `409`; invalid capability `401` |
-| `POST /api/v1/pre-triage/sessions/{id}/complete` | Same | Matching session capability | Execute deterministic rules and persist episode | `201` assessment/result | Incomplete/no eligible versioned rule set `422`; concurrent/repeat completion `409` or idempotent result |
-| `GET /api/v1/pre-triage/sessions/{id}/result` | Bearer owner/manager or anonymous token | Matching completed session | Retrieve result | `200` | Incomplete `409`; absent/expired `404`; bad capability `401` |
+| `POST /api/v1/pre-triage/sessions` | Optional Bearer | Anonymous or owner/active manager for patient | Start against an explicit demo-supported pathway | `201`; anonymous capability returned once | Unauthorized patient concealed `404`; unsupported/unknown/unavailable pathway `422`; invalid supplied Bearer `401` |
+| `POST /api/v1/pre-triage/sessions/{id}/answers` | Bearer owner/manager or anonymous capability header | Matching session access | Submit explicit structured values or natural language, persist validated answers, and return progress/next question | `200` progress | Invalid/ambiguous extraction or answer produces safe clarification/`422`; completed/expired/stale state `409`; invalid capability `401` |
+| `POST /api/v1/pre-triage/sessions/{id}/complete` | Same | Matching session access | Validate minimum demo completeness and atomically persist a neutral episode/assessment summary | `201` completed summary reference | Incomplete `422`; expired `404/409`; concurrent/repeat completion follows documented idempotency contract |
+| `GET /api/v1/pre-triage/sessions/{id}/result` | Bearer owner/manager or anonymous capability | Matching completed session | Retrieve the neutral structured symptom summary | `200` | Incomplete `409`; absent/expired concealed `404`; bad capability `401` |
 | `POST /api/v1/pre-triage/sessions/{id}/claim` | Bearer + anonymous token | Primary patient of authenticated account | Attach anonymous episode | `200` claimed episode | Expired/invalid `401/404`; claimed by another patient `409`; repeat by same patient idempotent |
+
+The result contract contains primary symptom, duration, intensity, controlled additional symptoms, completion timestamp, exact definition/questionnaire version, and content provenance. It must not contain urgency, disposition, red-flag output, emergency recommendation, diagnosis, prescription, treatment recommendation, or disease probability. A neutral continuation message may point to a non-clinical next Beeexy experience such as finding a doctor.
 
 ## 7. Application / Use Cases
 
-- `StartPreTriage`, `InterpretClinicalInput`, `ClassifyClinicalIntent`, `ValidateClinicalAiOutput`, `ExtractStructuredSymptoms`, `SubmitTriageAnswers`, `ResolveNextQuestion`, `CompletePreTriage`, `GetPreTriageResult`, `ClaimAnonymousPreTriage`, `ExpireAnonymousPreTriage`, and `ProjectCompletedPreTriageEpisode`.
+- `StartPreTriage`, `InterpretClinicalInput`, `ClassifyClinicalIntent`, `ValidateClinicalAiOutput`, `ExtractStructuredSymptoms`, `SubmitTriageAnswers`, `ResolveNextQuestion`, `CheckDemoQuestionnaireCompleteness`, `CompletePreTriage`, `GetPreTriageResult`, `ClaimAnonymousPreTriage`, `ExpireAnonymousPreTriage`, and `ProjectCompletedPreTriageEpisode`.
 - Provider-neutral boundaries include `IClinicalAiProvider`, `ISymptomExtractor`, `IClinicalIntentClassifier`, `IClinicalAiOutputValidator`, and `IClinicalSafetyPolicy`, or a smaller equivalent separation preserving the same authority boundaries.
-- Prefer schema-constrained structured AI output. Low-confidence, ambiguous, invalid, conflicting, or unsupported extraction produces clarification and cannot silently create facts or advance questionnaire state.
-- `IClinicalRuleEngine` consumes validated facts and executes only the exact selected versioned rules. It is the sole urgency/disposition authority.
-- `ISymptomNormalizer` supports uncoded free text and future SNOMED service.
+- Prefer schema-constrained structured AI output. Low-confidence, ambiguous, invalid, conflicting, or unsupported extraction produces clarification and cannot silently create answers or advance questionnaire state.
+- The answer workflow accepts explicit structured input without an AI provider. Valid extraction may populate duration, intensity, and controlled additional symptoms together; deterministic progression skips fields already validly answered.
+- `IDemoQuestionnaireCompletenessPolicy` and a canonical summary builder, or equivalents, operate only on the exact pinned simplified questionnaire version. No `IClinicalRuleEngine` is required for the demo.
+- `ISymptomNormalizer` remains a future-facing interface for uncoded text and eventual SNOMED integration; it cannot make an unsupported pathway supported.
 
 ## 8. Authentication and Authorization
 
@@ -512,6 +521,7 @@ Optional AI-assisted patient-friendly phrasing
 - Authenticated patient selection uses owner/active-manager authorization.
 - Claim requires both bearer authentication and anonymous capability.
 - Every start, answer, completion, result, and claim operation rechecks the relevant capability or patient authorization; AI-derived identifiers never confer access.
+- Existing Phase 4.4 invalid-authentication non-downgrade, primary-patient defaulting, managed-patient authorization, exact-version pinning, and concealed-IDOR behavior remain unchanged when additional demo pathways are registered.
 
 ## 9. Security and Privacy
 
@@ -520,39 +530,41 @@ Optional AI-assisted patient-friendly phrasing
 - Authenticated abandonment creates no permanent clinical record, and resume after abandonment is not supported in the MVP.
 - Clinical History projection accepts only completed `PreTriageEpisode` records, never a `PreTriageSession` or its temporary answers.
 - Application-enforced intent/safety outcomes include at least `PRE_TRIAGE_INPUT`, `OUT_OF_SCOPE`, `PRESCRIPTION_REQUEST`, `UNSUPPORTED_CLINICAL_REQUEST`, `POTENTIAL_PROMPT_INJECTION`, and `AMBIGUOUS`. Critical restrictions cannot rely only on an LLM system prompt.
-- AI output is schema-, enum-, confidence-, pathway-, conflict-, and safety-validated before use. AI-supplied urgency, disposition, diagnosis, thresholds, red flags, prescriptions, or probabilities are rejected or ignored.
-- Prompt injection cannot disable application safety or deterministic red-flag precedence. Optional rendering cannot remove emergency wording or alter the canonical result.
+- AI output is schema-, enum-, confidence-, pathway-, conflict-, and safety-validated before use. AI-supplied urgency, disposition, diagnosis, thresholds, red flags, prescriptions, treatment recommendations, or probabilities are rejected or ignored.
+- Prompt injection cannot disable application safety or deterministic questionnaire state. Optional neutral rendering cannot add clinical conclusions or alter canonical structured fields.
 - Provider requests, responses, errors, and logs exclude capability/bearer tokens, unnecessary demographics, raw health payloads, and prompts containing more clinical data than needed. Provider failure does not leak secrets or internals.
-- Emergency wording is configuration tied to the exact clinical-definition version and its review/approval status.
+- Unknown or unsupported symptoms are never silently mapped to a supported demo pathway. `OTHER_SYMPTOMS` remains unsupported and is not a clinical catch-all.
 - Completed records cannot be overwritten.
 
 ## 10. External Integrations
 
-- **IMPLEMENT NOW:** deterministic internal clinical-definition/rule provider and provider-independent clinical AI abstraction, validation, and safety boundary.
+- **IMPLEMENT FOR DEMO:** deterministic internal simplified-definition provider, questionnaire progression/completeness, and the existing provider-independent clinical-AI abstraction, validation, and safety boundary.
 - **IMPLEMENT IF CONFIGURED / OPTIONAL:** a concrete AI provider adapter selected through Infrastructure configuration; the plan is not bound to NVIDIA NIM, Ollama, Gemini, OpenAI, or another vendor.
 - **INTERFACE/PLACEHOLDER:** `ISnomedTerminologyService`.
-- **POST-MVP:** autonomous agents and dynamic AI questioning beyond the controlled questionnaire.
+- **POST-DEMO:** clinical urgency/rule providers, full symptom protocols, autonomous agents, and dynamic AI questioning beyond the controlled questionnaire.
 
 ## 11. FHIR Impact
 
-Internal answers/assessment retain stable identifiers and version provenance needed later for `QuestionnaireResponse`, `RiskAssessment`, `Device`, and `Provenance`. No FHIR is generated here.
+Internal answers and the completed neutral assessment retain stable identifiers and version provenance that may later support `QuestionnaireResponse` and `Provenance` mapping. Do not emit a `RiskAssessment` or imply risk/urgency from this demo summary. No FHIR is generated in Phase 4; exact Phase 6 mapping remains deferred.
 
 ## 12. Tests
 
-- Anonymous/authenticated successful flows for the provisional abdominal question branches.
-- Multiple symptoms, free text, optional coding/provenance, multi-fact extraction, and avoidance of questions already answered by reliably validated facts.
-- Structured-output schema/enum/confidence validation; malformed, ambiguous, conflicting, unsupported, diagnosis/urgency/probability-bearing, and adversarial outputs cannot become authoritative facts.
+- End-to-end anonymous, authenticated-primary, and authorized-managed flows for `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`.
+- Explicit structured flow remains usable during AI provider outage.
+- Duration extraction and unit validation; intensity integer/range validation from 1 through 10; controlled additional-symptom selection restricted to `NAUSEA`, `DIARRHEA`, and `FEVER`; deterministic exclusion of `FEVER` as an additional option when the primary pathway is `FEVER`; multi-field extraction from one message; and avoidance of questions already answered by reliably validated values.
+- Structured-output schema/enum/confidence validation; malformed, ambiguous, conflicting, unsupported, diagnosis/urgency/disposition/probability-bearing, and adversarial outputs cannot become authoritative answers.
 - Intent/safety fixtures for out-of-scope input, prescription requests, unsupported clinical requests, prompt injection, and ambiguous input.
-- Provider-unavailable behavior preserves explicit deterministic intake/assessment and falls back to canonical result wording; no unsafe guessed extraction is accepted.
-- Supported/unsupported pathway registry tests and refusal to apply abdominal rules to any other category.
-- Deterministic rule repeatability, urgency ordering, no-downgrade behavior, and red-flag precedence using only provisional-package fixtures.
-- No numeric probability output.
+- Provider-unavailable behavior preserves explicit deterministic intake/completion and canonical result wording; no unsafe guessed extraction is accepted.
+- Registry tests prove exactly `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER` are demo-supported; `CHEST_PAIN`, `OTHER_SYMPTOMS`, and every other preexisting recognized-but-unsupported pathway remain safe; unknown pathways remain distinct; and no package is borrowed across pathways.
+- Deterministic questionnaire progression and completeness tests cover each simplified package, already-answered skipping, stale/concurrent submissions, and completion refusal until the minimum fields are present.
+- Negative contract/reflection tests prove no current demo response or completion path generates urgency, disposition, red-flag output, emergency recommendation, diagnosis, prescription, treatment recommendation, or numeric disease probability.
 - Temporary sessions/answers never appear in Clinical History before completion; abandoned anonymous and authenticated sessions create no permanent episode or history record.
 - Authenticated abandonment cannot resume in the MVP.
 - Token entropy/hash/access tests; anonymous completed-episode claim within 24 hours; unclaimed temporary/completed data expiry/deletion at 24 hours.
 - Concurrent completion and claim idempotency; cross-account claim conflict.
-- Adversarial patient-friendly rendering cannot alter urgency/disposition, remove required emergency text, prescribe, diagnose, or introduce probabilities.
-- AI/provider absence has no effect on deterministic clinical authority.
+- Adversarial neutral rendering cannot alter canonical fields or add urgency, disposition, diagnosis, prescription, treatment, emergency advice, or probability.
+- Clinical History projection consumes only completed immutable episodes and is exactly-once/idempotent.
+- Capability security, bearer non-downgrade, IDOR, owner/manager authorization, migration, database constraints, OpenAPI, concurrency, and privacy-safe logging regressions remain green.
 - Mandatory endpoint test matrix for all five endpoints.
 
 ## 13. Acceptance Criteria
@@ -561,38 +573,51 @@ Internal answers/assessment retain stable identifiers and version provenance nee
 - Authenticated users assess only authorized patients.
 - `PreTriageSession` remains temporary workflow state; only successful completion creates a permanent `PreTriageEpisode` + `ClinicalAssessment` and projects it into Clinical History.
 - Abandonment creates no Clinical History record; authenticated abandoned flows cannot resume in the MVP; unclaimed anonymous data expires after 24 hours.
-- AI never determines or overrides urgency or disposition; deterministic versioned rules operating on validated facts remain authoritative.
-- `ABDOMINAL_PAIN` passes the complete vertical slice against the provisional package; recognized-but-unsupported pathways are handled safely without borrowing abdominal rules.
-- Definition versions derived from the provisional abdominal package preserve source/review/approval semantics equivalent to `REFERENCE_PLATFORM_DERIVED`, `PROVISIONAL`, and `PENDING_FORMAL_REVIEW`.
-- Later reviewed/approved versions can be imported and activated without mutating episodes produced by earlier versions.
-- AI provider outage cannot compromise deterministic assessment or canonical result delivery.
-- No prototype clinical values become rules.
+- `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER` pass the simplified vertical slice; `ABDOMINAL_PAIN` is presented as "Stomach pain" without changing its stable pathway code.
+- Each supported pathway collects primary symptom, duration, intensity 1-10, and controlled additional symptoms through an exact immutable simplified questionnaire version. The complete controlled option catalog is exactly `NAUSEA`, `DIARRHEA`, and `FEVER`, with no fourth option.
+- The `FEVER` package deterministically excludes `FEVER` from applicable additional-symptom choices when `FEVER` is already the primary symptom; it must not ask or persist redundant fever-as-additional-symptom data.
+- Natural language may populate multiple valid fields and already answered questions are skipped; explicit structured entry works without AI.
+- Completion requires only the minimum demo questionnaire and creates an immutable neutral structured summary, not a clinical risk assessment.
+- No current demo execution or response produces urgency, disposition, red-flag escalation, emergency recommendation, diagnosis, prescription, treatment recommendation, or disease probability.
+- Existing and new definition versions coexist without mutation; provenance truthfully distinguishes the detailed provisional abdominal artifact from simplified non-clinical demo content.
+- AI provider outage cannot compromise deterministic questionnaire use, completion, or canonical neutral result delivery.
+- Recognized-but-unselected and unknown pathways fail safely without borrowing definitions or being mapped to abdominal pain.
 - Migrations and all tests pass.
 
 ## 14. Dependencies
 
 - Phases 1-3 (Phase 3 only for dependent assessments).
-- Phase 4.1 persistence foundation.
-- `beeexy-phase4-provisional-clinical-definitions.md` for the provisional abdominal questionnaire, branching, red flags, urgency rules, dispositions, recommendations, and fixtures.
+- Completed Phase 4.1-4.4 foundations.
+- Andrea's demo direction in this plan is authoritative for current Phase 4 execution.
+- Andrea-confirmed demo configuration: supported pathways are `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`; the controlled additional-symptom catalog is exactly `NAUSEA`, `DIARRHEA`, and `FEVER`; `FEVER` is excluded when it duplicates the primary pathway.
+- The frontend flow is a UX reference only; it is not authority to support all five choices or to create clinical protocols.
+- `beeexy-phase4-provisional-clinical-definitions.md` remains provenance for the stored detailed abdominal package and future clinical work, but its red flags, urgency rules, dispositions, and emergency recommendations are not dependencies of current demo execution.
 
-## 15. Deferred / TBD Items
+## 15. Deferred / Technical TBD Items
 
-- Dedicated versioned packages for `HEADACHE`, `CHEST_PAIN`, `FEVER`, `RESPIRATORY_SYMPTOMS`, `BACK_PAIN`, and `OTHER_SYMPTOMS`.
-- Exhaustive `CRITICAL` rules, formal clinical review/approval and subsequent approved/activated versions, production emergency-message localization, SNOMED provider, possible-condition policy, and future dynamic AI questioning beyond controlled questionnaire behavior.
+- The demo pathway and additional-symptom product decisions are complete: `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER` are supported; `NAUSEA`, `DIARRHEA`, and `FEVER` are the complete additional-symptom catalog; no fourth option may be invented.
+- **TBD — truthful provenance code:** exact persisted source/status name for Andrea-defined non-clinical demo packages; it must not imply clinical approval or reference-platform derivation.
+- **TBD — neutral continuation wording:** optional product-approved message directing the user to the next Beeexy experience without clinical recommendation.
+- Concrete AI provider/vendor selection, production terminology normalization, localization, and future dynamic questioning.
+- All urgency, disposition, red-flag execution, emergency recommendations, detailed protocols, formal clinical approval, and clinical FHIR risk mapping are deferred to **POST-DEMO / FUTURE CLINICAL PRE-TRIAGE**.
 
 ## Implementation Readiness
 
-### Can proceed now for the abdominal vertical slice
+### Completed and still valid
 
-Phase 4.2 through Phase 4.13 may proceed, provided every subphase stays within `beeexy-phase4-provisional-clinical-definitions.md` and does not invent missing content.
+Phase 4.1 through Phase 4.4 remain complete. Their persistence foundations, immutable versioning, provider-independent AI guardrails, anonymous capability security, 24-hour expiry metadata, authenticated authorization, IDOR protection, and exact-definition pinning are retained.
 
-### Directly dependent on the provisional abdominal package
+### Required before Phase 4.6 intake implementation
 
-Phase 4.2, Phase 4.5, Phase 4.6, Phase 4.7, Phase 4.9, and Phase 4.13.
+Phase 4.5 must implement the confirmed `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER` simplified packages with the exact `NAUSEA`, `DIARRHEA`, and `FEVER` option catalog and deterministic primary-symptom exclusion. No remaining product decision blocks Phase 4.5. Current code still supports only `ABDOMINAL_PAIN` until that additive implementation is completed; Phase 4.6 must depend on the imported package schemas rather than inventing content.
 
-### Must remain unavailable for detailed clinical execution
+### Small additive compatibility work
 
-`HEADACHE`, `CHEST_PAIN`, `FEVER`, `RESPIRATORY_SYMPTOMS`, `BACK_PAIN`, and `OTHER_SYMPTOMS` remain recognized but unsupported until their own versioned clinical packages exist.
+Phase 4.5 may add registry/importer support and one narrow provenance constraint migration for the selected simplified demo packages. Phase 4.4's handler/security design should not change; extend only definition registration and pathway tests. Phase 4.7 must allow a neutral `ClinicalAssessment` without a fabricated urgency, which currently requires a small backward-compatible domain/persistence adjustment and likely a narrow migration. All other existing Phase 4.1 clinical structures remain intact and dormant.
+
+### Must remain unavailable
+
+`CHEST_PAIN` and `OTHER_SYMPTOMS` remain recognized but unsupported for the demo and receive no protocol. Existing `RESPIRATORY_SYMPTOMS` and `BACK_PAIN` recognition remains unchanged and unsupported. Detailed clinical execution is unavailable for every pathway, including all three supported demo pathways: stored detailed abdominal rules remain versioned but are not invoked.
 
 ## Phase 4.1 — Pre-Triage Domain + Persistence Foundation
 
@@ -602,11 +627,15 @@ Phase 4.2, Phase 4.5, Phase 4.6, Phase 4.7, Phase 4.9, and Phase 4.13.
 
 Phase 4.1 remains the authoritative, clinically content-neutral technical foundation and is not redesigned for AI. If its current provenance fields cannot represent provisional review state, Phase 4.2 may add narrowly scoped source/review/approval metadata. Temporary AI-extraction metadata may remain outside the core Domain.
 
+**Demo-scope addendum:** Preserve all Phase 4.1 entities and migration history. During neutral demo completion, add only the smallest backward-compatible assessment adjustment required to avoid fabricating a required urgency value; do not remove future-clinical fields or weaken existing lifecycle, immutability, ownership, or versioning constraints.
+
 ## Phase 4.2 — Clinical Definition Packages + Supported Pathway Registry
 
 **Phase 4.2 status:** COMPLETE (2026-08-21)
 **Phase 4.2 implementation:** Added an immutable, versioned `ABDOMINAL_PAIN` definition package (`2026.08.21-provisional.1`) derived only from `beeexy-phase4-provisional-clinical-definitions.md`: 41 typed questions, 14 deterministic branch definitions, 13 red flags, 10 explicit urgency-rule artifacts, the ordered five-level urgency vocabulary, five separate disposition/recommendation definitions, and source limitations. `ABDOMINAL_PAIN` is supported; `HEADACHE`, `CHEST_PAIN`, `FEVER`, `RESPIRATORY_SYMPTOMS`, `BACK_PAIN`, and `OTHER_SYMPTOMS` are recognized but unsupported, with unknown pathways remaining distinct. Package validation rejects broken question/rule references, invalid branch values, incompatible provenance, incorrect urgency ordering, and cross-pathway import. Canonical JSON hashes, deterministic identifiers, immutable same-version semantics, atomic/idempotent import, active/exact-version retrieval, and future-version coexistence are implemented. Both definition versions retain `REFERENCE_PLATFORM_DERIVED`, `PROVISIONAL`, and `PENDING_FORMAL_REVIEW`; provisional content has no approval timestamp and is never promoted in place. Migration `20260822035009_Phase42ClinicalDefinitionPackages` adds the narrowly required pathway, provenance/status, nullable approval, rule-package JSON, indexes, and database checks. No session execution, branch execution, rule evaluation, AI, endpoint, detailed non-abdominal package, probability, diagnosis, prescription, or inferred `CRITICAL` trigger was introduced.
 **Phase 4.2 verification:** Restore succeeded; the final Debug solution build completed with 0 warnings and 0 errors. The full suite passed 518 tests: 290 unit and 228 real-PostgreSQL integration, with 0 failed and 0 skipped. Four focused persistence/migration cases passed, including clean full-chain application and Phase 4.2 rollback/reapply; the 14 focused package/registry unit cases also pass. PostgreSQL retains content status and immutable versions, the importer rejects same-version hash changes, and the provider verifies stored hashes before returning definitions. EF reported no pending model changes; formatting verification and `git diff --check` passed. The source package intentionally defines the `CRITICAL` vocabulary/disposition but no complete `CRITICAL` trigger set, so exhaustive critical rules and formal clinical approval remain deferred to a new reviewed version.
+
+**Demo-scope addendum:** Phase 4.2 remains complete and its detailed abdominal package/migration are retained unchanged, but current demo execution does not consume that package's red flags, urgency rules, dispositions, or emergency recommendations. Phase 4.5 is a small additive definition follow-up: import new simplified immutable questionnaire versions for exactly `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`; include only primary symptom, duration, intensity, and the controlled `NAUSEA`/`DIARRHEA`/`FEVER` additional-symptom catalog; deterministically exclude `FEVER` as an additional choice for the `FEVER` primary pathway; truthfully label the packages non-clinical/demo content; and register only those three pathways as demo-supported. Do not create protocols for `CHEST_PAIN`, `OTHER_SYMPTOMS`, or any other unsupported pathway.
 
 **Objective:** Create versioned clinical-definition infrastructure and materialize the provisional `ABDOMINAL_PAIN` package.
 
@@ -658,145 +687,103 @@ Phase 4.1 remains the authoritative, clinically content-neutral technical founda
 
 **Phase 4.4 status:** COMPLETE (2026-08-22)
 **Phase 4.4 implementation:** Added `POST /api/v1/pre-triage/sessions` and the `StartPreTriage` application use case for anonymous, authenticated-primary, and authorized managed-patient starts. The request accepts only an explicit pathway and optional authenticated patient UUID; missing, unknown, recognized-but-unsupported, unavailable-definition, extra-field, natural-language, and anonymous-patient requests fail safely without creating a session. Supplied invalid bearer credentials cannot downgrade to anonymous access. Authenticated patient resolution reuses the shared patient-authorization boundary and conceals inaccessible, revoked, reverse-direction, and missing patient records behind `404`. Successful starts pin the exact active Phase 4.2 questionnaire and rule-set identities and return their provisional provenance. Anonymous starts generate a 256-bit cryptographic capability, persist only its SHA-256 representation, provide constant-time verification, return the raw capability exactly once after successful persistence, and expire after 24 hours; logs omit both raw capability and hash. The endpoint creates only the temporary Phase 4.1 session: no episode, clinical assessment, finding, answer, rule evaluation, urgency, disposition, claim, resume, or AI-provider call occurs. Optional bearer OpenAPI metadata documents both anonymous and bearer modes. No schema change, migration, project dependency, production clinical package seeding, or endpoint beyond session start was introduced.
-**Phase 4.4 verification:** Restore succeeded and the final Debug solution build completed with 0 warnings and 0 errors. The full suite passed 599 tests: 353 unit and 246 real-PostgreSQL integration, with 0 failed and 0 skipped. Focused Phase 4.4 coverage passed 40 cases: 25 application/capability unit cases and 15 API/persistence cases, including independent capability entropy, hash-only persistence, constant-time verification, exact 24-hour expiry, exact/future active-version pinning, response provenance, strict input handling, invalid-auth non-downgrade, primary/managed authorization, IDOR concealment, no permanent clinical records, and no sensitive capability logging or headers. The 82 focused Phase 4.1-4.3 regression cases passed, as did all 9 migration/rollback cases. EF reported no pending model changes and no migration was created; formatting and `git diff --check` passed. Formal review of the provisional abdominal package, natural-language pathway classification, answer submission, branching, rule execution, completion, claiming, and resuming remain deferred to their planned phases.
+**Phase 4.4 verification:** Restore succeeded and the final Debug solution build completed with 0 warnings and 0 errors. The full suite passed 599 tests: 353 unit and 246 real-PostgreSQL integration, with 0 failed and 0 skipped. Focused Phase 4.4 coverage passed 40 cases: 25 application/capability unit cases and 15 API/persistence cases, including independent capability entropy, hash-only persistence, constant-time verification, exact 24-hour expiry, exact/future active-version pinning, response provenance, strict input handling, invalid-auth non-downgrade, primary/managed authorization, IDOR concealment, no permanent clinical records, and no sensitive capability logging or headers. The 82 focused Phase 4.1-4.3 regression cases passed, as did all 9 migration/rollback cases. EF reported no pending model changes and no migration was created; formatting and `git diff --check` passed. Answer submission, deterministic questionnaire progression, neutral completion/result retrieval, claiming, cleanup, and history projection remain deferred to the revised demo phases; clinical rule execution is now post-demo.
+
+**Demo-scope addendum:** Phase 4.4's endpoint, authorization, lifecycle, capability, expiry, and exact-version pinning remain unchanged. Once Phase 4.5 imports and activates the three simplified packages, extend registry configuration and acceptance tests so the existing generic start use case creates sessions for `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`. Until then, only `ABDOMINAL_PAIN` is executable. `CHEST_PAIN`, `OTHER_SYMPTOMS`, and every other recognized-but-unsupported pathway continue to return `422`.
 
 **Objective:** Securely start anonymous, authenticated-primary, or authenticated-managed-patient Pre-Triage sessions against a supported pathway.
 
-**Exact scope:** Implement `StartPreTriage`; resolve an explicit pathway or optionally classify initial natural-language input; select the exact active questionnaire package; create an expiring Phase 4.1 session; generate a cryptographically random anonymous capability returned once and persisted only as a hash. Reject recognized-but-unsupported pathways without creating a clinically executable session.
+**Exact scope:** Implement `StartPreTriage`; resolve an explicit pathway; select the exact active questionnaire package; create an expiring Phase 4.1 session; generate a cryptographically random anonymous capability returned once and persisted only as a hash. Reject recognized-but-unsupported pathways without creating an executable session.
 
-**Main components:** Start command/validator/handler, session repository/unit of work, `IClinicalPathwayRegistry`, definition provider, capability generator/hasher/verifier, current-account/patient authorization, and optional Phase 4.3 classifier.
+**Main components:** Start command/validator/handler, session repository/unit of work, `IClinicalPathwayRegistry`, definition provider, capability generator/hasher/verifier, and current-account/patient authorization.
 
 **Endpoints involved:** `POST /api/v1/pre-triage/sessions`.
 
-**AI involvement:** Optional initial intent/symptom classification. Explicit supported-pathway starts do not require AI; if classification is required and unavailable or ambiguous, return a safe retry/clarification response rather than guessing.
+**AI involvement:** None. Phase 4.4 accepts an explicit supported pathway and does not require a provider.
 
-**Clinical-definition dependencies:** Phase 4.2 supported registry and active provisional abdominal questionnaire version.
+**Clinical-definition dependencies:** Phase 4.2 supported registry and an active usable exact questionnaire version; currently only the provisional abdominal version is executable. Phase 4.5 adds simplified `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER` demo versions without changing this lookup boundary.
 
 **Security/safety requirements:** UUID alone grants no access; capability entropy and constant-time hash verification meet the repository security standard; tokens never enter logs; authenticated selection requires owner/active-manager authorization; unsupported input cannot be silently mapped to abdominal pain.
 
-**Tests and acceptance criteria:** Cover anonymous, primary-patient, and managed-patient starts; one-time capability return/hash persistence/entropy; IDOR and inactive-manager denial; exact definition selection; recognized-but-unsupported rejection; ambiguous input; and provider outage with safe behavior. Apply the mandatory endpoint matrix.
+**Tests and acceptance criteria:** Cover anonymous, primary-patient, and managed-patient starts; one-time capability return/hash persistence/entropy; IDOR and inactive-manager denial; exact definition selection; strict rejection of natural-language/unsupported request fields; recognized-but-unsupported/unknown/unavailable-definition rejection; and invalid supplied authentication without anonymous downgrade. Apply the mandatory endpoint matrix.
 
 **Explicitly out of scope:** Answer submission, branch execution, urgency, completion, claim, and resume.
 
 **Dependencies on previous subphases:** Phase 4.2 and Phase 4.3; Phase 3 only for managed-patient authorization.
 
-## Phase 4.5 — Guarded Conversational Intake + Structured Fact Extraction
+## Phase 4.5 — Confirmed Demo Pathways + Simplified Definition Packages
 
-**Objective:** Convert natural-language input into validated clinical fact candidates without granting AI clinical authority.
+**Objective:** Materialize the confirmed versioned, non-clinical questionnaire definitions that the controlled demo will execute before intake code is built.
 
-**Exact scope:** Implement `InterpretClinicalInput`, `ClassifyClinicalIntent`, `ExtractStructuredSymptoms`, and `ValidateExtractedFacts`. Support only package-known facts such as symptom, location, duration, intensity, character, onset, progression, and associated symptoms. Accept multiple fact candidates from one utterance and mark reliable answers so Phase 4.6 can avoid unnecessary repetition. Invalid, unsupported, low-confidence, ambiguous, or conflicting candidates produce clarification rather than state changes.
+**Exact scope:** Import new immutable simplified packages for exactly `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`. `ABDOMINAL_PAIN` retains its stable code and uses the frontend display label "Stomach pain." Each package contains only primary symptom identity, duration value/unit, intensity integer 1-10, controlled additional-symptom options from the complete catalog `NAUSEA`, `DIARRHEA`, and `FEVER`, deterministic applicability/display/progression metadata, and minimum-completeness metadata. The `FEVER` package excludes `FEVER` from applicable additional choices because it duplicates the primary symptom. Register only the three confirmed pathways as demo-supported. Retain the detailed abdominal package and all other recognized pathway codes unchanged, but do not execute their detailed clinical artifacts.
 
-**Main components:** Phase 4.3 interfaces, schema-constrained request/response DTOs, fact vocabulary mapper, confidence/conflict validator, clarification result, safety-policy orchestrator, and optional temporary provider-independent extraction provenance.
+**Main components:** Confirmed demo-pathway configuration, simplified package schema/profile, the exact three-code additional-symptom catalog, deterministic primary-symptom applicability filtering, canonical hash/version import, truthful demo/non-clinical provenance status, registry updates, and package validation that distinguishes a demo intake package from a future clinical rule package.
 
-**Endpoints involved:** No separate endpoint; this capability is consumed by the answer flow.
+**Endpoints involved:** No new endpoint. `POST /api/v1/pre-triage/sessions` gains `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER` through the existing registry/provider boundary; its request, security, and lifecycle contract remain unchanged.
 
-**AI involvement:** Yes, for interpretation, intent classification, and extraction only.
+**AI involvement:** None.
 
-**Clinical-definition dependencies:** Core fact/question schemas and controlled values from the provisional abdominal package.
+**Clinical-definition dependencies:** Andrea's confirmed pathway and option decisions recorded above. The existing provisional abdominal package may inform identifiers but is not the executed demo questionnaire and must not lend urgency/red-flag semantics to the simplified version.
 
-**Security/safety requirements:** Do not map unsupported concepts by invention; do not persist rejected candidates; never accept AI authority for urgency, disposition, diagnosis, prescription, thresholds, red flags, or probabilities; safely handle prescription, out-of-scope, unsupported, injection-like, and ambiguous input; minimize provider payloads/logs.
+**Security/safety requirements:** Never support a pathway without its own exact simplified package; never borrow abdominal definitions; never treat `OTHER_SYMPTOMS` as an automatic catch-all; never mark demo definitions clinically approved; preserve immutable same-version/hash behavior and exact-version activation.
 
-**Tests and acceptance criteria:** Cover multi-fact extraction, normalized duration/intensity/location values, already-supplied fact detection, ambiguity/conflict clarification, malformed/unknown output, low confidence, prompt injection, prescription/out-of-scope requests, unsupported concepts, and provider outage. Prove no rejected or authoritative AI field becomes workflow state.
+**Tests and acceptance criteria:** Prove exactly `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER` resolve as demo-supported; `CHEST_PAIN`, `OTHER_SYMPTOMS`, and every other recognized-but-unsupported pathway remain unsupported; unknown remains distinct; the option catalog is exactly `NAUSEA`, `DIARRHEA`, and `FEVER` with no fourth value; `FEVER` is not applicable as an additional symptom for the `FEVER` primary pathway; each simplified package contains only allowed demo fields/options and no executable urgency, disposition, red-flag, diagnosis, probability, prescription, or treatment content; imports are immutable/idempotent; versions coexist; Phase 4.4 starts and pins each supported package; all existing capability/authentication/authorization behavior remains green.
 
-**Explicitly out of scope:** Persisting answers, selecting questionnaire branches, urgency/disposition evaluation, diagnosis, and free-form autonomous follow-up questions.
+**Explicitly out of scope:** Any fourth additional-symptom option, packages for `CHEST_PAIN` or `OTHER_SYMPTOMS`, detailed symptom protocols, answer submission, AI extraction, completion, clinical rules, and deleting/mutating the detailed abdominal package.
 
-**Dependencies on previous subphases:** Phase 4.2, Phase 4.3, and Phase 4.4.
+**Dependencies on previous subphases:** Phase 4.2 and Phase 4.4. No remaining product decision blocks this phase; truthful provenance representation is a technical implementation decision.
 
-## Phase 4.6 — Questionnaire Execution + Deterministic Branch Resolution
+## Phase 4.6 — Guarded AI-Assisted Intake + Deterministic Questionnaire Progression
 
-**Objective:** Persist temporary validated answers and advance the provisional abdominal questionnaire through deterministic branches.
+**Objective:** Collect the minimum demo symptom dataset through explicit structured answers or validated natural-language extraction while Application code retains questionnaire authority.
 
-**Exact scope:** Implement `SubmitTriageAnswers` and `ResolveNextQuestion`. Accept explicit structured answers and Phase 4.5 validated fact candidates, validate them against the exact session questionnaire version, store them as temporary `TriageAnswer`/symptom state, and deterministically select the next required abdominal question. Skip reliably answered questions while retaining red-flag-question priority. Create no permanent episode yet.
+**Exact scope:** Implement `InterpretClinicalInput`, `ClassifyClinicalIntent`, `ExtractStructuredSymptoms`, `ValidateExtractedFacts`, `SubmitTriageAnswers`, and `ResolveNextQuestion` as one cohesive answer workflow. Against the session's exact Phase 4.5 questionnaire version, accept duration value/unit, intensity 1-10, and additional-symptom selections restricted to `NAUSEA`, `DIARRHEA`, and `FEVER`. A message such as "I've had a stomachache since yesterday, about 6 out of 10" may propose pathway, duration, and intensity together; the pathway must match the already pinned session and only valid package-known values persist. Deterministically skip questions already answered, exclude an additional-symptom choice equal to the primary pathway (`FEVER` for a `FEVER` session), and return the next missing required field or a ready-to-complete state.
 
-**Main components:** Answer command/validator/handler, session repository/unit of work, answer-schema validator, validated-fact-to-answer mapper, deterministic branch resolver, next-question response mapper, and concurrency control.
+**Main components:** Phase 4.3 safety/validation interfaces, schema-constrained extraction DTOs, answer command/validator/handler, validated-candidate-to-answer mapper, package-specific duration/intensity/option validators, deterministic primary/additional-symptom applicability filter, deterministic progression/completeness preview, clarification result, optimistic concurrency/idempotency handling, and privacy-minimized temporary extraction provenance if needed.
 
-**Endpoints involved:** `POST /api/v1/pre-triage/sessions/{id}/answers`.
+**Endpoints involved:** `POST /api/v1/pre-triage/sessions/{id}/answers`. Natural-language pathway-first session creation is not required by the confirmed demo and remains optional future scope; the current demo selects the symptom explicitly before using natural language for remaining fields.
 
-**AI involvement:** May interpret natural language through Phase 4.5; it never defines, edits, or selects branches outside deterministic package logic. Explicit answers remain usable without an AI provider.
+**AI involvement:** Optional interpretation, equivalent-wording classification, and multi-field extraction only. Explicit structured input must work when no provider is configured or the provider is unavailable. AI cannot edit the pinned pathway, questionnaire state, controlled options, progression, or completeness rules.
 
-**Clinical-definition dependencies:** The exact provisional abdominal questionnaire, answer schemas, and branch graph selected in Phase 4.4.
+**Clinical-definition dependencies:** Only the exact simplified package selected in Phase 4.5; no detailed abdominal branches, red flags, urgency rules, or dispositions.
 
-**Security/safety requirements:** Reauthorize bearer/capability on every request; reject cross-version questions, invalid options, impossible branches, duplicate/conflicting facts, and completed/expired sessions; preserve temporary-only state; prevent stale/concurrent submissions from corrupting sequence or skipping required red-flag questions.
+**Security/safety requirements:** Reauthorize bearer/capability on every request; validate schema, confidence, pathway, ranges, units, controlled values, known-answer conflicts, and session version before persistence; reject unsupported symptom remapping and forbidden-authority fields; return clarification for malformed, ambiguous, low-confidence, or conflicting extraction; prevent stale/concurrent writes; minimize provider payloads and logs.
 
-**Tests and acceptance criteria:** Cover every supplied abdominal branch fixture, explicit and multi-fact natural-language answers, skip-already-answered behavior, red-flag-question priority, invalid/cross-version answers, ambiguity clarification, stale/concurrent writes, completed/expired sessions, anonymous/authenticated access, IDOR, and provider outage. Apply the mandatory endpoint matrix.
+**Tests and acceptance criteria:** Cover explicit and natural-language duration, intensity boundaries, exact acceptance of `NAUSEA`, `DIARRHEA`, and `FEVER`, rejection of every unlisted/fourth option, deterministic omission/rejection of redundant `FEVER` additional-symptom data for a `FEVER` primary session, multi-field extraction, equivalent wording, already-answered skipping, next-missing-field progression, pathway mismatch, unknown/unsupported symptoms, invalid/cross-version options, ambiguity/conflict clarification, out-of-scope/prescription/injection fixtures, provider timeout/unavailability, stale/concurrent submissions, completed/expired state, anonymous/authenticated/managed access, capability security, and IDOR. Prove no urgency, disposition, red flag, diagnosis, prescription, treatment, or probability reaches workflow state.
 
-**Explicitly out of scope:** Urgency/disposition determination, permanent completion, non-abdominal branch graphs, and history projection.
+**Explicitly out of scope:** Permanent completion, clinical urgency/rules, dynamic model-authored questions, unsupported pathway protocols, result retrieval, and history projection.
 
-**Dependencies on previous subphases:** Phase 4.4 and Phase 4.5, using Phase 4.2 definitions.
+**Dependencies on previous subphases:** Phase 4.3, Phase 4.4, and completed Phase 4.5 simplified definitions.
 
-## Phase 4.7 — Deterministic Clinical Rule Engine + Abdominal-Pain Rules
+## Phase 4.7 — Neutral Completion + Secure Result Retrieval
 
-**Objective:** Implement the sole authoritative deterministic engine for urgency and disposition.
+**Objective:** Atomically convert a complete temporary demo workflow into an immutable structured symptom-intake episode and securely return a neutral summary.
 
-**Exact scope:** Evaluate validated facts against only the explicit provisional abdominal red flags and rules; return matched rule/red-flag references, the highest applicable urgency, and a separately resolved disposition/message reference. Enforce `VERY_LOW < LOW < MEDIUM < HIGH < CRITICAL`, red-flag precedence, and no downgrade. Support the `CRITICAL` vocabulary without inventing absent `CRITICAL` rules. Emit no numeric disease probability.
+**Exact scope:** Implement `CheckDemoQuestionnaireCompleteness`, `CompletePreTriage`, and `GetPreTriageResult`. Completion validates only the exact pinned simplified questionnaire's required symptom, duration, intensity, and controlled additional-symptom fields; applies the primary/additional-symptom applicability rule so `FEVER` is neither required nor retained as an additional symptom for a `FEVER` primary episode; creates one immutable `PreTriageEpisode`; creates a neutral `ClinicalAssessment` marker/summary without executing a clinical rule engine; transfers validated answers/symptoms; freezes definition/provenance references; and commits atomically. Result retrieval returns only the canonical structured summary, completion timestamp, exact versions, and provenance. An optional guarded renderer may add neutral patient-friendly wording or a non-clinical next-step message without changing canonical fields.
 
-**Main components:** `IClinicalRuleEngine`, deterministic evaluator, `RuleMatch`, `RedFlagMatch`, `UrgencySeverity`, `DispositionResolver`, package rule compiler/validator, and stable canonical result contracts, or equivalents.
+**Main components:** Completeness policy, completion command/handler, neutral assessment factory, smallest backward-compatible nullable-urgency persistence adjustment, session/episode/assessment repositories, transaction/unit of work, concurrency/idempotency policy, canonical neutral result mapper/query, authorization, and optional Phase 4.3 renderer/validator with deterministic fallback.
 
-**Endpoints involved:** None.
+**Endpoints involved:** `POST /api/v1/pre-triage/sessions/{id}/complete` and `GET /api/v1/pre-triage/sessions/{id}/result`.
 
-**AI involvement:** None as clinical authority; provider presence or absence cannot affect identical validated facts and rule versions.
+**AI involvement:** None for completeness, persistence, or canonical summary. Optional wording only after the immutable result exists; provider failure returns deterministic neutral wording.
 
-**Clinical-definition dependencies:** Only the provisional abdominal red flags, urgency rules, dispositions, recommendations, and fixtures from Phase 4.2.
+**Clinical-definition dependencies:** Exact simplified questionnaire/package version and truthful demo provenance from Phase 4.5. Existing detailed rule-set references may be preserved for schema/version compatibility but no rule, red flag, urgency, disposition, or emergency message executes.
 
-**Security/safety requirements:** No AI-generated urgency, hidden fallback score, prototype-derived value, cross-pathway evaluation, lower-priority downgrade, invented threshold/red flag, diagnosis, or probability. Refuse unsupported pathways and incomplete/invalid fact sets.
+**Security/safety requirements:** Reauthorize every request; reject incomplete, expired, inaccessible, unsupported, or version-inconsistent sessions; guarantee rollback on failure; prevent partial/duplicate episodes and assessments; make repeat/concurrent completion safe; conceal IDOR; preserve immutability; never use a fake urgency sentinel; never expose urgency, disposition, red flags, diagnosis, prescription, treatment, probability, provider metadata, or raw narrative.
 
-**Tests and acceptance criteria:** Prove deterministic repeatability; cover every explicit abdominal rule/red-flag fixture; test urgency ordering, overlapping matches, red-flag precedence, and no downgrade; prove unsupported pathways are refused, no probability field exists, no missing `CRITICAL` rule was added, and AI absence has no effect.
+**Tests and acceptance criteria:** Cover successful anonymous/authenticated/managed completion and retrieval for every demo pathway; minimum-completeness failures; exact answers/version/provenance; neutral nullable urgency representation; no clinical findings or rule execution; rollback; concurrent/repeat completion; one session-to-episode/assessment; immutability; bad capability; IDOR; incomplete/expired/absent result; provider/rendering failure; adversarial renderer; and mandatory endpoint matrices. Assert response/schema/domain state contain no generated urgency, disposition, red-flag escalation, emergency recommendation, diagnosis, prescription, treatment, or probability.
 
-**Explicitly out of scope:** Other symptom rule sets, invented/exhaustive `CRITICAL` rules, probabilistic scoring, diagnosis, and endpoints.
+**Explicitly out of scope:** Clinical rule evaluation, clinical recommendation, claim, cleanup, history projection, amendments, and FHIR generation.
 
-**Dependencies on previous subphases:** Phase 4.2 and Phase 4.6.
+**Dependencies on previous subphases:** Phase 4.6 and the Phase 4.1 neutral-assessment compatibility adjustment described above.
 
-## Phase 4.8 — Atomic Completion + Immutable Clinical Episode
+## Phase 4.8 — Anonymous Episode Claim
 
-**Objective:** Atomically convert a complete temporary workflow into immutable permanent clinical records.
+**Objective:** Allow an authenticated primary patient to securely claim a completed anonymous demo episode within its retention window.
 
-**Exact scope:** Implement `CompletePreTriage`; validate session completeness and state; use only validated stored facts; execute the exact deterministic rule-set version; create `PreTriageEpisode`, `ClinicalAssessment`, and `ClinicalFinding` records; transfer temporary child rows; freeze questionnaire/rule versions plus source/review/approval provenance; and commit once. Only successful completion creates permanent/history-eligible state.
+**Exact scope:** Implement `ClaimAnonymousPreTriage`; require both bearer authentication and the original anonymous capability; attach the episode to the current account's primary `PatientProfile`; preserve every answer, neutral assessment field, definition reference, and provenance value unchanged; make a same-patient repeat idempotent and a different-patient claim conflict.
 
-**Main components:** Completion command/validator/handler, completeness checker, Phase 4.7 engine, session/episode/assessment repositories, transaction/unit of work, concurrency/idempotency policy, and canonical result mapper.
-
-**Endpoints involved:** `POST /api/v1/pre-triage/sessions/{id}/complete`.
-
-**AI involvement:** None in urgency/disposition. Completion consumes validated workflow state, never raw conversation or unvalidated model output.
-
-**Clinical-definition dependencies:** Exact questionnaire, rule-set, disposition, message, and provisional provenance versions selected for the abdominal session.
-
-**Security/safety requirements:** Reauthorize every request; reject incomplete, expired, unsupported, or version-inconsistent sessions; guarantee rollback on any failure; prevent partial/duplicate episodes and assessments; make concurrent completion safe; preserve immutable clinical records; include no probability fields.
-
-**Tests and acceptance criteria:** Cover successful anonymous/authenticated completion, completeness validation, deterministic result, exact version/status provenance, transaction rollback, concurrent calls, repeat behavior according to the documented idempotency contract, one session-to-episode/assessment constraint, immutability, no raw conversation authority, no temporary answer leakage into history, and the mandatory endpoint matrix.
-
-**Explicitly out of scope:** Result retrieval, AI phrasing, claim, cleanup, history projection, amendments, and FHIR generation.
-
-**Dependencies on previous subphases:** Phase 4.6 and Phase 4.7.
-
-## Phase 4.9 — Secure Result Retrieval + Guarded Patient-Friendly Rendering
-
-**Objective:** Securely return a canonical completed result and optionally improve its phrasing without changing clinical meaning.
-
-**Exact scope:** Implement `GetPreTriageResult`. The canonical response includes urgency, separate disposition, approved findings/red flags, recommendation/message, exact questionnaire/rule versions, and clinical-content source/review/approval provenance. An optional renderer may propose patient-friendly wording only after the canonical deterministic result exists; validate it against immutable result fields and required wording, and fall back to canonical messaging on rejection or provider failure.
-
-**Main components:** Result query/handler/repository, authorization service, canonical DTO mapper, optional patient-friendly renderer through Phase 4.3, semantic/field-preservation validator, and deterministic fallback renderer.
-
-**Endpoints involved:** `GET /api/v1/pre-triage/sessions/{id}/result`.
-
-**AI involvement:** Optional phrasing only. It cannot change urgency/disposition, remove emergency wording, add a diagnosis/prescription/probability, or write back to the completed record.
-
-**Clinical-definition dependencies:** Provisional abdominal dispositions, recommendations, canonical messages, red-flag/finding labels, and provenance.
-
-**Security/safety requirements:** Require matching anonymous capability or authorized patient owner/active manager; return results only for completed, unexpired resources; conceal inaccessible resources appropriately; minimize provider payload/logging; reject adversarial rendering and always retain a deterministic canonical fallback.
-
-**Tests and acceptance criteria:** Cover anonymous/authenticated/managed access, bad capability, IDOR, incomplete/expired/absent resources, exact canonical result/provenance, provider timeout/unavailability, and adversarial renderer attempts to alter urgency/disposition, weaken emergency text, prescribe, diagnose, or add probability. Apply the mandatory endpoint matrix.
-
-**Explicitly out of scope:** Claim, history projection, result mutation/amendment, new clinical findings, and FHIR generation.
-
-**Dependencies on previous subphases:** Phase 4.8; Phase 4.3 only when optional AI rendering is configured.
-
-## Phase 4.10 — Anonymous Episode Claim
-
-**Objective:** Allow an authenticated primary patient to securely claim a completed anonymous episode within its retention window.
-
-**Exact scope:** Implement `ClaimAnonymousPreTriage`; require both bearer authentication and the original anonymous capability; attach the episode to the current account's primary `PatientProfile`; preserve every clinical record and definition reference unchanged; make a same-patient repeat idempotent and a different-patient claim conflict.
-
-**Main components:** Claim command/validator/handler, current primary-patient resolver, capability verifier, session/episode repositories, transaction/concurrency handling, and audit event without sensitive payloads.
+**Main components:** Claim command/validator/handler, current primary-patient resolver, capability verifier, session/episode repositories, transaction/concurrency handling, and privacy-safe audit event.
 
 **Endpoints involved:** `POST /api/v1/pre-triage/sessions/{id}/claim`.
 
@@ -804,15 +791,15 @@ Phase 4.1 remains the authoritative, clinically content-neutral technical founda
 
 **Clinical-definition dependencies:** None beyond preserving the completed episode's frozen references.
 
-**Security/safety requirements:** Bearer alone and capability alone are each insufficient; never log capability material; prevent cross-account/cross-patient claim; enforce expiration; preserve immutable clinical content; do not allow managed-patient claim without later explicit approval.
+**Security/safety requirements:** Bearer alone and capability alone are each insufficient; never log capability material; prevent cross-account/cross-patient claim; enforce expiration; preserve immutable summary content; do not allow managed-patient claim without later explicit approval.
 
-**Tests and acceptance criteria:** Cover claim before the exact 24-hour boundary, same-patient idempotent repeat, different-patient conflict, bearer/capability absence or mismatch, expired/absent resource, cross-account attempt, concurrent claim, unchanged clinical content/provenance, and the mandatory endpoint matrix.
+**Tests and acceptance criteria:** Cover claim before the exact 24-hour boundary, same-patient idempotent repeat, different-patient conflict, bearer/capability absence or mismatch, expired/absent resource, cross-account attempt, concurrent claim, unchanged answers/summary/provenance, and the mandatory endpoint matrix.
 
 **Explicitly out of scope:** Managed-patient claim, episode edits, post-expiry recovery, and history UI.
 
-**Dependencies on previous subphases:** Phase 4.8 and Phase 4.9.
+**Dependencies on previous subphases:** Phase 4.7.
 
-## Phase 4.11 — Expiry + Abandonment Cleanup
+## Phase 4.9 — Expiry + Abandonment Cleanup
 
 **Objective:** Enforce temporary workflow retention and the 24-hour anonymous lifecycle without creating permanent records for abandonment.
 
@@ -828,19 +815,19 @@ Phase 4.1 remains the authoritative, clinically content-neutral technical founda
 
 **Security/safety requirements:** Use minimum retention, never expose capability hashes, delete only exact eligible temporary/unclaimed targets, preserve claimed and completed authenticated records, prevent abandoned sessions from producing episode/assessment/history state, and make repeated/concurrent cleanup safe.
 
-**Tests and acceptance criteria:** Test immediately before/at/after 24 hours, anonymous active cleanup, completed-unclaimed cleanup, claimed preservation, authenticated abandonment, completed authenticated preservation, temporary answer/symptom removal, idempotent batches, and concurrency with completion/claim.
+**Tests and acceptance criteria:** Test immediately before/at/after 24 hours, anonymous active cleanup, completed-unclaimed cleanup, claimed preservation, authenticated abandonment, completed authenticated preservation, temporary answer/symptom removal, no abandoned permanent/history records, idempotent batches, and concurrency with completion/claim.
 
-**Explicitly out of scope:** Resume, archival recovery, deleting claimed/permanent records, and clinical-history rendering.
+**Explicitly out of scope:** Resume, archival recovery, deleting claimed/permanent records, and Clinical History rendering.
 
-**Dependencies on previous subphases:** Phase 4.8 and Phase 4.10.
+**Dependencies on previous subphases:** Phase 4.7 and Phase 4.8.
 
-## Phase 4.12 — Clinical History Projection Boundary
+## Phase 4.10 — Clinical History Projection Boundary
 
-**Objective:** Ensure only a completed permanent `PreTriageEpisode` is eligible to enter Clinical History.
+**Objective:** Ensure only a completed immutable demo episode is eligible to enter Clinical History.
 
-**Exact scope:** Add the minimal idempotent event/outbox/projection boundary, such as `ProjectCompletedPreTriageEpisode`, required for Phase 5. Enforce: `PreTriageSession` never projects directly; temporary `TriageAnswer` never projects directly; completed `PreTriageEpisode` is eligible for exactly one projection. Carry stable identifiers and exact definition/provenance references without generating FHIR.
+**Exact scope:** Add the minimal idempotent event/outbox/projection boundary, such as `ProjectCompletedPreTriageEpisode`, required for Phase 5. Enforce that `PreTriageSession` and temporary `TriageAnswer` records never project directly, while one completed `PreTriageEpisode` is eligible for exactly one neutral symptom-summary projection. Carry stable identifiers, structured answers, completion time, and exact definition/provenance references without generating FHIR or clinical urgency.
 
-**Main components:** Completion integration event/outbox record or equivalent durable boundary, projector interface/handler, idempotency key/constraint, and minimal Phase 5-facing contract.
+**Main components:** Completion integration event/outbox record or equivalent durable boundary, projector interface/handler, idempotency key/constraint, and minimal Phase 5-facing neutral summary contract.
 
 **Endpoints involved:** None.
 
@@ -848,35 +835,52 @@ Phase 4.1 remains the authoritative, clinically content-neutral technical founda
 
 **Clinical-definition dependencies:** Frozen references on the completed episode only; no active-version lookup during projection.
 
-**Security/safety requirements:** Never project incomplete, abandoned, expired, or temporary session state; prevent duplicate projection; preserve patient ownership and immutable source references; exclude raw conversation, capabilities, and provider metadata.
+**Security/safety requirements:** Never project incomplete, abandoned, expired, or temporary session state; prevent duplicate projection; preserve patient ownership and immutable source references; exclude raw conversation, capabilities, provider metadata, urgency, disposition, diagnosis, and recommendations.
 
-**Tests and acceptance criteria:** Prove no projection before completion, exactly one after completion, repeated/concurrent delivery is idempotent, abandoned/expired sessions produce none, and projection uses the frozen episode rather than current definitions.
+**Tests and acceptance criteria:** Prove no projection before completion, exactly one after completion, repeated/concurrent delivery is idempotent, abandoned/expired sessions produce none, and projection uses the frozen neutral episode rather than current definitions.
 
 **Explicitly out of scope:** Full Clinical History endpoints/UI, amendments, FHIR resource generation, and AI Conversation History.
 
-**Dependencies on previous subphases:** Phase 4.8 and Phase 4.11.
+**Dependencies on previous subphases:** Phase 4.7 and Phase 4.9.
 
-## Phase 4.13 — AI + Clinical Security Hardening and Acceptance Closure
+## Phase 4.11 — Demo Security + Acceptance Closure
 
-**Objective:** Close Phase 4 with end-to-end clinical-safety, security, concurrency, lifecycle, and abdominal-slice acceptance evidence.
+**Objective:** Close the demo increment with end-to-end evidence for controlled intake, safety, authorization, lifecycle, neutral completion, and explicit absence of clinical conclusions.
 
-**Exact scope:** Verify all five endpoints and every Phase 4 invariant across anonymous, primary-patient, and authorized managed-patient flows. Audit capability entropy/hash use, IDOR defenses, 24-hour lifecycle, temporary/permanent separation, completion/claim/cleanup races, immutability, exact definition provenance, unsupported pathways, deterministic authority, AI safety/failure behavior, history projection, and privacy-safe logging.
+**Exact scope:** Verify all five endpoints and every retained Phase 4 invariant across anonymous, primary-patient, and authorized managed-patient flows for `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`. Audit capability entropy/hash use, invalid-auth non-downgrade, IDOR defenses, 24-hour lifecycle, temporary/permanent separation, completion/claim/cleanup races, immutability, exact package provenance, unsupported pathways, deterministic questionnaire authority, AI safety/failure behavior, neutral result contracts, history projection, migrations, and privacy-safe logging.
 
-**Main components:** End-to-end acceptance fixtures/harness, provisional abdominal conformance fixtures, adversarial AI provider/renderer stub, concurrency and clock-controlled lifecycle tests, authorization/security tests, database constraint verification, and release-readiness checklist.
+**Main components:** End-to-end acceptance fixtures/harness, simplified-package fixtures for each of the three supported pathways, adversarial AI provider/renderer stub, concurrency and clock-controlled lifecycle tests, authorization/security tests, database constraint verification, negative clinical-output contract tests, OpenAPI verification, and release-readiness checklist.
 
 **Endpoints involved:** `POST /api/v1/pre-triage/sessions`, `POST /api/v1/pre-triage/sessions/{id}/answers`, `POST /api/v1/pre-triage/sessions/{id}/complete`, `GET /api/v1/pre-triage/sessions/{id}/result`, and `POST /api/v1/pre-triage/sessions/{id}/claim`.
 
-**AI involvement:** Yes for adversarial and availability testing, never as clinical authority.
+**AI involvement:** Yes for interpretation, guarded neutral rendering, adversarial testing, and availability testing; never as questionnaire or clinical authority.
 
-**Clinical-definition dependencies:** The provisional `ABDOMINAL_PAIN` package and all supplied conformance fixtures. Clinical acceptance is limited to this one detailed pathway.
+**Clinical-definition dependencies:** The exact simplified demo packages selected in Phase 4.5. The detailed abdominal clinical package remains a non-executed regression artifact.
 
-**Security/safety requirements:** Mandatory fixtures include football question -> `OUT_OF_SCOPE`; medication request -> `PRESCRIPTION_REQUEST`; prompt injection -> restrictions remain enforced; AI-generated urgency -> ignored/rejected; AI-generated numeric probability -> rejected; invalid structured extraction -> clarification; provider unavailable -> safe deterministic fallback. Verify no secrets/raw clinical prompts leak to logs and no abdominal rule executes for another pathway.
+**Security/safety requirements:** Mandatory fixtures include football question -> `OUT_OF_SCOPE`; medication request -> `PRESCRIPTION_REQUEST`; prompt injection -> restrictions remain enforced; invalid/ambiguous output -> clarification; unsupported symptom -> no remapping; provider unavailable -> explicit structured flow remains usable. Assert no response, persisted neutral assessment, projection, renderer, or log introduces urgency, disposition, red-flag escalation, emergency recommendation, diagnosis, prescription, treatment advice, or probability.
 
-**Tests and acceptance criteria:** Pass the mandatory endpoint matrix plus end-to-end anonymous/authenticated/managed flows, IDOR, capability, claim, exact 24-hour expiry, abandonment, atomic/concurrent/idempotent completion and claim, cleanup races, immutable records, exact provisional provenance, no numeric probabilities, rule repeatability/red-flag precedence/no downgrade, provider outage, adversarial extraction/rendering, unsupported pathways, and one idempotent history projection. Build, migrations, and the full suite pass.
+**Tests and acceptance criteria:** Pass the mandatory endpoint matrix plus end-to-end anonymous/authenticated/managed flows for `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`; the exact `NAUSEA`/`DIARRHEA`/`FEVER` additional-symptom catalog with no fourth option; nonredundant `FEVER` applicability; controlled duration/intensity data; multi-field extraction and already-answered skipping; `CHEST_PAIN`/`OTHER_SYMPTOMS` and other recognized-but-unsupported/unknown behavior; IDOR/capability/authentication; exact 24-hour expiry; abandonment; atomic/concurrent/idempotent completion and claim; cleanup races; immutable records; exact provenance; AI outage/adversarial behavior; neutral result schema; one idempotent history projection; migration rollback/pending-model checks; OpenAPI; formatting; and the full backend suite.
 
-**Explicitly out of scope:** Additional symptom packages, exhaustive invented `CRITICAL` rules, Phase 5 feature implementation, FHIR generation, production provider mandate, and autonomous agents.
+**Explicitly out of scope:** Future clinical rule execution, full protocols, additional unselected packages, Phase 5 features, FHIR generation, production provider mandate, and autonomous agents.
 
-**Dependencies on previous subphases:** Phase 4.2 through Phase 4.12.
+**Dependencies on previous subphases:** Phase 4.1 through Phase 4.10. Andrea's pathway and option confirmation is recorded in Phase 4.5; no further product selection is required for demo acceptance.
+
+## POST-DEMO / FUTURE CLINICAL PRE-TRIAGE
+
+The previously planned deterministic clinical rule-engine increment is removed from the current Phase 4 execution order. It is not implemented merely because Phase 4.1 already contains `ClinicalRuleSetVersion`, `ClinicalFinding`, and urgency-compatible persistence or because Phase 4.2 stores detailed provisional abdominal artifacts.
+
+Future clinical Pre-Triage may, only after formal product, medical, legal, and regulatory approval, introduce dedicated reviewed packages and an authoritative deterministic engine for:
+
+- pathway-specific detailed questionnaires and protocols;
+- red-flag evaluation and precedence;
+- clinically reviewed urgency vocabularies such as `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, and `VERY_LOW`;
+- disposition calculation and emergency recommendations;
+- approved patient-facing clinical messages;
+- deterministic rule conformance fixtures and no-downgrade behavior;
+- clinically appropriate `RiskAssessment`/FHIR mapping;
+- additional symptom packages, formal approvals, localization, and production terminology integration.
+
+Future implementation must use new immutable reviewed definition versions, never reinterpret a completed demo episode, never mutate the stored provisional abdominal package, never use AI as clinical authority, and undergo a new regulatory/security/clinical acceptance plan. None of these capabilities is a dependency or acceptance criterion for the current demo.
 
 ---
 
