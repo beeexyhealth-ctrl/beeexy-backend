@@ -13,7 +13,9 @@ public sealed class ClinicalDefinitionPackageTests
     {
         Assert.Equal("ABDOMINAL_PAIN", ClinicalPathways.AbdominalPain.Value);
         Assert.Equal(7, ClinicalPathways.Recognized.Count);
-        Assert.Single(ClinicalPathways.Supported);
+        Assert.Equal(
+            [ClinicalPathways.Headache, ClinicalPathways.AbdominalPain, ClinicalPathways.Fever],
+            ClinicalPathways.Supported);
         Assert.Equal(
             ClinicalPathways.AbdominalPain,
             ClinicalPathwayCode.Create("ABDOMINAL_PAIN"));
@@ -257,7 +259,7 @@ public sealed class ClinicalDefinitionPackageTests
     [Fact]
     public async Task Registry_DistinguishesSupportedUnsupportedAndUnknownWithoutCrossMapping()
     {
-        var package = CreatePackage();
+        var package = SimplifiedDemoDefinitionPackages.Create(ClinicalPathways.AbdominalPain);
         var registry = new ClinicalPathwayRegistry(new StubDefinitionProvider(package));
         var supported = await registry.ResolveAsync("ABDOMINAL_PAIN");
 

@@ -30,13 +30,16 @@ internal sealed class QuestionnaireDefinitionVersionConfiguration
                 table.HasCheckConstraint(
                     "ck_questionnaire_versions_content_source",
                     "clinical_content_source IN " +
-                    "('LEGACY_UNSPECIFIED', 'REFERENCE_PLATFORM_DERIVED')");
+                    "('LEGACY_UNSPECIFIED', 'REFERENCE_PLATFORM_DERIVED', " +
+                    "'PRODUCT_DEMO_DEFINED')");
                 table.HasCheckConstraint(
                     "ck_questionnaire_versions_review_status",
-                    "clinical_review_status IN ('REVIEWED', 'PROVISIONAL')");
+                    "clinical_review_status IN " +
+                    "('REVIEWED', 'PROVISIONAL', 'NOT_APPLICABLE')");
                 table.HasCheckConstraint(
                     "ck_questionnaire_versions_approval_status",
-                    "clinical_approval_status IN ('APPROVED', 'PENDING_FORMAL_REVIEW')");
+                    "clinical_approval_status IN " +
+                    "('APPROVED', 'PENDING_FORMAL_REVIEW', 'NOT_CLINICALLY_APPROVED')");
                 table.HasCheckConstraint(
                     "ck_questionnaire_versions_activation",
                     "activated_at IS NULL OR " +

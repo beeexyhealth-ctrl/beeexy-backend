@@ -72,20 +72,22 @@ public sealed class PreTriageSessionStartEndpointTests(
             first.ExpiresAt,
             before.AddHours(24),
             after.AddHours(24));
+        var expectedPackage = SimplifiedDemoDefinitionPackages.Create(
+            ClinicalPathways.AbdominalPain);
         Assert.Equal(
-            AbdominalPainProvisionalPackage.QuestionnaireIdentifier,
+            expectedPackage.Questionnaire.QuestionnaireCode.Value,
             first.Questionnaire.Code);
         Assert.Equal(
-            AbdominalPainProvisionalPackage.VersionIdentifier,
+            SimplifiedDemoDefinitionPackages.VersionIdentifier,
             first.Questionnaire.Version);
         Assert.Equal(
-            AbdominalPainProvisionalPackage.RuleSetIdentifier,
+            expectedPackage.RuleSet.RuleSetCode.Value,
             first.RuleSet.Code);
         Assert.Equal(first.Questionnaire.Version, first.RuleSet.Version);
-        Assert.Equal("REFERENCE_PLATFORM_DERIVED", first.ClinicalContent.Source);
-        Assert.Equal("PROVISIONAL", first.ClinicalContent.ReviewStatus);
+        Assert.Equal("PRODUCT_DEMO_DEFINED", first.ClinicalContent.Source);
+        Assert.Equal("NOT_APPLICABLE", first.ClinicalContent.ReviewStatus);
         Assert.Equal(
-            "PENDING_FORMAL_REVIEW",
+            "NOT_CLINICALLY_APPROVED",
             first.ClinicalContent.ClinicalApproval);
 
         await using (var dbContext = CreateDbContext())
@@ -297,9 +299,7 @@ public sealed class PreTriageSessionStartEndpointTests(
     }
 
     [Theory]
-    [InlineData("HEADACHE")]
     [InlineData("CHEST_PAIN")]
-    [InlineData("FEVER")]
     [InlineData("RESPIRATORY_SYMPTOMS")]
     [InlineData("BACK_PAIN")]
     [InlineData("OTHER_SYMPTOMS")]
@@ -318,6 +318,29 @@ public sealed class PreTriageSessionStartEndpointTests(
             "pre_triage.pathway_unsupported",
             problem.RootElement.GetProperty("errorCode").GetString());
         Assert.Equal(before, await CountSessionsAsync());
+    }
+
+    [Theory]
+    [InlineData("HEADACHE")]
+    [InlineData("ABDOMINAL_PAIN")]
+    [InlineData("FEVER")]
+    public async Task ConfirmedDemoPathway_StartsAndPinsItsSimplifiedPackage(string pathway)
+    {
+        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        using var client = factory.CreateApiClient();
+
+        using var response = await client.PostAsJsonAsync(Endpoint, new { pathway });
+        var result = await response.Content.ReadFromJsonAsync<StartResponse>();
+        var expected = SimplifiedDemoDefinitionPackages.Create(
+            ClinicalPathwayCode.Create(pathway));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.NotNull(result);
+        Assert.Equal(expected.Questionnaire.QuestionnaireCode.Value,
+            result.Questionnaire.Code);
+        Assert.Equal(expected.Version.Value, result.Questionnaire.Version);
+        Assert.Equal(expected.RuleSet.RuleSetCode.Value, result.RuleSet.Code);
+        Assert.Equal("PRODUCT_DEMO_DEFINED", result.ClinicalContent.Source);
     }
 
     [Fact]
@@ -445,6 +468,10 @@ public sealed class PreTriageSessionStartEndpointTests(
             new ClinicalDefinitionPackageValidator(),
             NullLogger<ClinicalDefinitionImporter>.Instance);
         await importer.ImportAsync(AbdominalPainProvisionalPackage.Create());
+        foreach (var package in SimplifiedDemoDefinitionPackages.CreateAll())
+        {
+            await importer.ImportAsync(package);
+        }
     }
 
     public async Task DisposeAsync()
@@ -457,7 +484,8 @@ public sealed class PreTriageSessionStartEndpointTests(
         string versionValue,
         int activationDayOffset)
     {
-        var original = AbdominalPainProvisionalPackage.Create();
+        var original = SimplifiedDemoDefinitionPackages.Create(
+            ClinicalPathways.AbdominalPain);
         var version = DefinitionVersion.Create(versionValue);
         var importedAt = original.Questionnaire.ImportedAt.AddDays(activationDayOffset);
         var questionnaire = QuestionnaireDefinitionVersion.Import(

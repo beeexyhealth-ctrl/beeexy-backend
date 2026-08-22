@@ -1,15 +1,53 @@
+using Beeexy.Application.Triage;
+using Beeexy.Domain.Triage;
 using Beeexy.Infrastructure.Persistence;
+using Beeexy.Infrastructure.Triage;
 using Beeexy.Tests.Integration.Support;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Beeexy.Tests.Integration.Infrastructure;
 
 [Collection(PostgreSqlCollection.Name)]
 public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
 {
+    [Fact]
+    public async Task Phase45Migration_PreservesDemoDefinitionsAcrossRollbackAndReapply()
+    {
+        await EnsureMigratedAsync();
+        var options = CreateOptions();
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            var importer = new ClinicalDefinitionImporter(
+                dbContext,
+                new ClinicalDefinitionPackageValidator(),
+                NullLogger<ClinicalDefinitionImporter>.Instance);
+            foreach (var package in SimplifiedDemoDefinitionPackages.CreateAll())
+            {
+                await importer.ImportAsync(package);
+            }
+        }
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            await dbContext.GetService<IMigrator>()
+                .MigrateAsync("20260822035009_Phase42ClinicalDefinitionPackages");
+        }
+
+        Assert.Equal("REFERENCE_PLATFORM_DERIVED", await LoadDemoSourceAsync());
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            await dbContext.Database.MigrateAsync();
+            Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+        }
+
+        Assert.Equal("PRODUCT_DEMO_DEFINED", await LoadDemoSourceAsync());
+    }
+
     [Fact]
     public async Task Phase42Migration_CanRollbackAndReapply()
     {
@@ -314,5 +352,18 @@ public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
     {
         await using var dbContext = new BeeexyDbContext(CreateOptions());
         await dbContext.Database.MigrateAsync();
+    }
+
+    private async Task<string> LoadDemoSourceAsync()
+    {
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT clinical_content_source FROM triage.questionnaire_versions " +
+            "WHERE version = @version ORDER BY pathway_code LIMIT 1;";
+        command.Parameters.AddWithValue(
+            "version", SimplifiedDemoDefinitionPackages.VersionIdentifier);
+        return (string)(await command.ExecuteScalarAsync())!;
     }
 }

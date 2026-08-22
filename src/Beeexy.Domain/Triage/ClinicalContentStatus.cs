@@ -3,19 +3,22 @@ namespace Beeexy.Domain.Triage;
 public enum ClinicalContentSource
 {
     LegacyUnspecified,
-    ReferencePlatformDerived
+    ReferencePlatformDerived,
+    ProductDemoDefined
 }
 
 public enum ClinicalReviewStatus
 {
     Reviewed,
-    Provisional
+    Provisional,
+    NotApplicable
 }
 
 public enum ClinicalApprovalStatus
 {
     Approved,
-    PendingFormalReview
+    PendingFormalReview,
+    NotClinicallyApproved
 }
 
 public sealed record ClinicalContentStatus(
@@ -32,4 +35,9 @@ public sealed record ClinicalContentStatus(
         ClinicalContentSource.ReferencePlatformDerived,
         ClinicalReviewStatus.Provisional,
         ClinicalApprovalStatus.PendingFormalReview);
+
+    public static ClinicalContentStatus NonClinicalDemo { get; } = new(
+        ClinicalContentSource.ProductDemoDefined,
+        ClinicalReviewStatus.NotApplicable,
+        ClinicalApprovalStatus.NotClinicallyApproved);
 }

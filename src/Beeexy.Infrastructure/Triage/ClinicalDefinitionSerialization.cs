@@ -98,7 +98,25 @@ internal static class ClinicalDefinitionSerialization
                 FromConditions(value.AnyOf),
                 value.RequiresAbsenceOfUrgencies?.Select(UrgencyCode.Create).ToArray(),
                 value.RequiresNoIdentifiedRedFlags)).ToArray(),
-            package.ClinicalLimitations);
+            package.ClinicalLimitations)
+        {
+            Profile = package.Profile,
+            DemoIntake = package.DemoIntake is null
+                ? null
+                : new DemoIntakePackageDefinition(
+                    package.DemoIntake.PrimarySymptomDisplayLabel,
+                    QuestionCode.Create(package.DemoIntake.PrimarySymptomQuestionCode),
+                    QuestionCode.Create(package.DemoIntake.DurationQuestionCode),
+                    QuestionCode.Create(package.DemoIntake.IntensityQuestionCode),
+                    QuestionCode.Create(package.DemoIntake.AdditionalSymptomsQuestionCode),
+                    package.DemoIntake.AdditionalSymptomCatalog,
+                    package.DemoIntake.ApplicableAdditionalSymptoms,
+                    package.DemoIntake.RequiredAnswerQuestionCodes
+                        .Select(QuestionCode.Create).ToArray(),
+                    package.DemoIntake.ProgressionQuestionCodes
+                        .Select(QuestionCode.Create).ToArray(),
+                    package.DemoIntake.AdditionalSymptomsAllowsEmptySelection)
+        };
     }
 
     private static RulePackageDto ToDto(ClinicalRulePackageDefinition package)
@@ -126,7 +144,25 @@ internal static class ClinicalDefinitionSerialization
                 ToConditions(value.AnyOf),
                 value.RequiresAbsenceOfUrgencies?.Select(code => code.Value).ToArray(),
                 value.RequiresNoIdentifiedRedFlags)).ToArray(),
-            package.ClinicalLimitations);
+            package.ClinicalLimitations)
+        {
+            Profile = package.Profile,
+            DemoIntake = package.DemoIntake is null
+                ? null
+                : new DemoIntakePackageDto(
+                    package.DemoIntake.PrimarySymptomDisplayLabel,
+                    package.DemoIntake.PrimarySymptomQuestionCode.Value,
+                    package.DemoIntake.DurationQuestionCode.Value,
+                    package.DemoIntake.IntensityQuestionCode.Value,
+                    package.DemoIntake.AdditionalSymptomsQuestionCode.Value,
+                    package.DemoIntake.AdditionalSymptomCatalog,
+                    package.DemoIntake.ApplicableAdditionalSymptoms,
+                    package.DemoIntake.RequiredAnswerQuestionCodes
+                        .Select(value => value.Value).ToArray(),
+                    package.DemoIntake.ProgressionQuestionCodes
+                        .Select(value => value.Value).ToArray(),
+                    package.DemoIntake.AdditionalSymptomsAllowsEmptySelection)
+        };
     }
 
     private static ConditionDto[] ToConditions(
@@ -195,5 +231,24 @@ internal static class ClinicalDefinitionSerialization
         IReadOnlyList<DispositionDto> Dispositions,
         IReadOnlyList<RedFlagDto> RedFlags,
         IReadOnlyList<RuleDto> Rules,
-        IReadOnlyList<string> ClinicalLimitations);
+        IReadOnlyList<string> ClinicalLimitations)
+    {
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public ClinicalDefinitionPackageProfile Profile { get; init; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public DemoIntakePackageDto? DemoIntake { get; init; }
+    }
+
+    private sealed record DemoIntakePackageDto(
+        string PrimarySymptomDisplayLabel,
+        string PrimarySymptomQuestionCode,
+        string DurationQuestionCode,
+        string IntensityQuestionCode,
+        string AdditionalSymptomsQuestionCode,
+        IReadOnlyList<string> AdditionalSymptomCatalog,
+        IReadOnlyList<string> ApplicableAdditionalSymptoms,
+        IReadOnlyList<string> RequiredAnswerQuestionCodes,
+        IReadOnlyList<string> ProgressionQuestionCodes,
+        bool AdditionalSymptomsAllowsEmptySelection);
 }

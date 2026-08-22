@@ -19,6 +19,12 @@ public enum ClinicalQuestionPriority
     RedFlagScreening = 2
 }
 
+public enum ClinicalDefinitionPackageProfile
+{
+    DetailedClinical = 0,
+    SimplifiedDemoIntake = 1
+}
+
 public enum ClinicalConditionOperator
 {
     Equals,
@@ -86,7 +92,13 @@ public sealed record ClinicalRulePackageDefinition(
     IReadOnlyList<DispositionDefinition> Dispositions,
     IReadOnlyList<ClinicalRedFlagDefinition> RedFlags,
     IReadOnlyList<ClinicalRuleDefinition> Rules,
-    IReadOnlyList<string> ClinicalLimitations);
+    IReadOnlyList<string> ClinicalLimitations)
+{
+    public ClinicalDefinitionPackageProfile Profile { get; init; } =
+        ClinicalDefinitionPackageProfile.DetailedClinical;
+
+    public DemoIntakePackageDefinition? DemoIntake { get; init; }
+}
 
 public sealed class ClinicalDefinitionPackage
 {
@@ -133,6 +145,8 @@ public sealed class ClinicalDefinitionPackage
     public DefinitionVersion Version => Questionnaire.Version;
 
     public ClinicalContentStatus ContentStatus => Questionnaire.ContentStatus;
+
+    public ClinicalDefinitionPackageProfile Profile => RuleDefinitions.Profile;
 
     public QuestionnaireDefinitionVersion Questionnaire { get; }
 

@@ -8,6 +8,15 @@ public interface IClinicalDefinitionProvider
         ClinicalPathwayCode pathway,
         CancellationToken cancellationToken = default);
 
+    async Task<ClinicalDefinitionPackage?> GetActiveDefinitionAsync(
+        ClinicalPathwayCode pathway,
+        ClinicalDefinitionPackageProfile profile,
+        CancellationToken cancellationToken = default)
+    {
+        var package = await GetActiveDefinitionAsync(pathway, cancellationToken);
+        return package?.Profile == profile ? package : null;
+    }
+
     Task<ClinicalDefinitionPackage?> GetDefinitionAsync(
         ClinicalPathwayCode pathway,
         DefinitionVersion version,

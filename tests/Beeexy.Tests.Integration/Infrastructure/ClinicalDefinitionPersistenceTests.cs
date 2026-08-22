@@ -12,6 +12,87 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class ClinicalDefinitionPersistenceTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
+    public async Task SimplifiedDemoPackages_ImportIdempotentlyCoexistAndResolveByProfile()
+    {
+        await EnsureMigratedAsync();
+        var packages = SimplifiedDemoDefinitionPackages.CreateAll();
+
+        await using (var dbContext = CreateDbContext())
+        {
+            var importer = CreateImporter(dbContext);
+            await importer.ImportAsync(AbdominalPainProvisionalPackage.Create());
+            foreach (var package in packages)
+            {
+                var first = await importer.ImportAsync(package);
+                var second = await importer.ImportAsync(package);
+
+                Assert.Contains(first.Outcome,
+                    new[]
+                    {
+                        ClinicalDefinitionImportOutcome.Imported,
+                        ClinicalDefinitionImportOutcome.AlreadyImported
+                    });
+                Assert.Equal(ClinicalDefinitionImportOutcome.AlreadyImported, second.Outcome);
+            }
+        }
+
+        await using (var verify = CreateDbContext())
+        {
+            var questionnaires = await verify.QuestionnaireVersions
+                .AsNoTracking()
+                .Include(value => value.Questions)
+                .Where(value => value.Version == DefinitionVersion.Create(
+                    SimplifiedDemoDefinitionPackages.VersionIdentifier))
+                .ToArrayAsync();
+            var ruleSets = await verify.ClinicalRuleSetVersions
+                .AsNoTracking()
+                .Where(value => value.Version == DefinitionVersion.Create(
+                    SimplifiedDemoDefinitionPackages.VersionIdentifier))
+                .ToArrayAsync();
+
+            Assert.Equal(3, questionnaires.Length);
+            Assert.Equal(3, ruleSets.Length);
+            Assert.All(questionnaires, value =>
+            {
+                Assert.Equal(4, value.Questions.Count);
+                Assert.Equal(ClinicalContentStatus.NonClinicalDemo, value.ContentStatus);
+                Assert.Null(value.ApprovedAt);
+            });
+            Assert.All(ruleSets, value =>
+            {
+                Assert.Equal(ClinicalContentStatus.NonClinicalDemo, value.ContentStatus);
+                Assert.Null(value.ApprovedAt);
+            });
+        }
+
+        await using (var providerContext = CreateDbContext())
+        {
+            var provider = new ClinicalDefinitionProvider(
+                providerContext,
+                new ClinicalDefinitionPackageValidator());
+            var registry = new ClinicalPathwayRegistry(provider);
+            foreach (var expected in packages)
+            {
+                var resolution = await registry.ResolveAsync(expected.Pathway.Value);
+
+                Assert.Equal(ClinicalPathwayResolutionStatus.Supported, resolution.Status);
+                Assert.NotNull(resolution.ActiveDefinition);
+                Assert.Equal(ClinicalDefinitionPackageProfile.SimplifiedDemoIntake,
+                    resolution.ActiveDefinition.Profile);
+                Assert.Equal(expected.Questionnaire.ContentHash,
+                    resolution.ActiveDefinition.Questionnaire.ContentHash);
+            }
+
+            var detailed = await provider.GetDefinitionAsync(
+                ClinicalPathways.AbdominalPain,
+                DefinitionVersion.Create(AbdominalPainProvisionalPackage.VersionIdentifier));
+            Assert.NotNull(detailed);
+            Assert.Equal(ClinicalDefinitionPackageProfile.DetailedClinical, detailed.Profile);
+            Assert.Equal(41, detailed.Questions.Count);
+        }
+    }
+
+    [Fact]
     public async Task AbdominalPackage_ImportsIdempotentlyPersistsAndResolvesWithoutCrossMapping()
     {
         await EnsureMigratedAsync();
@@ -91,7 +172,9 @@ public sealed class ClinicalDefinitionPersistenceTests(PostgreSqlContainerFixtur
                 providerContext,
                 new ClinicalDefinitionPackageValidator());
             var registry = new ClinicalPathwayRegistry(provider);
-            var active = await provider.GetActiveDefinitionAsync(ClinicalPathways.AbdominalPain);
+            var active = await provider.GetDefinitionAsync(
+                ClinicalPathways.AbdominalPain,
+                package.Version);
 
             Assert.NotNull(active);
             Assert.Equal(package.Version, active.Version);

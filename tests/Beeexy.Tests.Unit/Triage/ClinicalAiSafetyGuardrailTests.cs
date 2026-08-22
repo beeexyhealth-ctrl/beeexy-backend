@@ -169,13 +169,11 @@ public sealed class ClinicalAiSafetyGuardrailTests
     }
 
     [Theory]
-    [InlineData("HEADACHE")]
     [InlineData("CHEST_PAIN")]
-    [InlineData("FEVER")]
     [InlineData("RESPIRATORY_SYMPTOMS")]
     [InlineData("BACK_PAIN")]
     [InlineData("OTHER_SYMPTOMS")]
-    public async Task Validator_RefusesRecognizedUnsupportedPathwaysWithoutAbdominalDefinitions(
+    public async Task Validator_RefusesRecognizedUnsupportedPathways(
         string pathway)
     {
         var result = await CreateValidator().ValidateAsync(
@@ -603,6 +601,14 @@ public sealed class ClinicalAiSafetyGuardrailTests
         {
             return Task.FromResult<ClinicalDefinitionPackage?>(
                 pathway == package.Pathway ? package : null);
+        }
+
+        public Task<ClinicalDefinitionPackage?> GetActiveDefinitionAsync(
+            ClinicalPathwayCode pathway,
+            ClinicalDefinitionPackageProfile profile,
+            CancellationToken cancellationToken = default)
+        {
+            return GetActiveDefinitionAsync(pathway, cancellationToken);
         }
 
         public Task<ClinicalDefinitionPackage?> GetDefinitionAsync(

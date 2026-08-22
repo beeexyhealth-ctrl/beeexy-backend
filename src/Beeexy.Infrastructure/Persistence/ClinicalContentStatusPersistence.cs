@@ -8,6 +8,7 @@ internal static class ClinicalContentStatusPersistence
     {
         ClinicalContentSource.LegacyUnspecified => "LEGACY_UNSPECIFIED",
         ClinicalContentSource.ReferencePlatformDerived => "REFERENCE_PLATFORM_DERIVED",
+        ClinicalContentSource.ProductDemoDefined => "PRODUCT_DEMO_DEFINED",
         _ => throw new ArgumentOutOfRangeException(nameof(value))
     };
 
@@ -15,6 +16,7 @@ internal static class ClinicalContentStatusPersistence
     {
         "LEGACY_UNSPECIFIED" => ClinicalContentSource.LegacyUnspecified,
         "REFERENCE_PLATFORM_DERIVED" => ClinicalContentSource.ReferencePlatformDerived,
+        "PRODUCT_DEMO_DEFINED" => ClinicalContentSource.ProductDemoDefined,
         _ => throw new InvalidOperationException($"Unknown clinical content source '{value}'.")
     };
 
@@ -22,6 +24,7 @@ internal static class ClinicalContentStatusPersistence
     {
         ClinicalReviewStatus.Reviewed => "REVIEWED",
         ClinicalReviewStatus.Provisional => "PROVISIONAL",
+        ClinicalReviewStatus.NotApplicable => "NOT_APPLICABLE",
         _ => throw new ArgumentOutOfRangeException(nameof(value))
     };
 
@@ -29,6 +32,7 @@ internal static class ClinicalContentStatusPersistence
     {
         "REVIEWED" => ClinicalReviewStatus.Reviewed,
         "PROVISIONAL" => ClinicalReviewStatus.Provisional,
+        "NOT_APPLICABLE" => ClinicalReviewStatus.NotApplicable,
         _ => throw new InvalidOperationException($"Unknown clinical review status '{value}'.")
     };
 
@@ -36,6 +40,7 @@ internal static class ClinicalContentStatusPersistence
     {
         ClinicalApprovalStatus.Approved => "APPROVED",
         ClinicalApprovalStatus.PendingFormalReview => "PENDING_FORMAL_REVIEW",
+        ClinicalApprovalStatus.NotClinicallyApproved => "NOT_CLINICALLY_APPROVED",
         _ => throw new ArgumentOutOfRangeException(nameof(value))
     };
 
@@ -43,6 +48,7 @@ internal static class ClinicalContentStatusPersistence
     {
         "APPROVED" => ClinicalApprovalStatus.Approved,
         "PENDING_FORMAL_REVIEW" => ClinicalApprovalStatus.PendingFormalReview,
+        "NOT_CLINICALLY_APPROVED" => ClinicalApprovalStatus.NotClinicallyApproved,
         _ => throw new InvalidOperationException($"Unknown clinical approval status '{value}'.")
     };
 }

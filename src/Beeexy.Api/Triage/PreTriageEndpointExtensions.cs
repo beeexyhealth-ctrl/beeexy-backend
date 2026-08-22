@@ -103,6 +103,7 @@ internal static class PreTriageEndpointExtensions
     {
         ClinicalContentSource.ReferencePlatformDerived => "REFERENCE_PLATFORM_DERIVED",
         ClinicalContentSource.LegacyUnspecified => "LEGACY_UNSPECIFIED",
+        ClinicalContentSource.ProductDemoDefined => "PRODUCT_DEMO_DEFINED",
         _ => value.ToString().ToUpperInvariant()
     };
 
@@ -110,6 +111,7 @@ internal static class PreTriageEndpointExtensions
     {
         ClinicalReviewStatus.Provisional => "PROVISIONAL",
         ClinicalReviewStatus.Reviewed => "REVIEWED",
+        ClinicalReviewStatus.NotApplicable => "NOT_APPLICABLE",
         _ => value.ToString().ToUpperInvariant()
     };
 
@@ -117,6 +119,7 @@ internal static class PreTriageEndpointExtensions
     {
         ClinicalApprovalStatus.PendingFormalReview => "PENDING_FORMAL_REVIEW",
         ClinicalApprovalStatus.Approved => "APPROVED",
+        ClinicalApprovalStatus.NotClinicallyApproved => "NOT_CLINICALLY_APPROVED",
         _ => value.ToString().ToUpperInvariant()
     };
 }

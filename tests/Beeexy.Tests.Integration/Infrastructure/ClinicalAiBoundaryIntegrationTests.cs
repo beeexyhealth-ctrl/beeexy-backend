@@ -12,7 +12,7 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class ClinicalAiBoundaryIntegrationTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
-    public async Task ImportedAbdominalDefinition_ValidatesCandidatesWithoutCreatingClinicalState()
+    public async Task ImportedDemoDefinition_ValidatesCandidatesWithoutCreatingClinicalState()
     {
         await EnsurePackageImportedAsync();
         await using var dbContext = CreateDbContext();
@@ -20,12 +20,12 @@ public sealed class ClinicalAiBoundaryIntegrationTests(PostgreSqlContainerFixtur
         var output = ValidOutput(
         [
             new ClinicalAiFactCandidate(
-                QuestionCode.Create("PAIN_INTENSITY"),
+                QuestionCode.Create("INTENSITY"),
                 new ClinicalAiIntegerValue(4),
                 ClinicalAiConfidenceSignal.Sufficient),
             new ClinicalAiFactCandidate(
-                QuestionCode.Create("PAIN_ONSET"),
-                new ClinicalAiChoiceValue("GRADUAL"),
+                QuestionCode.Create("DURATION"),
+                new ClinicalAiDurationValue(1, ClinicalDurationUnit.Days),
                 ClinicalAiConfidenceSignal.Sufficient)
         ]);
         var interpreter = CreateInterpreter(dbContext, output);
@@ -35,8 +35,8 @@ public sealed class ClinicalAiBoundaryIntegrationTests(PostgreSqlContainerFixtur
             ClinicalPathways.AbdominalPain,
             allowedFactCodes:
             [
-                QuestionCode.Create("PAIN_INTENSITY"),
-                QuestionCode.Create("PAIN_ONSET")
+                QuestionCode.Create("INTENSITY"),
+                QuestionCode.Create("DURATION")
             ]));
 
         Assert.Equal(ClinicalAiInterpretationOutcome.Accepted, result.Outcome);
@@ -55,8 +55,8 @@ public sealed class ClinicalAiBoundaryIntegrationTests(PostgreSqlContainerFixtur
         var before = await WorkflowCountsAsync(dbContext);
         var unsupported = await CreateInterpreter(
             dbContext,
-            ValidOutput(pathway: "HEADACHE")).ExecuteAsync(
-                new ClinicalAiInterpretationRequest("I have a headache."));
+            ValidOutput(pathway: "CHEST_PAIN")).ExecuteAsync(
+                new ClinicalAiInterpretationRequest("I have chest pain."));
         var unknown = await CreateInterpreter(
             dbContext,
             ValidOutput(pathway: "AI_INVENTED_PATHWAY")).ExecuteAsync(
@@ -141,6 +141,10 @@ public sealed class ClinicalAiBoundaryIntegrationTests(PostgreSqlContainerFixtur
             new ClinicalDefinitionPackageValidator(),
             NullLogger<ClinicalDefinitionImporter>.Instance);
         await importer.ImportAsync(AbdominalPainProvisionalPackage.Create());
+        foreach (var package in SimplifiedDemoDefinitionPackages.CreateAll())
+        {
+            await importer.ImportAsync(package);
+        }
     }
 
     private static async Task<(int Sessions, int Episodes, int Assessments)> WorkflowCountsAsync(

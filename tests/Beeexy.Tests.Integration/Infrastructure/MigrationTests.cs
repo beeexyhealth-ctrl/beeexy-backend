@@ -9,7 +9,7 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
-    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase42()
+    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase45()
     {
         var options = new DbContextOptionsBuilder<BeeexyDbContext>()
             .UseNpgsql(postgres.ConnectionString)
@@ -31,7 +31,8 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                     "20260821015511_Phase31CareRelationshipFoundation",
                     "20260821065021_Phase36ApprovedPatientDemographics",
                     "20260821203135_Phase41PreTriagePersistenceFoundation",
-                    "20260822035009_Phase42ClinicalDefinitionPackages"
+                    "20260822035009_Phase42ClinicalDefinitionPackages",
+                    "20260822061610_Phase45ConfirmedDemoPackages"
                 ],
                 appliedMigrations);
             Assert.Empty(pendingMigrations);

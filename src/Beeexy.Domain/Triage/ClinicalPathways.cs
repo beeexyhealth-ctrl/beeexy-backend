@@ -34,5 +34,6 @@ public static class ClinicalPathways
         OtherSymptoms
     ];
 
-    public static IReadOnlyList<ClinicalPathwayCode> Supported { get; } = [AbdominalPain];
+    public static IReadOnlyList<ClinicalPathwayCode> Supported { get; } =
+        [Headache, AbdominalPain, Fever];
 }

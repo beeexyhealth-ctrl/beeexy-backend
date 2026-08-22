@@ -45,6 +45,9 @@ public sealed class ClinicalPathwayRegistry(IClinicalDefinitionProvider definiti
         return new ClinicalPathwayResolution(
             ClinicalPathwayResolutionStatus.Supported,
             pathway,
-            await definitionProvider.GetActiveDefinitionAsync(pathway, cancellationToken));
+            await definitionProvider.GetActiveDefinitionAsync(
+                pathway,
+                ClinicalDefinitionPackageProfile.SimplifiedDemoIntake,
+                cancellationToken));
     }
 }

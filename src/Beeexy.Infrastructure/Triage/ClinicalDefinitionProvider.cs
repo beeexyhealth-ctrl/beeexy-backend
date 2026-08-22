@@ -26,6 +26,31 @@ public sealed class ClinicalDefinitionProvider(
             : await BuildPackageAsync(questionnaire, cancellationToken);
     }
 
+    public async Task<ClinicalDefinitionPackage?> GetActiveDefinitionAsync(
+        ClinicalPathwayCode pathway,
+        ClinicalDefinitionPackageProfile profile,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(pathway);
+        var questionnaires = await dbContext.QuestionnaireVersions
+            .AsNoTracking()
+            .Include(value => value.Questions)
+            .Where(value => value.Pathway == pathway && value.ActivatedAt != null)
+            .OrderByDescending(value => value.ActivatedAt)
+            .ThenByDescending(value => value.ImportedAt)
+            .ToArrayAsync(cancellationToken);
+        foreach (var questionnaire in questionnaires)
+        {
+            var package = await BuildPackageAsync(questionnaire, cancellationToken);
+            if (package.Profile == profile)
+            {
+                return package;
+            }
+        }
+
+        return null;
+    }
+
     public async Task<ClinicalDefinitionPackage?> GetDefinitionAsync(
         ClinicalPathwayCode pathway,
         DefinitionVersion version,

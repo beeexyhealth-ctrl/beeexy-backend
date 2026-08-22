@@ -25,11 +25,32 @@ public sealed class ClinicalDefinitionPackageValidator
         ValidateProvenance(package);
         var questions = ValidateQuestions(package);
         ValidateBranches(package.Branches, questions);
-        ValidateRulePackage(package.RuleDefinitions, questions);
+        if (package.Profile == ClinicalDefinitionPackageProfile.SimplifiedDemoIntake)
+        {
+            ValidateDemoPackage(package, questions);
+        }
+        else
+        {
+            ValidateRulePackage(package.RuleDefinitions, questions);
+        }
     }
 
     private static void ValidateProvenance(ClinicalDefinitionPackage package)
     {
+        if (package.Profile == ClinicalDefinitionPackageProfile.SimplifiedDemoIntake)
+        {
+            if (package.ContentStatus != ClinicalContentStatus.NonClinicalDemo ||
+                package.Questionnaire.ApprovedAt.HasValue ||
+                package.RuleSet.ApprovedAt.HasValue)
+            {
+                throw Invalid(
+                    "A simplified demo package must be product/demo-defined, " +
+                    "non-clinical, and not clinically approved.");
+            }
+
+            return;
+        }
+
         var approved = package.ContentStatus.ApprovalStatus ==
             ClinicalApprovalStatus.Approved;
         var reviewed = package.ContentStatus.ReviewStatus == ClinicalReviewStatus.Reviewed;
@@ -39,6 +60,116 @@ public sealed class ClinicalDefinitionPackageValidator
             package.RuleSet.ApprovedAt.HasValue != approved)
         {
             throw Invalid("Clinical approval status and approval timestamps must agree.");
+        }
+    }
+
+    private static void ValidateDemoPackage(
+        ClinicalDefinitionPackage package,
+        IReadOnlyDictionary<QuestionCode, ClinicalQuestionDefinition> questions)
+    {
+        var definition = package.RuleDefinitions.DemoIntake ?? throw Invalid(
+            "A simplified demo package requires deterministic intake metadata.");
+        if (package.Branches.Count != 0)
+        {
+            throw Invalid("A simplified demo package cannot contain clinical branches.");
+        }
+
+        if (package.RuleDefinitions.Urgencies.Count != 0 ||
+            package.RuleDefinitions.Dispositions.Count != 0 ||
+            package.RuleDefinitions.RedFlags.Count != 0 ||
+            package.RuleDefinitions.Rules.Count != 0)
+        {
+            throw Invalid(
+                "A simplified demo package cannot contain urgency, disposition, red-flag, " +
+                "or clinical-rule artifacts.");
+        }
+
+        if (string.IsNullOrWhiteSpace(definition.PrimarySymptomDisplayLabel) ||
+            !definition.AdditionalSymptomsAllowsEmptySelection)
+        {
+            throw Invalid(
+                "Demo intake metadata must define a display label and allow no additional symptoms.");
+        }
+
+        var expectedCodes = new[]
+        {
+            definition.PrimarySymptomQuestionCode,
+            definition.DurationQuestionCode,
+            definition.IntensityQuestionCode,
+            definition.AdditionalSymptomsQuestionCode
+        };
+        if (questions.Count != expectedCodes.Length ||
+            expectedCodes.Distinct().Count() != expectedCodes.Length ||
+            !questions.Keys.ToHashSet().SetEquals(expectedCodes))
+        {
+            throw Invalid("A simplified demo package must contain exactly its four intake fields.");
+        }
+
+        var primary = questions[definition.PrimarySymptomQuestionCode];
+        var duration = questions[definition.DurationQuestionCode];
+        var intensity = questions[definition.IntensityQuestionCode];
+        var additional = questions[definition.AdditionalSymptomsQuestionCode];
+        if (primary.Answer.Type != ClinicalAnswerType.SymptomSelection ||
+            primary.Answer.AllowedValues is not { Count: 1 } primaryValues ||
+            primaryValues[0] != package.Pathway.Value)
+        {
+            throw Invalid("The demo primary symptom must be pinned to the package pathway.");
+        }
+
+        if (duration.Answer.Type != ClinicalAnswerType.Duration)
+        {
+            throw Invalid("The demo duration field must use the duration answer type.");
+        }
+
+        if (intensity.Answer.Type != ClinicalAnswerType.IntegerScale ||
+            intensity.Answer.Minimum != 1 || intensity.Answer.Maximum != 10)
+        {
+            throw Invalid("The demo intensity field must be an integer scale from 1 through 10.");
+        }
+
+        if (additional.Answer.Type != ClinicalAnswerType.MultipleChoice ||
+            additional.Answer.AllowedValues is null ||
+            !additional.Answer.AllowedValues.SequenceEqual(
+                definition.ApplicableAdditionalSymptoms, StringComparer.Ordinal))
+        {
+            throw Invalid(
+                "The additional-symptom question must use the package's applicable choices.");
+        }
+
+        if (!definition.AdditionalSymptomCatalog.SequenceEqual(
+                DemoAdditionalSymptoms.Catalog, StringComparer.Ordinal))
+        {
+            throw Invalid("The demo additional-symptom catalog must contain exactly three values.");
+        }
+
+        var expectedApplicable = package.Pathway == ClinicalPathways.Fever
+            ? DemoAdditionalSymptoms.Catalog
+                .Where(value => value != DemoAdditionalSymptoms.FeverCode).ToArray()
+            : DemoAdditionalSymptoms.Catalog;
+        if (!definition.ApplicableAdditionalSymptoms.SequenceEqual(
+                expectedApplicable, StringComparer.Ordinal))
+        {
+            throw Invalid(
+                "Applicable additional symptoms must deterministically exclude the primary symptom.");
+        }
+
+        var expectedProgression = new[]
+        {
+            definition.DurationQuestionCode,
+            definition.IntensityQuestionCode,
+            definition.AdditionalSymptomsQuestionCode
+        };
+        if (!definition.RequiredAnswerQuestionCodes.SequenceEqual(expectedProgression) ||
+            !definition.ProgressionQuestionCodes.SequenceEqual(expectedProgression))
+        {
+            throw Invalid(
+                "Demo completeness and progression must be duration, intensity, then additional symptoms.");
+        }
+
+        if (package.Pathway == ClinicalPathways.AbdominalPain &&
+            definition.PrimarySymptomDisplayLabel != "Stomach pain")
+        {
+            throw Invalid("ABDOMINAL_PAIN must use the demo display label 'Stomach pain'.");
         }
     }
 
