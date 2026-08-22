@@ -62,6 +62,14 @@ public sealed class PreTriageCompletionRepository(BeeexyDbContext dbContext)
 
             dbContext.PreTriageEpisodes.Add(decision.NewEpisode);
             dbContext.ClinicalAssessments.Add(decision.NewAssessment);
+            if (decision.NewEpisode.PatientProfileId.HasValue)
+            {
+                dbContext.PreTriageHistoryProjectionRecords.Add(
+                    PreTriageHistoryProjectionRecord.Create(
+                        decision.NewEpisode,
+                        decision.NewEpisode.CompletedAt));
+            }
+
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 

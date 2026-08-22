@@ -1,4 +1,5 @@
 using Beeexy.Application.Triage;
+using Beeexy.Domain.Patients;
 using Beeexy.Domain.Triage;
 using Beeexy.Infrastructure.Persistence;
 using Beeexy.Infrastructure.Triage;
@@ -14,6 +15,102 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 [Collection(PostgreSqlCollection.Name)]
 public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
 {
+    [Fact]
+    public async Task Phase410Migration_BackfillsValidPatientEpisodeAndCanRollbackAndReapply()
+    {
+        await EnsureMigratedAsync();
+        var options = CreateOptions();
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            await dbContext.GetService<IMigrator>()
+                .MigrateAsync("20260822163355_Phase47NeutralClinicalAssessment");
+        }
+
+        var package = SimplifiedDemoDefinitionPackages.Create(ClinicalPathways.Headache);
+        var now = new DateTimeOffset(2026, 8, 22, 12, 0, 0, TimeSpan.Zero);
+        var patient = PatientProfile.CreateManaged(
+            BeeexyId.Create($"BXY-{Guid.NewGuid():N}".ToUpperInvariant()),
+            PatientName.Create("Migration"),
+            PatientName.Create("Projection"),
+            new DateOnly(1990, 1, 1),
+            SexAssignedAtBirth.Female,
+            UsState.Create("NY"),
+            now);
+        PreTriageEpisode episode;
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            var importer = new ClinicalDefinitionImporter(
+                dbContext,
+                new ClinicalDefinitionPackageValidator(),
+                NullLogger<ClinicalDefinitionImporter>.Instance);
+            await importer.ImportAsync(package);
+            var session = PreTriageSession.CreateForPatient(
+                patient.Id,
+                package.Questionnaire.Id,
+                now.AddHours(24),
+                now);
+            AddDemoAnswersAndSymptoms(session, package, now.AddMinutes(1));
+            episode = PreTriageEpisode.CreateFrom(
+                session,
+                package.RuleSet.Id,
+                now.AddMinutes(2));
+            var assessment = ClinicalAssessment.CreateNeutral(episode, episode.CompletedAt);
+            dbContext.AddRange(patient, session, episode, assessment);
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            await dbContext.Database.MigrateAsync();
+            var record = await dbContext.PreTriageHistoryProjectionRecords
+                .AsNoTracking()
+                .SingleAsync(value => value.SourceEpisodeId == episode.Id);
+            Assert.Equal(patient.Id, record.PatientProfileId);
+            Assert.Equal(episode.CompletedAt, record.CompletedAt);
+            Assert.Equal(episode.CompletedAt, record.CreatedAt);
+            await dbContext.GetService<IMigrator>()
+                .MigrateAsync("20260822163355_Phase47NeutralClinicalAssessment");
+        }
+
+        await using (var connection = new NpgsqlConnection(postgres.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText =
+                "SELECT count(*) FROM information_schema.tables " +
+                "WHERE table_schema = 'history';";
+            Assert.Equal(0L, (long)(await command.ExecuteScalarAsync())!);
+        }
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            await dbContext.Database.MigrateAsync();
+            Assert.Equal(1, await dbContext.PreTriageHistoryProjectionRecords.CountAsync(
+                value => value.SourceEpisodeId == episode.Id));
+            await dbContext.PreTriageHistoryProjectionRecords
+                .Where(value => value.SourceEpisodeId == episode.Id)
+                .ExecuteDeleteAsync();
+            await dbContext.ClinicalAssessments
+                .Where(value => value.EpisodeId == episode.Id)
+                .ExecuteDeleteAsync();
+            await dbContext.TriageAnswers
+                .Where(value => value.EpisodeId == episode.Id)
+                .ExecuteDeleteAsync();
+            await dbContext.ReportedSymptoms
+                .Where(value => value.EpisodeId == episode.Id)
+                .ExecuteDeleteAsync();
+            await dbContext.PreTriageEpisodes
+                .Where(value => value.Id == episode.Id)
+                .ExecuteDeleteAsync();
+            await dbContext.PreTriageSessions
+                .Where(value => value.Id == episode.SourceSessionId)
+                .ExecuteDeleteAsync();
+            await dbContext.PatientProfiles
+                .Where(value => value.Id == patient.Id)
+                .ExecuteDeleteAsync();
+        }
+    }
+
     [Fact]
     public async Task Phase47Migration_MakesOnlyUrgencyNullableAndCanRollbackAndReapply()
     {
@@ -401,6 +498,44 @@ public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
         return new DbContextOptionsBuilder<BeeexyDbContext>()
             .UseNpgsql(postgres.ConnectionString)
             .Options;
+    }
+
+    private static void AddDemoAnswersAndSymptoms(
+        PreTriageSession session,
+        ClinicalDefinitionPackage package,
+        DateTimeOffset recordedAt)
+    {
+        var answers = new Dictionary<string, string>
+        {
+            ["DURATION"] = "{\"value\":2,\"unit\":\"DAYS\"}",
+            ["INTENSITY"] = "{\"value\":7}",
+            ["ADDITIONAL_SYMPTOMS"] = "{\"values\":[\"FEVER\"]}"
+        };
+        foreach (var (code, json) in answers)
+        {
+            var question = package.Questionnaire.Questions.Single(
+                value => value.Code == QuestionCode.Create(code));
+            session.RecordAnswer(question, json, question.DisplayOrder, recordedAt);
+        }
+
+        session.ReportSymptom(
+            SymptomText.Create("HEADACHE"),
+            1,
+            recordedAt,
+            "urn:beeexy:demo-symptom-code",
+            "HEADACHE",
+            "Headache",
+            "BEEEXY_SIMPLIFIED_DEMO_PACKAGE",
+            recordedAt);
+        session.ReportSymptom(
+            SymptomText.Create("FEVER"),
+            2,
+            recordedAt,
+            "urn:beeexy:demo-symptom-code",
+            "FEVER",
+            "FEVER",
+            "BEEEXY_SIMPLIFIED_DEMO_PACKAGE",
+            recordedAt);
     }
 
     private async Task EnsureMigratedAsync()

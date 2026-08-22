@@ -451,6 +451,8 @@ public sealed class PreTriageAnswerEndpointTests(
         Assert.Empty(assessment.Findings);
         Assert.Equal(1, await dbContext.PreTriageEpisodes.CountAsync(
             value => value.SourceSessionId == EntityId.From(session.SessionId)));
+        Assert.False(await dbContext.PreTriageHistoryProjectionRecords.AnyAsync(
+            value => value.SourceEpisodeId == episode.Id));
         Assert.Equal(3, await dbContext.TriageAnswers.CountAsync(
             value => value.EpisodeId == episode.Id));
         var symptoms = await dbContext.ReportedSymptoms
@@ -602,6 +604,22 @@ public sealed class PreTriageAnswerEndpointTests(
         Assert.Equal(HttpStatusCode.NotFound, idor.StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, immutableAnswer.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, revokedGet.StatusCode);
+
+        await using var verify = CreateDbContext();
+        var episodeIds = await verify.PreTriageEpisodes
+            .Where(value => value.SourceSessionId == EntityId.From(primarySession) ||
+                value.SourceSessionId == EntityId.From(managedSession))
+            .Select(value => value.Id)
+            .ToArrayAsync();
+        var records = await verify.PreTriageHistoryProjectionRecords
+            .AsNoTracking()
+            .Where(value => episodeIds.Contains(value.SourceEpisodeId))
+            .OrderBy(value => value.PatientProfileId)
+            .ToArrayAsync();
+        Assert.Equal(2, records.Length);
+        Assert.Contains(records, value => value.PatientProfileId == primary.ProfileId);
+        Assert.Contains(records, value => value.PatientProfileId == managed.Id);
+        Assert.All(records, value => Assert.Equal(value.CompletedAt, value.CreatedAt));
     }
 
     [Fact]
@@ -649,6 +667,134 @@ public sealed class PreTriageAnswerEndpointTests(
                 "DROP TRIGGER IF EXISTS phase47_test_reject_assessment " +
                 "ON triage.clinical_assessments; " +
                 "DROP FUNCTION IF EXISTS triage.phase47_test_reject_assessment();");
+        }
+    }
+
+    [Fact]
+    public async Task ProjectionRecordFailure_RollsBackAuthenticatedCompletionAtomically()
+    {
+        var identity = await CreateIdentityAsync("projection-completion-rollback");
+        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        using var client = factory.CreateApiClient();
+        SetBearer(client, identity.Token);
+        var sessionId = await StartAuthenticatedAsync(client, null);
+        await MakeReadyAuthenticatedAsync(client, sessionId);
+        int projectionCountBefore;
+        await using (var before = CreateDbContext())
+        {
+            projectionCountBefore = await before.PreTriageHistoryProjectionRecords.CountAsync();
+        }
+
+        await SetProjectionInsertFailureTriggerAsync(enabled: true);
+
+        try
+        {
+            using var response = await client.PostAsync(CompleteEndpoint(sessionId), null);
+            Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+
+            await using var verify = CreateDbContext();
+            var session = await verify.PreTriageSessions
+                .AsNoTracking()
+                .Include(value => value.Answers)
+                .SingleAsync(value => value.Id == EntityId.From(sessionId));
+            Assert.Equal(PreTriageSessionStatus.Active, session.Status);
+            Assert.Null(session.CompletedAt);
+            Assert.Equal(3, session.Answers.Count);
+            Assert.False(await verify.PreTriageEpisodes.AnyAsync(
+                value => value.SourceSessionId == session.Id));
+            Assert.Equal(
+                projectionCountBefore,
+                await verify.PreTriageHistoryProjectionRecords.CountAsync());
+        }
+        finally
+        {
+            await SetProjectionInsertFailureTriggerAsync(enabled: false);
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentProjectionDelivery_ReturnsOneStableNeutralProjection()
+    {
+        var identity = await CreateIdentityAsync("projection-concurrent");
+        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        using var client = factory.CreateApiClient();
+        SetBearer(client, identity.Token);
+        var sessionId = await StartAuthenticatedAsync(client, null);
+        await MakeReadyAuthenticatedAsync(client, sessionId);
+        using var completion = await client.PostAsync(CompleteEndpoint(sessionId), null);
+        var completed = await completion.Content.ReadFromJsonAsync<ResultResponse>();
+        Assert.Equal(HttpStatusCode.Created, completion.StatusCode);
+
+        await using var firstContext = CreateDbContext();
+        await using var secondContext = CreateDbContext();
+        var first = new ProjectCompletedPreTriageEpisode(
+            new ClinicalDefinitionProvider(
+                firstContext,
+                new ClinicalDefinitionPackageValidator()),
+            new CheckDemoQuestionnaireCompleteness(),
+            new PreTriageHistoryProjectionRepository(firstContext));
+        var second = new ProjectCompletedPreTriageEpisode(
+            new ClinicalDefinitionProvider(
+                secondContext,
+                new ClinicalDefinitionPackageValidator()),
+            new CheckDemoQuestionnaireCompleteness(),
+            new PreTriageHistoryProjectionRepository(secondContext));
+        var projections = await Task.WhenAll(
+            first.ExecuteAsync(EntityId.From(completed!.EpisodeId)),
+            second.ExecuteAsync(EntityId.From(completed.EpisodeId)));
+
+        Assert.All(projections, value => Assert.NotNull(value));
+        Assert.Equivalent(projections[0], projections[1], strict: true);
+        var projection = Assert.IsType<PreTriageHistoryProjection>(projections[0]);
+        Assert.Equal(PreTriageHistoryProjection.SourceTypeCode, projection.SourceType);
+        Assert.Equal(identity.ProfileId, projection.PatientProfileId);
+        Assert.Equal(
+            ClinicalContentSource.ProductDemoDefined,
+            projection.ContentStatus.Source);
+        await using var verify = CreateDbContext();
+        Assert.Equal(1, await verify.PreTriageHistoryProjectionRecords.CountAsync(
+            value => value.SourceEpisodeId == EntityId.From(completed.EpisodeId)));
+    }
+
+    [Fact]
+    public async Task ConcurrentAuthenticatedCompletion_CreatesExactlyOneProjectionRecord()
+    {
+        var identity = await CreateIdentityAsync("projection-concurrent-completion");
+        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        using var firstClient = factory.CreateApiClient();
+        using var secondClient = factory.CreateApiClient();
+        SetBearer(firstClient, identity.Token);
+        SetBearer(secondClient, identity.Token);
+        var sessionId = await StartAuthenticatedAsync(firstClient, null);
+        await MakeReadyAuthenticatedAsync(firstClient, sessionId);
+
+        var responses = await Task.WhenAll(
+            firstClient.PostAsync(CompleteEndpoint(sessionId), null),
+            secondClient.PostAsync(CompleteEndpoint(sessionId), null));
+        try
+        {
+            Assert.Equal(1, responses.Count(
+                value => value.StatusCode == HttpStatusCode.Created));
+            Assert.Equal(1, responses.Count(
+                value => value.StatusCode == HttpStatusCode.OK));
+            var bodies = await Task.WhenAll(responses.Select(
+                value => value.Content.ReadFromJsonAsync<ResultResponse>()));
+            Assert.Equal(bodies[0]!.EpisodeId, bodies[1]!.EpisodeId);
+
+            await using var verify = CreateDbContext();
+            var episodeId = EntityId.From(bodies[0]!.EpisodeId);
+            var record = await verify.PreTriageHistoryProjectionRecords
+                .AsNoTracking()
+                .SingleAsync(value => value.SourceEpisodeId == episodeId);
+            Assert.Equal(identity.ProfileId, record.PatientProfileId);
+            Assert.Equal(record.CompletedAt, record.CreatedAt);
+        }
+        finally
+        {
+            foreach (var response in responses)
+            {
+                response.Dispose();
+            }
         }
     }
 
@@ -737,6 +883,15 @@ public sealed class PreTriageAnswerEndpointTests(
                 .SingleAsync(value => value.Id == EntityId.From(session.SessionId));
             Assert.NotEqual(session.AnonymousCapability,
                 persistedSession.AnonymousCapabilityHash!.Value);
+            var episode = await dbContext.PreTriageEpisodes
+                .AsNoTracking()
+                .SingleAsync(value => value.SourceSessionId == persistedSession.Id);
+            var projectionRecord = await dbContext.PreTriageHistoryProjectionRecords
+                .AsNoTracking()
+                .SingleAsync(value => value.SourceEpisodeId == episode.Id);
+            Assert.Equal(identity.ProfileId, projectionRecord.PatientProfileId);
+            Assert.Equal(episode.CompletedAt, projectionRecord.CompletedAt);
+            Assert.Equal(claimed.ClaimedAt, projectionRecord.CreatedAt);
         }
 
         var transitionLogs = logger.Messages.Where(message => message.Contains(
@@ -795,6 +950,9 @@ public sealed class PreTriageAnswerEndpointTests(
         var snapshot = await LoadClaimSnapshotAsync(session.SessionId);
         Assert.Equal(identity.ProfileId.Value, snapshot.PatientProfileId);
         Assert.NotNull(snapshot.ClaimedAt);
+        await using var verify = CreateDbContext();
+        Assert.Equal(1, await verify.PreTriageHistoryProjectionRecords.CountAsync(
+            value => value.SourceEpisodeId == EntityId.From(snapshot.EpisodeId)));
     }
 
     [Fact]
@@ -1046,6 +1204,9 @@ public sealed class PreTriageAnswerEndpointTests(
             var snapshot = await LoadClaimSnapshotAsync(session.SessionId);
             Assert.Null(snapshot.PatientProfileId);
             Assert.Null(snapshot.ClaimedAt);
+            await using var verify = CreateDbContext();
+            Assert.False(await verify.PreTriageHistoryProjectionRecords.AnyAsync(
+                value => value.SourceEpisodeId == EntityId.From(snapshot.EpisodeId)));
         }
         finally
         {
@@ -1054,6 +1215,38 @@ public sealed class PreTriageAnswerEndpointTests(
                 "DROP TRIGGER IF EXISTS phase48_test_reject_claim " +
                 "ON triage.pre_triage_episodes; " +
                 "DROP FUNCTION IF EXISTS triage.phase48_test_reject_claim();");
+        }
+    }
+
+    [Fact]
+    public async Task ProjectionRecordFailure_RollsBackAnonymousClaimAtomically()
+    {
+        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        using var setupClient = factory.CreateApiClient();
+        var session = await CreateCompletedAnonymousAsync(setupClient, "HEADACHE");
+        var identity = await CreateIdentityAsync("projection-claim-rollback");
+        using var client = factory.CreateApiClient();
+        SetBearer(client, identity.Token);
+        await SetProjectionInsertFailureTriggerAsync(enabled: true);
+
+        try
+        {
+            using var response = await SendWithCapabilityAsync(
+                client,
+                HttpMethod.Post,
+                ClaimEndpoint(session.SessionId),
+                session.AnonymousCapability);
+            Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+            var snapshot = await LoadClaimSnapshotAsync(session.SessionId);
+            Assert.Null(snapshot.PatientProfileId);
+            Assert.Null(snapshot.ClaimedAt);
+            await using var verify = CreateDbContext();
+            Assert.False(await verify.PreTriageHistoryProjectionRecords.AnyAsync(
+                value => value.SourceEpisodeId == EntityId.From(snapshot.EpisodeId)));
+        }
+        finally
+        {
+            await SetProjectionInsertFailureTriggerAsync(enabled: false);
         }
     }
 
@@ -1073,6 +1266,21 @@ public sealed class PreTriageAnswerEndpointTests(
         {
             await importer.ImportAsync(package);
         }
+    }
+
+    private async Task SetProjectionInsertFailureTriggerAsync(bool enabled)
+    {
+        await using var dbContext = CreateDbContext();
+        await dbContext.Database.ExecuteSqlRawAsync(enabled
+            ? "CREATE OR REPLACE FUNCTION history.reject_projection_insert() " +
+              "RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN " +
+              "RAISE EXCEPTION 'forced projection insert failure'; END; $$; " +
+              "CREATE TRIGGER reject_projection_insert " +
+              "BEFORE INSERT ON history.pre_triage_projection_records FOR EACH ROW " +
+              "EXECUTE FUNCTION history.reject_projection_insert();"
+            : "DROP TRIGGER IF EXISTS reject_projection_insert " +
+              "ON history.pre_triage_projection_records; " +
+              "DROP FUNCTION IF EXISTS history.reject_projection_insert();");
     }
 
     public async Task DisposeAsync()
@@ -1107,6 +1315,9 @@ public sealed class PreTriageAnswerEndpointTests(
         dbContext.RemoveRange(assessments);
         dbContext.RemoveRange(answers);
         dbContext.RemoveRange(symptoms);
+        await dbContext.PreTriageHistoryProjectionRecords
+            .Where(value => episodeIds.Contains(value.SourceEpisodeId))
+            .ExecuteDeleteAsync();
         await dbContext.SaveChangesAsync();
         await dbContext.PreTriageEpisodes
             .Where(value => episodeIds.Contains(value.Id))

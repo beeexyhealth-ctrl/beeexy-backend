@@ -43,6 +43,9 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
 
     public DbSet<ClinicalFinding> ClinicalFindings => Set<ClinicalFinding>();
 
+    public DbSet<PreTriageHistoryProjectionRecord> PreTriageHistoryProjectionRecords =>
+        Set<PreTriageHistoryProjectionRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

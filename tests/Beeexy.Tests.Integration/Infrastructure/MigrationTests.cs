@@ -9,7 +9,7 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
-    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase47()
+    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase410()
     {
         var options = new DbContextOptionsBuilder<BeeexyDbContext>()
             .UseNpgsql(postgres.ConnectionString)
@@ -33,7 +33,8 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                     "20260821203135_Phase41PreTriagePersistenceFoundation",
                     "20260822035009_Phase42ClinicalDefinitionPackages",
                     "20260822061610_Phase45ConfirmedDemoPackages",
-                    "20260822163355_Phase47NeutralClinicalAssessment"
+                    "20260822163355_Phase47NeutralClinicalAssessment",
+                    "20260822182341_Phase410ClinicalHistoryProjectionBoundary"
                 ],
                 appliedMigrations);
             Assert.Empty(pendingMigrations);
@@ -58,6 +59,7 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(
             [
+                "history.pre_triage_projection_records",
                 "identity.accounts",
                 "identity.email_authentication_challenges",
                 "identity.external_identities",

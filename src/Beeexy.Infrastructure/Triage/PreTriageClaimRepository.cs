@@ -1,5 +1,6 @@
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
+using Beeexy.Domain.Triage;
 using Beeexy.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -53,6 +54,10 @@ public sealed class PreTriageClaimRepository(BeeexyDbContext dbContext)
                     "The pre-triage claim mutation is inconsistent.");
             }
 
+            dbContext.PreTriageHistoryProjectionRecords.Add(
+                PreTriageHistoryProjectionRecord.Create(
+                    episode,
+                    episode.ClaimedAt.Value));
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 

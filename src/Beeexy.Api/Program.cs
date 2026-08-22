@@ -75,6 +75,9 @@ builder.Services.AddScoped<NeutralClinicalAssessmentFactory>();
 builder.Services.AddScoped<CompletePreTriage>();
 builder.Services.AddScoped<GetPreTriageResult>();
 builder.Services.AddScoped<ClaimAnonymousPreTriage>();
+builder.Services.AddScoped<ProjectCompletedPreTriageEpisode>();
+builder.Services.AddScoped<IPreTriageHistoryProjector>(provider =>
+    provider.GetRequiredService<ProjectCompletedPreTriageEpisode>());
 builder.Services.AddScoped<ExpireAnonymousPreTriage>();
 builder.Services.AddScoped<PreTriageCleanupService>();
 builder.Services.AddHttpContextAccessor();

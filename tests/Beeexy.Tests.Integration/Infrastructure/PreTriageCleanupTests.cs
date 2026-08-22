@@ -110,6 +110,21 @@ public sealed class PreTriageCleanupTests(PostgreSqlContainerFixture postgres)
             claimOwner,
             primary,
             managed);
+        await using (var context = CreateDbContext())
+        {
+            context.PreTriageHistoryProjectionRecords.AddRange(
+                PreTriageHistoryProjectionRecord.Create(
+                    claimed.Episode,
+                    claimed.Episode.ClaimedAt!.Value),
+                PreTriageHistoryProjectionRecord.Create(
+                    primaryCompleted.Episode,
+                    primaryCompleted.Episode.CompletedAt),
+                PreTriageHistoryProjectionRecord.Create(
+                    managedCompleted.Episode,
+                    managedCompleted.Episode.CompletedAt));
+            await context.SaveChangesAsync();
+        }
+
         var claimedAt = claimed.Episode.ClaimedAt;
 
         var result = await RunCleanupAsync(Expiry.AddDays(30));
@@ -124,6 +139,7 @@ public sealed class PreTriageCleanupTests(PostgreSqlContainerFixture postgres)
         Assert.Equal(3, await verify.ClinicalAssessments.CountAsync());
         Assert.Equal(3, await verify.TriageAnswers.CountAsync());
         Assert.Equal(3, await verify.ReportedSymptoms.CountAsync());
+        Assert.Equal(3, await verify.PreTriageHistoryProjectionRecords.CountAsync());
         Assert.Equal(0, result.Removed);
     }
 
@@ -257,6 +273,8 @@ public sealed class PreTriageCleanupTests(PostgreSqlContainerFixture postgres)
         Assert.Equal(completionResult is not null, sessionExists);
         Assert.Equal(sessionExists ? 1 : 0, episodeCount);
         Assert.Equal(sessionExists ? 1 : 0, assessmentCount);
+        Assert.Equal(sessionExists ? 1 : 0,
+            await verify.PreTriageHistoryProjectionRecords.CountAsync());
         Assert.True(cleanupOutcome is PreTriageCleanupOutcome.Removed or
             PreTriageCleanupOutcome.PreservedPermanent);
     }
@@ -318,6 +336,8 @@ public sealed class PreTriageCleanupTests(PostgreSqlContainerFixture postgres)
         Assert.Equal(episode is null ? 0 : 1, await verify.ClinicalAssessments.CountAsync());
         Assert.Equal(episode is null ? 0 : 1, await verify.TriageAnswers.CountAsync());
         Assert.Equal(episode is null ? 0 : 1, await verify.ReportedSymptoms.CountAsync());
+        Assert.Equal(episode is null ? 0 : 1,
+            await verify.PreTriageHistoryProjectionRecords.CountAsync());
     }
 
     [Fact]
