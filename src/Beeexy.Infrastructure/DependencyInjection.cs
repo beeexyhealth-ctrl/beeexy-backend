@@ -68,6 +68,10 @@ public static class DependencyInjection
         services.AddScoped<IClinicalDefinitionImporter, ClinicalDefinitionImporter>();
         services.AddScoped<IClinicalDefinitionProvider, ClinicalDefinitionProvider>();
         services.AddScoped<IClinicalPathwayRegistry, ClinicalPathwayRegistry>();
+        services.AddSingleton<IClinicalAiProvider, UnavailableClinicalAiProvider>();
+        services.AddSingleton<IClinicalSafetyPolicy, ClinicalSafetyPolicy>();
+        services.AddScoped<IClinicalAiOutputValidator, ClinicalAiOutputValidator>();
+        services.AddScoped<InterpretClinicalInput>();
 
         services.AddSingleton(googleOptions);
         if (googleOptions.Enabled)
