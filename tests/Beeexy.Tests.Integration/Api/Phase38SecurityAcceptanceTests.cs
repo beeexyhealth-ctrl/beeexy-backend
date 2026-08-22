@@ -343,7 +343,8 @@ public sealed class Phase38SecurityAcceptanceTests(PostgreSqlContainerFixture po
         Assert.DoesNotContain(paths.EnumerateObject(), path =>
             path.Name.Contains("sharing", StringComparison.OrdinalIgnoreCase) ||
             path.Name.Contains("invitation", StringComparison.OrdinalIgnoreCase) ||
-            path.Name.Contains("claim", StringComparison.OrdinalIgnoreCase));
+            (path.Name.Contains("claim", StringComparison.OrdinalIgnoreCase) &&
+             path.Name != "/api/v1/pre-triage/sessions/{id}/claim"));
 
         var schemas = document.RootElement.GetProperty("components").GetProperty("schemas");
         Assert.Equal(

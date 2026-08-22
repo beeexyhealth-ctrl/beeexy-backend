@@ -215,7 +215,7 @@ public sealed class GetPreTriageResult(
         ArgumentNullException.ThrowIfNull(query);
         var graph = await repository.GetAsync(query.SessionId, cancellationToken) ??
             throw new PreTriageSessionNotFoundException();
-        await AuthorizeAsync(graph.Session, query, cancellationToken);
+        await AuthorizeAsync(graph, query, cancellationToken);
 
         if (graph.Session.Status != PreTriageSessionStatus.Completed)
         {
@@ -236,6 +236,8 @@ public sealed class GetPreTriageResult(
         }
 
         if (graph.Session.IsAnonymous &&
+            (query.CallerMode == PreTriageCallerMode.Anonymous ||
+             !graph.Episode.IsClaimed) &&
             (!graph.Episode.AnonymousExpiresAt.HasValue ||
              clock.UtcNow >= graph.Episode.AnonymousExpiresAt.Value))
         {
@@ -262,10 +264,11 @@ public sealed class GetPreTriageResult(
     }
 
     private async Task AuthorizeAsync(
-        PreTriageSession session,
+        StoredPreTriageGraph graph,
         GetPreTriageResultQuery query,
         CancellationToken cancellationToken)
     {
+        var session = graph.Session;
         if (query.CallerMode == PreTriageCallerMode.Anonymous)
         {
             if (!session.IsAnonymous || session.AnonymousCapabilityHash is null ||
@@ -278,13 +281,17 @@ public sealed class GetPreTriageResult(
             return;
         }
 
-        if (session.PatientProfileId is null)
+        var patientProfileId = session.PatientProfileId ??
+            (graph.Episode?.IsClaimed == true
+                ? graph.Episode.PatientProfileId
+                : null);
+        if (patientProfileId is null)
         {
             throw new PreTriageSessionNotFoundException();
         }
 
         var authorization = await authorizePatientAccess.ExecuteAsync(
-            session.PatientProfileId.Value,
+            patientProfileId.Value,
             cancellationToken);
         if (!authorization.IsAuthorized)
         {

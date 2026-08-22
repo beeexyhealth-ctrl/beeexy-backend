@@ -305,7 +305,7 @@ public sealed class PatientProfileReadEndpointTests(PostgreSqlContainerFixture p
         var parameter = Assert.Single(operation.GetProperty("parameters").EnumerateArray());
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(17, paths.EnumerateObject().Count());
+        Assert.Equal(18, paths.EnumerateObject().Count());
         Assert.True(detailPath.TryGetProperty("patch", out _));
         Assert.Equal("patientId", parameter.GetProperty("name").GetString());
         Assert.Equal("path", parameter.GetProperty("in").GetString());

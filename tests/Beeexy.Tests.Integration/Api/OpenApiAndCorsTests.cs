@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(17, paths.EnumerateObject().Count());
+        Assert.Equal(18, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
@@ -86,6 +86,9 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var preTriageResultOperation = paths
             .GetProperty("/api/v1/pre-triage/sessions/{id}/result")
             .GetProperty("get");
+        var preTriageClaimOperation = paths
+            .GetProperty("/api/v1/pre-triage/sessions/{id}/claim")
+            .GetProperty("post");
 
         AssertResponseCodes(challengeOperation, "202", "400", "422", "429", "500");
         AssertResponseCodes(verifyOperation, "200", "400", "401", "409", "422", "429", "500");
@@ -149,6 +152,14 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             "404",
             "409",
             "500");
+        AssertResponseCodes(
+            preTriageClaimOperation,
+            "200",
+            "400",
+            "401",
+            "404",
+            "409",
+            "500");
 
         foreach (var operation in new[]
                  {
@@ -172,7 +183,8 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
                      patientDetailOperation,
                      managedPatientPatchOperation,
                      careRelationshipListOperation,
-                     careRelationshipDeleteOperation
+                     careRelationshipDeleteOperation,
+                     preTriageClaimOperation
                  })
         {
             var security = operation.GetProperty("security");
@@ -248,6 +260,25 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             Assert.False(operation.TryGetProperty("requestBody", out _));
         }
 
+        var claimSecurity = preTriageClaimOperation.GetProperty("security");
+        Assert.Single(claimSecurity.EnumerateArray());
+        Assert.True(claimSecurity[0].TryGetProperty("Bearer", out _));
+        Assert.False(preTriageClaimOperation.TryGetProperty("requestBody", out _));
+        var claimParameters = preTriageClaimOperation.GetProperty("parameters")
+            .EnumerateArray()
+            .ToArray();
+        Assert.Contains(claimParameters, parameter =>
+            parameter.GetProperty("in").GetString() == "header" &&
+            parameter.GetProperty("name").GetString() == "X-Pre-Triage-Capability");
+        Assert.DoesNotContain(claimParameters, parameter =>
+            parameter.GetProperty("name").GetString() is "patientId" or "profileId" or
+                "accountId" or "beeexyId");
+        var claimDescription = preTriageClaimOperation.GetProperty("description").GetString();
+        Assert.Contains("server-derived primary patient", claimDescription,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("idempotent", claimDescription, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("expiry", claimDescription, StringComparison.OrdinalIgnoreCase);
+
         var neutralResult = schemas.GetProperty("NeutralPreTriageResultResponse");
         var neutralProperties = neutralResult.GetProperty("properties")
             .EnumerateObject()
@@ -262,6 +293,12 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             Assert.DoesNotContain(forbidden, neutralProperties,
                 StringComparer.OrdinalIgnoreCase);
         }
+        var claimSchema = schemas.GetProperty("ClaimAnonymousPreTriageResponse");
+        Assert.Equal(
+            ["claimedAt", "episodeId", "patientId", "sessionId"],
+            claimSchema.GetProperty("properties").EnumerateObject()
+                .Select(value => value.Name)
+                .OrderBy(value => value, StringComparer.Ordinal));
         var answerDescription = preTriageAnswerOperation.GetProperty("description").GetString();
         Assert.Contains("X-Pre-Triage-Capability", answerDescription,
             StringComparison.Ordinal);

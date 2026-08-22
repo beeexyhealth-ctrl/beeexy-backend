@@ -189,6 +189,16 @@ internal sealed class ApiExceptionHandler(
             };
         }
 
+        if (exception is PreTriageClaimConflictException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Pre-triage claim conflict.",
+                Detail = "The anonymous pre-triage episode cannot be claimed by this patient."
+            };
+        }
+
         if (exception is CareRelationshipNotFoundException)
         {
             return new ProblemDetails

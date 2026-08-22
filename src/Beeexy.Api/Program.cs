@@ -71,6 +71,7 @@ builder.Services.AddScoped<CheckDemoQuestionnaireCompleteness>();
 builder.Services.AddScoped<NeutralClinicalAssessmentFactory>();
 builder.Services.AddScoped<CompletePreTriage>();
 builder.Services.AddScoped<GetPreTriageResult>();
+builder.Services.AddScoped<ClaimAnonymousPreTriage>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentSessionIdentity, HttpCurrentSessionIdentity>();
 builder.Services

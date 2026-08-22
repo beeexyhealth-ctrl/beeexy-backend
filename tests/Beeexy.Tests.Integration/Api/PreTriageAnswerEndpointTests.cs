@@ -5,6 +5,7 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
+using Beeexy.Application.Common;
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
 using Beeexy.Domain.Identity;
@@ -651,6 +652,411 @@ public sealed class PreTriageAnswerEndpointTests(
         }
     }
 
+    [Fact]
+    public async Task AnonymousClaim_AttachesExistingGraphToPrimaryAndPreservesCanonicalResult()
+    {
+        var clock = new MutableClock(
+            new DateTimeOffset(2026, 8, 22, 12, 0, 0, TimeSpan.Zero));
+        var aiProvider = new ClaimForbiddenAiProvider();
+        using var logger = new InMemoryLoggerProvider();
+        using var factory = new BeeexyApiFactory(
+            postgres.ConnectionString,
+            loggerProvider: logger,
+            configureServices: services =>
+            {
+                services.RemoveAll<IClock>();
+                services.AddSingleton<IClock>(clock);
+                services.RemoveAll<IClinicalAiProvider>();
+                services.AddSingleton<IClinicalAiProvider>(aiProvider);
+            });
+        using var anonymousClient = factory.CreateApiClient();
+        var session = await StartAnonymousAsync(anonymousClient, "ABDOMINAL_PAIN");
+        await MakeReadyAsync(anonymousClient, session, ["NAUSEA", "FEVER"]);
+        using var complete = await SendWithCapabilityAsync(
+            anonymousClient,
+            HttpMethod.Post,
+            CompleteEndpoint(session.SessionId),
+            session.AnonymousCapability);
+        Assert.Equal(HttpStatusCode.Created, complete.StatusCode);
+        using var beforeResult = await SendWithCapabilityAsync(
+            anonymousClient,
+            HttpMethod.Get,
+            ResultEndpoint(session.SessionId),
+            session.AnonymousCapability);
+        var beforeJson = await beforeResult.Content.ReadAsStringAsync();
+        var before = await LoadClaimSnapshotAsync(session.SessionId);
+        var identity = await CreateIdentityAsync("claim-success");
+        using var authenticatedClient = factory.CreateApiClient();
+        SetBearer(authenticatedClient, identity.Token);
+        clock.Now = clock.Now.AddHours(1);
+
+        using var selectorAttempt = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"{ClaimEndpoint(session.SessionId)}?patientId={Guid.NewGuid():D}")
+        {
+            Content = JsonContent.Create(new { patientId = Guid.NewGuid() })
+        };
+        selectorAttempt.Headers.Add(CapabilityHeader, session.AnonymousCapability);
+        using var selectorResponse = await authenticatedClient.SendAsync(selectorAttempt);
+        Assert.Equal(HttpStatusCode.BadRequest, selectorResponse.StatusCode);
+
+        using var claim = await SendWithCapabilityAsync(
+            authenticatedClient,
+            HttpMethod.Post,
+            ClaimEndpoint(session.SessionId),
+            session.AnonymousCapability);
+        var claimed = await claim.Content.ReadFromJsonAsync<ClaimResponse>();
+        using var repeat = await SendWithCapabilityAsync(
+            authenticatedClient,
+            HttpMethod.Post,
+            ClaimEndpoint(session.SessionId),
+            session.AnonymousCapability);
+        var repeated = await repeat.Content.ReadFromJsonAsync<ClaimResponse>();
+        using var afterResult = await authenticatedClient.GetAsync(
+            ResultEndpoint(session.SessionId));
+        var afterJson = await afterResult.Content.ReadAsStringAsync();
+        var after = await LoadClaimSnapshotAsync(session.SessionId);
+
+        Assert.Equal(HttpStatusCode.OK, claim.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, repeat.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, afterResult.StatusCode);
+        Assert.Equal(identity.ProfileId.Value, claimed!.PatientId);
+        Assert.Equal(claimed, repeated);
+        Assert.Equal(beforeJson, afterJson);
+        Assert.Equal(before with
+        {
+            PatientProfileId = identity.ProfileId.Value,
+            ClaimedAt = claimed.ClaimedAt
+        }, after);
+        Assert.Equal(0, aiProvider.CallCount);
+
+        await using (var dbContext = CreateDbContext())
+        {
+            var persistedSession = await dbContext.PreTriageSessions
+                .AsNoTracking()
+                .SingleAsync(value => value.Id == EntityId.From(session.SessionId));
+            Assert.NotEqual(session.AnonymousCapability,
+                persistedSession.AnonymousCapabilityHash!.Value);
+        }
+
+        var transitionLogs = logger.Messages.Where(message => message.Contains(
+            "Anonymous pre-triage claim transitioned",
+            StringComparison.Ordinal)).ToArray();
+        Assert.Single(transitionLogs);
+        var allLogs = string.Join('\n', logger.Messages);
+        Assert.DoesNotContain(session.AnonymousCapability, allLogs, StringComparison.Ordinal);
+
+        clock.Now = clock.Now.AddHours(24);
+        using var permanentResult = await authenticatedClient.GetAsync(
+            ResultEndpoint(session.SessionId));
+        using var expiredCapabilityResult = await SendWithCapabilityAsync(
+            anonymousClient,
+            HttpMethod.Get,
+            ResultEndpoint(session.SessionId),
+            session.AnonymousCapability);
+        Assert.Equal(HttpStatusCode.OK, permanentResult.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, expiredCapabilityResult.StatusCode);
+    }
+
+    [Fact]
+    public async Task ConcurrentSamePatientClaims_AreOneStableLogicalTransition()
+    {
+        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        using var setupClient = factory.CreateApiClient();
+        var session = await CreateCompletedAnonymousAsync(setupClient, "HEADACHE");
+        var identity = await CreateIdentityAsync("claim-concurrent-same");
+        using var firstClient = factory.CreateApiClient();
+        using var secondClient = factory.CreateApiClient();
+        SetBearer(firstClient, identity.Token);
+        SetBearer(secondClient, identity.Token);
+
+        var responses = await Task.WhenAll(
+            SendWithCapabilityAsync(firstClient, HttpMethod.Post,
+                ClaimEndpoint(session.SessionId), session.AnonymousCapability),
+            SendWithCapabilityAsync(secondClient, HttpMethod.Post,
+                ClaimEndpoint(session.SessionId), session.AnonymousCapability));
+        try
+        {
+            Assert.All(responses,
+                response => Assert.Equal(HttpStatusCode.OK, response.StatusCode));
+            var bodies = await Task.WhenAll(responses.Select(
+                response => response.Content.ReadFromJsonAsync<ClaimResponse>()));
+            Assert.Equal(bodies[0], bodies[1]);
+            Assert.Equal(identity.ProfileId.Value, bodies[0]!.PatientId);
+        }
+        finally
+        {
+            foreach (var response in responses)
+            {
+                response.Dispose();
+            }
+        }
+
+        var snapshot = await LoadClaimSnapshotAsync(session.SessionId);
+        Assert.Equal(identity.ProfileId.Value, snapshot.PatientProfileId);
+        Assert.NotNull(snapshot.ClaimedAt);
+    }
+
+    [Fact]
+    public async Task ConcurrentDifferentPatientClaims_HaveOneWinnerAndSafeConflict()
+    {
+        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        using var setupClient = factory.CreateApiClient();
+        var session = await CreateCompletedAnonymousAsync(setupClient, "FEVER");
+        var firstIdentity = await CreateIdentityAsync("claim-concurrent-a");
+        var secondIdentity = await CreateIdentityAsync("claim-concurrent-b");
+        using var firstClient = factory.CreateApiClient();
+        using var secondClient = factory.CreateApiClient();
+        SetBearer(firstClient, firstIdentity.Token);
+        SetBearer(secondClient, secondIdentity.Token);
+
+        var responses = await Task.WhenAll(
+            SendWithCapabilityAsync(firstClient, HttpMethod.Post,
+                ClaimEndpoint(session.SessionId), session.AnonymousCapability),
+            SendWithCapabilityAsync(secondClient, HttpMethod.Post,
+                ClaimEndpoint(session.SessionId), session.AnonymousCapability));
+        try
+        {
+            Assert.Equal(1, responses.Count(
+                response => response.StatusCode == HttpStatusCode.OK));
+            Assert.Equal(1, responses.Count(
+                response => response.StatusCode == HttpStatusCode.Conflict));
+            var conflict = responses.Single(
+                response => response.StatusCode == HttpStatusCode.Conflict);
+            var conflictText = await conflict.Content.ReadAsStringAsync();
+            Assert.DoesNotContain(firstIdentity.AccountId.Value.ToString("D"), conflictText,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(secondIdentity.AccountId.Value.ToString("D"), conflictText,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("@", conflictText, StringComparison.Ordinal);
+        }
+        finally
+        {
+            foreach (var response in responses)
+            {
+                response.Dispose();
+            }
+        }
+
+        var snapshot = await LoadClaimSnapshotAsync(session.SessionId);
+        Assert.True(
+            snapshot.PatientProfileId == firstIdentity.ProfileId.Value ||
+            snapshot.PatientProfileId == secondIdentity.ProfileId.Value);
+        Assert.NotNull(snapshot.ClaimedAt);
+    }
+
+    [Fact]
+    public async Task ClaimCapabilityMatrix_RequiresBearerAndMatchingOriginalCapability()
+    {
+        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        using var anonymousClient = factory.CreateApiClient();
+        var first = await CreateCompletedAnonymousAsync(anonymousClient, "HEADACHE");
+        var second = await CreateCompletedAnonymousAsync(anonymousClient, "HEADACHE");
+        var identity = await CreateIdentityAsync("claim-capability");
+        using var bearerClient = factory.CreateApiClient();
+        SetBearer(bearerClient, identity.Token);
+
+        using var missingCapability = await bearerClient.PostAsync(
+            ClaimEndpoint(first.SessionId), null);
+        using var wrongCapability = await SendWithCapabilityAsync(
+            bearerClient, HttpMethod.Post, ClaimEndpoint(first.SessionId), "wrong-capability");
+        using var randomCapability = await SendWithCapabilityAsync(
+            bearerClient, HttpMethod.Post, ClaimEndpoint(first.SessionId),
+            Convert.ToBase64String(Guid.NewGuid().ToByteArray()));
+        using var crossSession = await SendWithCapabilityAsync(
+            bearerClient, HttpMethod.Post, ClaimEndpoint(first.SessionId),
+            second.AnonymousCapability);
+        using var uuidAlone = await bearerClient.PostAsync(
+            ClaimEndpoint(Guid.NewGuid()), null);
+        using var capabilityWithoutBearer = await SendWithCapabilityAsync(
+            anonymousClient, HttpMethod.Post, ClaimEndpoint(first.SessionId),
+            first.AnonymousCapability);
+        using var invalidBearerRequest = new HttpRequestMessage(
+            HttpMethod.Post, ClaimEndpoint(first.SessionId));
+        invalidBearerRequest.Headers.Authorization =
+            new AuthenticationHeaderValue("Bearer", "invalid");
+        invalidBearerRequest.Headers.Add(CapabilityHeader, first.AnonymousCapability);
+        using var invalidBearer = await anonymousClient.SendAsync(invalidBearerRequest);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, missingCapability.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, wrongCapability.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, randomCapability.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, crossSession.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, uuidAlone.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, capabilityWithoutBearer.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, invalidBearer.StatusCode);
+        Assert.Null((await LoadClaimSnapshotAsync(first.SessionId)).PatientProfileId);
+    }
+
+    [Fact]
+    public async Task ClaimAuthentication_ReusesJwtAccountAndPrimaryProfileValidation()
+    {
+        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        using var setupClient = factory.CreateApiClient();
+        var session = await CreateCompletedAnonymousAsync(setupClient, "HEADACHE");
+        var identity = await CreateIdentityAsync("claim-jwt");
+        var invalidTokens = new[]
+        {
+            "malformed",
+            CreateJwt(identity.AccountId, issuer: "https://wrong.example"),
+            CreateJwt(identity.AccountId, audience: "wrong-audience"),
+            CreateJwt(identity.AccountId, signingKey: new string('x', 48)),
+            CreateJwt(identity.AccountId,
+                notBefore: DateTimeOffset.UtcNow.AddMinutes(-10),
+                expires: DateTimeOffset.UtcNow.AddMinutes(-1))
+        };
+
+        foreach (var token in invalidTokens)
+        {
+            using var client = factory.CreateApiClient();
+            SetBearer(client, token);
+            using var response = await SendWithCapabilityAsync(
+                client, HttpMethod.Post, ClaimEndpoint(session.SessionId),
+                session.AnonymousCapability);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        var disabled = await CreateIdentityAsync("claim-disabled");
+        await using (var dbContext = CreateDbContext())
+        {
+            var account = await dbContext.Accounts.SingleAsync(
+                value => value.Id == disabled.AccountId);
+            account.Disable(DateTimeOffset.UtcNow);
+            await dbContext.SaveChangesAsync();
+        }
+        using (var disabledClient = factory.CreateApiClient())
+        {
+            SetBearer(disabledClient, disabled.Token);
+            using var response = await SendWithCapabilityAsync(
+                disabledClient, HttpMethod.Post, ClaimEndpoint(session.SessionId),
+                session.AnonymousCapability);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        var orphanAccount = Account.Create(
+            NormalizedEmail.Create($"phase48-orphan-{Guid.NewGuid():N}@example.com"),
+            DateTimeOffset.UtcNow.AddMinutes(-1));
+        await using (var dbContext = CreateDbContext())
+        {
+            dbContext.Accounts.Add(orphanAccount);
+            await dbContext.SaveChangesAsync();
+        }
+        using (var orphanClient = factory.CreateApiClient())
+        {
+            SetBearer(orphanClient, CreateJwt(orphanAccount.Id));
+            using var response = await SendWithCapabilityAsync(
+                orphanClient, HttpMethod.Post, ClaimEndpoint(session.SessionId),
+                session.AnonymousCapability);
+            Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        }
+
+        Assert.Null((await LoadClaimSnapshotAsync(session.SessionId)).PatientProfileId);
+    }
+
+    [Fact]
+    public async Task ClaimLifecycle_EnforcesIncompleteExpiryAbsentAndCorruptStates()
+    {
+        var baseline = new DateTimeOffset(2026, 8, 22, 9, 0, 0, TimeSpan.Zero);
+        var clock = new MutableClock(baseline);
+        using var factory = new BeeexyApiFactory(
+            postgres.ConnectionString,
+            configureServices: services =>
+            {
+                services.RemoveAll<IClock>();
+                services.AddSingleton<IClock>(clock);
+            });
+        using var setupClient = factory.CreateApiClient();
+        var identity = await CreateIdentityAsync("claim-lifecycle");
+        using var claimClient = factory.CreateApiClient();
+        SetBearer(claimClient, identity.Token);
+
+        var incomplete = await StartAnonymousAsync(setupClient, "HEADACHE");
+        using var incompleteResponse = await SendWithCapabilityAsync(
+            claimClient, HttpMethod.Post, ClaimEndpoint(incomplete.SessionId),
+            incomplete.AnonymousCapability);
+        Assert.Equal(HttpStatusCode.Conflict, incompleteResponse.StatusCode);
+
+        var beforeBoundary = await CreateCompletedAnonymousAsync(setupClient, "HEADACHE");
+        clock.Now = baseline.AddHours(24).AddTicks(-10);
+        using var beforeResponse = await SendWithCapabilityAsync(
+            claimClient, HttpMethod.Post, ClaimEndpoint(beforeBoundary.SessionId),
+            beforeBoundary.AnonymousCapability);
+        Assert.Equal(HttpStatusCode.OK, beforeResponse.StatusCode);
+
+        clock.Now = baseline;
+        var atBoundary = await CreateCompletedAnonymousAsync(setupClient, "HEADACHE");
+        clock.Now = baseline.AddHours(24);
+        using var atResponse = await SendWithCapabilityAsync(
+            claimClient, HttpMethod.Post, ClaimEndpoint(atBoundary.SessionId),
+            atBoundary.AnonymousCapability);
+        Assert.Equal(HttpStatusCode.NotFound, atResponse.StatusCode);
+        Assert.Null((await LoadClaimSnapshotAsync(atBoundary.SessionId)).PatientProfileId);
+
+        using var absent = await SendWithCapabilityAsync(
+            claimClient, HttpMethod.Post, ClaimEndpoint(Guid.NewGuid()),
+            atBoundary.AnonymousCapability);
+        Assert.Equal(HttpStatusCode.NotFound, absent.StatusCode);
+
+        clock.Now = baseline;
+        var corrupt = await CreateCompletedAnonymousAsync(setupClient, "HEADACHE");
+        await using (var dbContext = CreateDbContext())
+        {
+            var episodeId = await dbContext.PreTriageEpisodes
+                .Where(value => value.SourceSessionId == EntityId.From(corrupt.SessionId))
+                .Select(value => value.Id)
+                .SingleAsync();
+            await dbContext.ClinicalAssessments
+                .Where(value => value.EpisodeId == episodeId)
+                .ExecuteDeleteAsync();
+        }
+        using var corruptResponse = await SendWithCapabilityAsync(
+            claimClient, HttpMethod.Post, ClaimEndpoint(corrupt.SessionId),
+            corrupt.AnonymousCapability);
+        Assert.Equal(HttpStatusCode.InternalServerError, corruptResponse.StatusCode);
+        Assert.Null((await LoadClaimSnapshotAsync(corrupt.SessionId)).PatientProfileId);
+    }
+
+    [Fact]
+    public async Task ClaimPersistenceFailure_RollsBackOwnershipAndClaimTimestamp()
+    {
+        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        using var setupClient = factory.CreateApiClient();
+        var session = await CreateCompletedAnonymousAsync(setupClient, "HEADACHE");
+        var identity = await CreateIdentityAsync("claim-rollback");
+        using var client = factory.CreateApiClient();
+        SetBearer(client, identity.Token);
+        await using (var dbContext = CreateDbContext())
+        {
+            await dbContext.Database.ExecuteSqlRawAsync(
+                "CREATE OR REPLACE FUNCTION triage.phase48_test_reject_claim() " +
+                "RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN " +
+                "RAISE EXCEPTION 'phase48 forced claim failure'; END; $$; " +
+                "CREATE TRIGGER phase48_test_reject_claim " +
+                "BEFORE UPDATE OF patient_profile_id, claimed_at " +
+                "ON triage.pre_triage_episodes FOR EACH ROW " +
+                "EXECUTE FUNCTION triage.phase48_test_reject_claim();");
+        }
+
+        try
+        {
+            using var response = await SendWithCapabilityAsync(
+                client, HttpMethod.Post, ClaimEndpoint(session.SessionId),
+                session.AnonymousCapability);
+            Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+            var snapshot = await LoadClaimSnapshotAsync(session.SessionId);
+            Assert.Null(snapshot.PatientProfileId);
+            Assert.Null(snapshot.ClaimedAt);
+        }
+        finally
+        {
+            await using var dbContext = CreateDbContext();
+            await dbContext.Database.ExecuteSqlRawAsync(
+                "DROP TRIGGER IF EXISTS phase48_test_reject_claim " +
+                "ON triage.pre_triage_episodes; " +
+                "DROP FUNCTION IF EXISTS triage.phase48_test_reject_claim();");
+        }
+    }
+
     public async Task InitializeAsync()
     {
         await using var dbContext = CreateDbContext();
@@ -795,6 +1201,21 @@ public sealed class PreTriageAnswerEndpointTests(
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
+    private async Task<AnonymousSession> CreateCompletedAnonymousAsync(
+        HttpClient client,
+        string pathway)
+    {
+        var session = await StartAnonymousAsync(client, pathway);
+        await MakeReadyAsync(client, session, []);
+        using var response = await SendWithCapabilityAsync(
+            client,
+            HttpMethod.Post,
+            CompleteEndpoint(session.SessionId),
+            session.AnonymousCapability);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return session;
+    }
+
     private static Task<HttpResponseMessage> SendWithCapabilityAsync(
         HttpClient client,
         HttpMethod method,
@@ -815,6 +1236,9 @@ public sealed class PreTriageAnswerEndpointTests(
     private static string ResultEndpoint(Guid sessionId) =>
         $"/api/v1/pre-triage/sessions/{sessionId:D}/result";
 
+    private static string ClaimEndpoint(Guid sessionId) =>
+        $"/api/v1/pre-triage/sessions/{sessionId:D}/claim";
+
     private async Task<int> CountAnswersAsync(Guid sessionId)
     {
         await using var dbContext = CreateDbContext();
@@ -829,6 +1253,35 @@ public sealed class PreTriageAnswerEndpointTests(
             await dbContext.PreTriageEpisodes.CountAsync(),
             await dbContext.ClinicalAssessments.CountAsync(),
             await dbContext.ClinicalFindings.CountAsync());
+    }
+
+    private async Task<ClaimSnapshot> LoadClaimSnapshotAsync(Guid sessionId)
+    {
+        await using var dbContext = CreateDbContext();
+        var episode = await dbContext.PreTriageEpisodes
+            .AsNoTracking()
+            .Include(value => value.Answers)
+            .Include(value => value.ReportedSymptoms)
+            .AsSplitQuery()
+            .SingleAsync(value => value.SourceSessionId == EntityId.From(sessionId));
+        var assessment = await dbContext.ClinicalAssessments
+            .AsNoTracking()
+            .Include(value => value.Findings)
+            .SingleOrDefaultAsync(value => value.EpisodeId == episode.Id);
+        return new ClaimSnapshot(
+            episode.Id.Value,
+            episode.PatientProfileId?.Value,
+            episode.ClaimedAt,
+            episode.CompletedAt,
+            episode.QuestionnaireVersionId.Value,
+            episode.ClinicalRuleSetVersionId.Value,
+            string.Join(',', episode.Answers.OrderBy(value => value.Id.Value)
+                .Select(value => value.Id.Value.ToString("D"))),
+            string.Join(',', episode.ReportedSymptoms.OrderBy(value => value.Id.Value)
+                .Select(value => value.Id.Value.ToString("D"))),
+            assessment?.Id.Value,
+            assessment?.UrgencyCode?.Value,
+            assessment?.Findings.Count ?? -1);
     }
 
     private async Task<TestIdentity> CreateIdentityAsync(string suffix)
@@ -901,20 +1354,26 @@ public sealed class PreTriageAnswerEndpointTests(
         await dbContext.SaveChangesAsync();
     }
 
-    private static string CreateJwt(EntityId accountId)
+    private static string CreateJwt(
+        EntityId accountId,
+        string? issuer = null,
+        string? audience = null,
+        string? signingKey = null,
+        DateTimeOffset? notBefore = null,
+        DateTimeOffset? expires = null)
     {
         var now = DateTimeOffset.UtcNow;
         var token = new JwtSecurityToken(
-            Issuer,
-            Audience,
+            issuer ?? Issuer,
+            audience ?? Audience,
             [
                 new Claim(JwtRegisteredClaimNames.Sub, accountId.Value.ToString("D")),
                 new Claim("sid", Guid.NewGuid().ToString("D"))
             ],
-            now.AddMinutes(-1).UtcDateTime,
-            now.AddMinutes(10).UtcDateTime,
+            (notBefore ?? now.AddMinutes(-1)).UtcDateTime,
+            (expires ?? now.AddMinutes(10)).UtcDateTime,
             new SigningCredentials(
-                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(SigningKey)),
+                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey ?? SigningKey)),
                 SecurityAlgorithms.HmacSha256));
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
@@ -949,6 +1408,26 @@ public sealed class PreTriageAnswerEndpointTests(
             CancellationToken cancellationToken = default) =>
             throw new ClinicalAiProviderException(
                 ClinicalAiProviderFailureCategory.Unavailable);
+    }
+
+    private sealed class ClaimForbiddenAiProvider : IClinicalAiProvider
+    {
+        public int CallCount { get; private set; }
+
+        public Task<ClinicalAiProviderOutput> InterpretAsync(
+            ClinicalAiInterpretationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            throw new InvalidOperationException("Claim must not invoke clinical AI.");
+        }
+    }
+
+    private sealed class MutableClock(DateTimeOffset now) : IClock
+    {
+        public DateTimeOffset Now { get; set; } = now;
+
+        public DateTimeOffset UtcNow => Now;
     }
 
     private sealed record TestIdentity(
@@ -1012,4 +1491,23 @@ public sealed class PreTriageAnswerEndpointTests(
         string Source,
         string ReviewStatus,
         string ClinicalApproval);
+
+    private sealed record ClaimResponse(
+        Guid SessionId,
+        Guid EpisodeId,
+        Guid PatientId,
+        DateTimeOffset ClaimedAt);
+
+    private sealed record ClaimSnapshot(
+        Guid EpisodeId,
+        Guid? PatientProfileId,
+        DateTimeOffset? ClaimedAt,
+        DateTimeOffset CompletedAt,
+        Guid QuestionnaireVersionId,
+        Guid ClinicalRuleSetVersionId,
+        string AnswerIds,
+        string SymptomIds,
+        Guid? AssessmentId,
+        string? UrgencyCode,
+        int FindingCount);
 }

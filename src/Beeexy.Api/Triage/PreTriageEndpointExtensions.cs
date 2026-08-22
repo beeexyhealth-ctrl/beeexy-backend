@@ -104,7 +104,59 @@ internal static class PreTriageEndpointExtensions
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
+        endpoints.MapPost(
+                "/api/v1/pre-triage/sessions/{id:guid}/claim",
+                ClaimSessionAsync)
+            .WithName("ClaimAnonymousPreTriageSession")
+            .WithTags("Pre-Triage")
+            .WithDescription(
+                "Claims an existing completed anonymous episode into the authenticated " +
+                $"account's server-derived primary patient. Both Bearer authentication and " +
+                $"the original {AnonymousCapabilityHeader} header are required; no patient " +
+                "selector is accepted. A same-primary-patient repeat is idempotent, another " +
+                "patient receives a privacy-safe conflict, and a first claim is unavailable " +
+                "at or after the persisted anonymous expiry boundary.")
+            .RequireAuthorization()
+            .Produces<ClaimAnonymousPreTriageResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
         return endpoints;
+    }
+
+    private static async Task<IResult> ClaimSessionAsync(
+        Guid id,
+        HttpContext httpContext,
+        ClaimAnonymousPreTriage useCase,
+        [FromHeader(Name = AnonymousCapabilityHeader)] string? anonymousCapability,
+        CancellationToken cancellationToken)
+    {
+        if (id == Guid.Empty)
+        {
+            throw new PreTriageSessionNotFoundException();
+        }
+
+        if (httpContext.Request.Query.Count != 0 ||
+            httpContext.Request.ContentLength is > 0 ||
+            httpContext.Request.Headers.TransferEncoding.Count != 0)
+        {
+            throw new BadHttpRequestException(
+                "Anonymous pre-triage claim does not accept a request body or query parameters.");
+        }
+
+        var result = await useCase.ExecuteAsync(
+            new ClaimAnonymousPreTriageCommand(
+                EntityId.From(id),
+                anonymousCapability),
+            cancellationToken);
+        return Results.Ok(new ClaimAnonymousPreTriageResponse(
+            result.SessionId.Value,
+            result.EpisodeId.Value,
+            result.PatientProfileId.Value,
+            result.ClaimedAt));
     }
 
     private static async Task<IResult> CompleteSessionAsync(
@@ -449,3 +501,9 @@ internal sealed record NeutralPreTriageResultResponse(
 internal sealed record PrimarySymptomResponse(string Code, string Display);
 
 internal sealed record DurationResultResponse(decimal Value, string Unit);
+
+internal sealed record ClaimAnonymousPreTriageResponse(
+    Guid SessionId,
+    Guid EpisodeId,
+    Guid PatientId,
+    DateTimeOffset ClaimedAt);

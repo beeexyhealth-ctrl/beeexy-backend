@@ -81,6 +81,8 @@ public static class DependencyInjection
         services.AddSingleton<IPreTriageIntakeAuditLogger, PreTriageIntakeAuditLogger>();
         services.AddScoped<IPreTriageCompletionRepository, PreTriageCompletionRepository>();
         services.AddSingleton<IPreTriageCompletionAuditLogger, PreTriageCompletionAuditLogger>();
+        services.AddScoped<IPreTriageClaimRepository, PreTriageClaimRepository>();
+        services.AddSingleton<IPreTriageClaimAuditLogger, PreTriageClaimAuditLogger>();
 
         services.AddSingleton(googleOptions);
         if (googleOptions.Enabled)
