@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(19, paths.EnumerateObject().Count());
+        Assert.Equal(20, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
@@ -71,6 +71,10 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var clinicalHistoryOperation = paths
             .GetProperty("/api/v1/patients/{patientId}/clinical-history")
             .GetProperty("get");
+        var clinicalHistoryDetailPath = paths.GetProperty(
+            "/api/v1/patients/{patientId}/clinical-history/{eventId}");
+        var clinicalHistoryDetailOperation = clinicalHistoryDetailPath
+            .GetProperty("get");
         var clinicalHistoryParameters = clinicalHistoryOperation
             .GetProperty("parameters")
             .EnumerateArray()
@@ -79,9 +83,16 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.Equal(
             ["patientId", "cursor", "pageSize", "eventType"],
             clinicalHistoryParameters);
-        Assert.Single(paths.EnumerateObject().Where(path => path.Name.StartsWith(
+        Assert.Equal(
+            ["patientId", "eventId"],
+            clinicalHistoryDetailOperation.GetProperty("parameters")
+                .EnumerateArray()
+                .Select(parameter => parameter.GetProperty("name").GetString()));
+        Assert.False(clinicalHistoryDetailOperation.TryGetProperty("requestBody", out _));
+        Assert.Equal(2, paths.EnumerateObject().Count(path => path.Name.StartsWith(
             "/api/v1/patients/{patientId}/clinical-history",
             StringComparison.Ordinal)));
+        Assert.False(clinicalHistoryDetailPath.TryGetProperty("post", out _));
         var careRelationshipPath = paths.GetProperty("/api/v1/care-relationships");
         var careRelationshipListOperation = careRelationshipPath.GetProperty("get");
         Assert.True(careRelationshipPath.TryGetProperty("post", out _));
@@ -119,6 +130,12 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             "401",
             "404",
             "422",
+            "500");
+        AssertResponseCodes(
+            clinicalHistoryDetailOperation,
+            "200",
+            "401",
+            "404",
             "500");
         AssertResponseCodes(
             managedPatientPatchOperation,
@@ -204,6 +221,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
                      patientDetailOperation,
                      managedPatientPatchOperation,
                      clinicalHistoryOperation,
+                     clinicalHistoryDetailOperation,
                      careRelationshipListOperation,
                      careRelationshipDeleteOperation,
                      preTriageClaimOperation
@@ -237,6 +255,43 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.Equal(
             ["type", "id", "questionnaireVersionId", "clinicalRuleSetVersionId"],
             historySourceProperties.EnumerateObject().Select(property => property.Name));
+        var historyDetailProperties = schemas
+            .GetProperty("ClinicalHistoryEventDetailResponse")
+            .GetProperty("properties");
+        Assert.Equal(
+            [
+                "eventId",
+                "eventType",
+                "occurredAt",
+                "recordedAt",
+                "source",
+                "provenance",
+                "amendments"
+            ],
+            historyDetailProperties.EnumerateObject().Select(property => property.Name));
+        Assert.Equal(
+            ["amendmentId", "reason", "author", "createdAt", "provenance"],
+            schemas.GetProperty("ClinicalHistoryAmendmentResponse")
+                .GetProperty("properties")
+                .EnumerateObject()
+                .Select(property => property.Name));
+        Assert.Equal(
+            ["type", "beeexyId"],
+            schemas.GetProperty("ClinicalHistoryAmendmentAuthorResponse")
+                .GetProperty("properties")
+                .EnumerateObject()
+                .Select(property => property.Name));
+        foreach (var forbidden in new[]
+                 {
+                     "accountId", "urgency", "disposition", "redFlags", "diagnosis",
+                     "prescription", "treatment", "probability", "provider", "model"
+                 })
+        {
+            Assert.DoesNotContain(
+                forbidden,
+                historyDetailProperties.EnumerateObject().Select(property => property.Name),
+                StringComparer.OrdinalIgnoreCase);
+        }
         var updateSchema = schemas.GetProperty("UpdateManagedPatientRequest");
         var updateProperties = updateSchema.GetProperty("properties");
         Assert.Equal("date", updateProperties.GetProperty("dateOfBirth").GetProperty("format").GetString());
