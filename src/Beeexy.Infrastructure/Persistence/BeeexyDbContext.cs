@@ -1,4 +1,5 @@
 using Beeexy.Domain.Identity;
+using Beeexy.Domain.History;
 using Beeexy.Domain.Patients;
 using Beeexy.Domain.Triage;
 using Microsoft.EntityFrameworkCore;
@@ -45,6 +46,11 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
 
     public DbSet<PreTriageHistoryProjectionRecord> PreTriageHistoryProjectionRecords =>
         Set<PreTriageHistoryProjectionRecord>();
+
+    public DbSet<ClinicalHistoryEvent> ClinicalHistoryEvents =>
+        Set<ClinicalHistoryEvent>();
+
+    public DbSet<ClinicalAmendment> ClinicalAmendments => Set<ClinicalAmendment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
