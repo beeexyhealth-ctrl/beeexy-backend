@@ -31,6 +31,16 @@ The public Phase 4 endpoint inventory is exactly:
 | `GET` | `/api/v1/pre-triage/sessions/{id}/result` | Yes, capability | Yes, Bearer | Yes, Bearer |
 | `POST` | `/api/v1/pre-triage/sessions/{id}/claim` | Bearer + capability | Claims only into the caller's primary patient | No managed-patient selector |
 
+### Local-development setup
+
+When the API runs with `ASPNETCORE_ENVIRONMENT=Development`, startup applies the EF Core migrations and idempotently imports and activates the three non-clinical demo packages: `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`, all at `2026.08.22-demo.1`. Therefore a fresh local database needs only the normal API launch command:
+
+```bash
+dotnet run --project src/Beeexy.Api
+```
+
+This startup bootstrap is deliberately unavailable outside Development. Deployments must apply schema migrations through their normal migration process and must not obtain demo clinical-definition content implicitly.
+
 `{id}` is the technical session UUID. A session UUID, patient UUID, Account ID, or Beeexy ID never grants authority by itself.
 
 ## 3. Base API and Authentication Assumptions

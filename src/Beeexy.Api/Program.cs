@@ -50,6 +50,10 @@ builder.Services.AddInfrastructure(
     emailChallengeSettings.OtpHashingKey,
     emailChallengeSettings.EmailSender,
     preTriageCleanupOptions);
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddHostedService<DevelopmentDemoDefinitionsBootstrapper>();
+}
 builder.Services.AddScoped<RequestEmailChallenge>();
 builder.Services.AddScoped<ProvisionAccountAndPrimaryProfile>();
 builder.Services.AddScoped<VerifyEmailChallenge>();
