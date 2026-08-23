@@ -1,5 +1,6 @@
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
+using Beeexy.Domain.History;
 using Beeexy.Domain.Triage;
 using Beeexy.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -54,8 +55,18 @@ public sealed class PreTriageClaimRepository(BeeexyDbContext dbContext)
                     "The pre-triage claim mutation is inconsistent.");
             }
 
+            // The history event has a database-enforced composite relationship to
+            // the source episode's patient. Flush the claim transition first so
+            // that relationship is valid before inserting the projection. Both
+            // saves remain part of this transaction and therefore roll back as a
+            // single atomic claim when either persistence step fails.
+            await dbContext.SaveChangesAsync(cancellationToken);
             dbContext.PreTriageHistoryProjectionRecords.Add(
                 PreTriageHistoryProjectionRecord.Create(
+                    episode,
+                    episode.ClaimedAt.Value));
+            dbContext.ClinicalHistoryEvents.Add(
+                ClinicalHistoryEvent.CreateCompletedPreTriage(
                     episode,
                     episode.ClaimedAt.Value));
             await dbContext.SaveChangesAsync(cancellationToken);

@@ -1,5 +1,6 @@
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
+using Beeexy.Domain.History;
 using Beeexy.Domain.Triage;
 using Beeexy.Infrastructure.Triage;
 
@@ -8,15 +9,14 @@ namespace Beeexy.Tests.Unit.Triage;
 public sealed class ProjectCompletedPreTriageEpisodeTests
 {
     [Fact]
-    public async Task CompletedPatientEpisode_ProjectsFrozenNeutralSummaryRepeatably()
+    public async Task CompletedPatientEpisode_ProjectsOneStableAuthoritativeReference()
     {
         var package = SimplifiedDemoDefinitionPackages.Create(ClinicalPathways.Headache);
         var graph = CreateEligibleGraph(package, anonymousClaim: false);
-        var provider = new FrozenDefinitionProvider(package);
+        var recordedAt = graph.Episode.CompletedAt.AddMinutes(5);
         var repository = new FakeProjectionRepository(graph);
         var useCase = new ProjectCompletedPreTriageEpisode(
-            provider,
-            new CheckDemoQuestionnaireCompleteness(),
+            new FixedClock(recordedAt),
             repository);
 
         var first = await useCase.ExecuteAsync(graph.Episode.Id);
@@ -24,70 +24,69 @@ public sealed class ProjectCompletedPreTriageEpisodeTests
 
         Assert.NotNull(first);
         Assert.NotNull(second);
-        Assert.Equal(PreTriageHistoryProjection.SourceTypeCode, first.SourceType);
-        Assert.Equal(graph.Episode.Id, first.SourceEpisodeId);
-        Assert.Equal(graph.Episode.PatientProfileId, first.PatientProfileId);
-        Assert.Equal(graph.Episode.CompletedAt, first.CompletedAt);
-        Assert.Equal("HEADACHE", first.PrimarySymptom.Value);
-        Assert.Equal("Headache", first.PrimarySymptomDisplay);
-        Assert.Equal(2, first.DurationValue);
-        Assert.Equal("DAYS", first.DurationUnit);
-        Assert.Equal(7, first.Intensity);
-        Assert.Equal(["FEVER"], first.AdditionalSymptoms);
-        Assert.Equal(package.Questionnaire.QuestionnaireCode, first.QuestionnaireCode);
-        Assert.Equal(package.Questionnaire.Version, first.QuestionnaireVersion);
-        Assert.Equal(package.RuleSet.RuleSetCode, first.PackageCode);
-        Assert.Equal(package.RuleSet.Version, first.PackageVersion);
-        Assert.Equal(ClinicalContentStatus.NonClinicalDemo, first.ContentStatus);
-        Assert.Equivalent(first, second, strict: true);
-        Assert.Equal(2, repository.Reads);
-        Assert.Equal(2, provider.FrozenReads);
-        Assert.Equal(0, provider.ActiveReads);
+        Assert.True(first.IsNewlyProjected);
+        Assert.False(second.IsNewlyProjected);
+        Assert.Equal(first.Event.Id, second.Event.Id);
+        Assert.Equal(graph.Episode.Id, first.Event.SourceId);
+        Assert.Equal(graph.Episode.PatientProfileId, first.Event.PatientProfileId);
+        Assert.Equal(
+            ClinicalHistoryEventType.CompletedPreTriage,
+            first.Event.EventType);
+        Assert.Equal(
+            AuthoritativeClinicalSourceType.PreTriageEpisode,
+            first.Event.SourceType);
+        Assert.Equal(graph.Episode.CompletedAt, first.Event.OccurredAt);
+        Assert.Equal(recordedAt, first.Event.RecordedAt);
+        Assert.Equal(graph.Episode.QuestionnaireVersionId,
+            first.Event.SourceQuestionnaireVersionId);
+        Assert.Equal(graph.Episode.ClinicalRuleSetVersionId,
+            first.Event.SourceClinicalRuleSetVersionId);
+        Assert.Equal(2, repository.Deliveries);
     }
 
     [Fact]
-    public async Task MissingEligibilityRecord_ProducesNoProjectionOrDefinitionLookup()
+    public async Task MissingEligibilityRecord_ProducesNoHistoryEvent()
     {
-        var package = SimplifiedDemoDefinitionPackages.Create(ClinicalPathways.Fever);
-        var provider = new FrozenDefinitionProvider(package);
+        var repository = new FakeProjectionRepository(null);
         var useCase = new ProjectCompletedPreTriageEpisode(
-            provider,
-            new CheckDemoQuestionnaireCompleteness(),
-            new FakeProjectionRepository(null));
+            new FixedClock(Utc(18)),
+            repository);
 
         var result = await useCase.ExecuteAsync(EntityId.New());
 
         Assert.Null(result);
-        Assert.Equal(0, provider.FrozenReads);
-        Assert.Equal(0, provider.ActiveReads);
+        Assert.Null(repository.StoredEvent);
     }
 
     [Fact]
-    public async Task FrozenVersionA_IsUsedWhenASeparateVersionBIsActive()
+    public async Task FrozenEpisodeVersions_AreUsedWithoutDefinitionLookupOrReinterpretation()
     {
-        var frozen = SimplifiedDemoDefinitionPackages.Create(ClinicalPathways.AbdominalPain);
-        var active = AbdominalPainProvisionalPackage.Create();
-        Assert.Equal(frozen.Pathway, active.Pathway);
-        Assert.NotEqual(frozen.Version, active.Version);
+        var frozen = SimplifiedDemoDefinitionPackages.Create(
+            ClinicalPathways.AbdominalPain);
+        var currentlyActive = AbdominalPainProvisionalPackage.Create();
+        Assert.NotEqual(frozen.Version, currentlyActive.Version);
         var graph = CreateEligibleGraph(frozen, anonymousClaim: false);
-        var provider = new FrozenDefinitionProvider(frozen, active);
         var useCase = new ProjectCompletedPreTriageEpisode(
-            provider,
-            new CheckDemoQuestionnaireCompleteness(),
+            new FixedClock(Utc(18)),
             new FakeProjectionRepository(graph));
 
         var result = await useCase.ExecuteAsync(graph.Episode.Id);
 
         Assert.NotNull(result);
-        Assert.Equal(frozen.Questionnaire.Version, result.QuestionnaireVersion);
-        Assert.Equal(frozen.RuleSet.Version, result.PackageVersion);
-        Assert.NotEqual(active.Version, result.QuestionnaireVersion);
-        Assert.Equal(1, provider.FrozenReads);
-        Assert.Equal(0, provider.ActiveReads);
+        Assert.Equal(frozen.Questionnaire.Id,
+            result.Event.SourceQuestionnaireVersionId);
+        Assert.Equal(frozen.RuleSet.Id,
+            result.Event.SourceClinicalRuleSetVersionId);
+        Assert.NotEqual(currentlyActive.Questionnaire.Id,
+            result.Event.SourceQuestionnaireVersionId);
+        Assert.Equal(
+            [typeof(IClock), typeof(IPreTriageHistoryProjectionRepository)],
+            typeof(ProjectCompletedPreTriageEpisode).GetConstructors().Single()
+                .GetParameters().Select(parameter => parameter.ParameterType));
     }
 
     [Fact]
-    public async Task UrgencyBearingSourceGraph_IsRejectedBeforeAnyProjection()
+    public async Task UrgencyBearingSourceGraph_IsRejectedWithoutCreatingHistory()
     {
         var package = SimplifiedDemoDefinitionPackages.Create(ClinicalPathways.Headache);
         var valid = CreateEligibleGraph(package, anonymousClaim: false);
@@ -98,23 +97,22 @@ public sealed class ProjectCompletedPreTriageEpisodeTests
                 UrgencyCode.Create("HIGH"),
                 valid.Episode.CompletedAt)
         };
-        var provider = new FrozenDefinitionProvider(package);
+        var repository = new FakeProjectionRepository(invalid);
         var useCase = new ProjectCompletedPreTriageEpisode(
-            provider,
-            new CheckDemoQuestionnaireCompleteness(),
-            new FakeProjectionRepository(invalid));
+            new FixedClock(Utc(18)),
+            repository);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             useCase.ExecuteAsync(valid.Episode.Id));
 
-        Assert.Equal(0, provider.FrozenReads);
+        Assert.Null(repository.StoredEvent);
     }
 
     [Fact]
     public void EligibilityRecord_RejectsAnonymousUnclaimedEpisodeAndFreezesClaimOwner()
     {
         var package = SimplifiedDemoDefinitionPackages.Create(ClinicalPathways.Fever);
-        var now = new DateTimeOffset(2026, 8, 22, 12, 0, 0, TimeSpan.Zero);
+        var now = Utc(12);
         var session = CreateCompletedSession(package, null, now);
         var episode = PreTriageEpisode.CreateFrom(
             session,
@@ -130,36 +128,35 @@ public sealed class ProjectCompletedPreTriageEpisodeTests
         episode.Claim(patientId, claimedAt);
         var record = PreTriageHistoryProjectionRecord.Create(episode, claimedAt);
 
-        Assert.Equal(episode.Id, record.SourceEpisodeId);
         Assert.Equal(patientId, record.PatientProfileId);
-        Assert.Equal(episode.CompletedAt, record.CompletedAt);
         Assert.Equal(claimedAt, record.CreatedAt);
     }
 
     [Fact]
-    public void ProjectionContract_ContainsNoClinicalAuthorityOrTransportFields()
+    public async Task ProjectionAcceptsNoCallerSuppliedPatientOverride()
     {
-        var forbidden = new[]
-        {
-            "urgency", "disposition", "redflag", "diagnosis", "probability",
-            "prescription", "treatment", "recommendation", "provider", "model",
-            "prompt", "conversation", "capability", "token", "fhir"
-        };
-        var names = typeof(PreTriageHistoryProjection)
-            .GetProperties()
-            .Select(property => property.Name.Replace("_", string.Empty))
-            .ToArray();
+        var package = SimplifiedDemoDefinitionPackages.Create(ClinicalPathways.Fever);
+        var graph = CreateEligibleGraph(package, anonymousClaim: false);
+        var useCase = new ProjectCompletedPreTriageEpisode(
+            new FixedClock(Utc(18)),
+            new FakeProjectionRepository(graph));
 
-        Assert.All(names, name => Assert.DoesNotContain(
-            forbidden,
-            value => name.Contains(value, StringComparison.OrdinalIgnoreCase)));
+        var result = await useCase.ExecuteAsync(graph.Episode.Id);
+
+        Assert.NotNull(result);
+        Assert.Equal(graph.Episode.PatientProfileId, result.Event.PatientProfileId);
+        var executeParameters = typeof(ProjectCompletedPreTriageEpisode)
+            .GetMethod(nameof(ProjectCompletedPreTriageEpisode.ExecuteAsync))!
+            .GetParameters();
+        Assert.DoesNotContain(executeParameters, parameter =>
+            parameter.Name!.Contains("patient", StringComparison.OrdinalIgnoreCase));
     }
 
     private static PreTriageHistoryProjectionGraph CreateEligibleGraph(
         ClinicalDefinitionPackage package,
         bool anonymousClaim)
     {
-        var now = new DateTimeOffset(2026, 8, 22, 12, 0, 0, TimeSpan.Zero);
+        var now = Utc(12);
         var patientId = EntityId.New();
         var session = CreateCompletedSession(
             package,
@@ -177,9 +174,11 @@ public sealed class ProjectCompletedPreTriageEpisodeTests
             episode.Claim(patientId, createdAt);
         }
 
-        var assessment = ClinicalAssessment.CreateNeutral(episode, episode.CompletedAt);
-        var record = PreTriageHistoryProjectionRecord.Create(episode, createdAt);
-        return new PreTriageHistoryProjectionGraph(record, session, episode, assessment);
+        return new PreTriageHistoryProjectionGraph(
+            PreTriageHistoryProjectionRecord.Create(episode, createdAt),
+            session,
+            episode,
+            ClinicalAssessment.CreateNeutral(episode, episode.CompletedAt));
     }
 
     private static PreTriageSession CreateCompletedSession(
@@ -200,25 +199,14 @@ public sealed class ProjectCompletedPreTriageEpisodeTests
                 now);
         AddAnswer(session, package, "DURATION", "{\"value\":2,\"unit\":\"DAYS\"}", now);
         AddAnswer(session, package, "INTENSITY", "{\"value\":7}", now);
-        AddAnswer(session, package, "ADDITIONAL_SYMPTOMS", "{\"values\":[\"FEVER\"]}", now);
-        session.ReportSymptom(
-            SymptomText.Create(package.Pathway.Value),
-            1,
-            now.AddMinutes(1),
-            "urn:beeexy:demo-symptom-code",
-            package.Pathway.Value,
-            "Headache",
-            "BEEEXY_SIMPLIFIED_DEMO_PACKAGE",
-            now.AddMinutes(1));
-        session.ReportSymptom(
-            SymptomText.Create("FEVER"),
-            2,
-            now.AddMinutes(1),
-            "urn:beeexy:demo-symptom-code",
-            "FEVER",
-            "FEVER",
-            "BEEEXY_SIMPLIFIED_DEMO_PACKAGE",
-            now.AddMinutes(1));
+        AddAnswer(
+            session,
+            package,
+            "ADDITIONAL_SYMPTOMS",
+            package.Pathway == ClinicalPathways.Fever
+                ? "{\"values\":[\"NAUSEA\"]}"
+                : "{\"values\":[\"FEVER\"]}",
+            now);
         return session;
     }
 
@@ -234,51 +222,43 @@ public sealed class ProjectCompletedPreTriageEpisodeTests
         session.RecordAnswer(question, json, question.DisplayOrder, now.AddMinutes(1));
     }
 
+    private static DateTimeOffset Utc(int hour) =>
+        new(2026, 8, 23, hour, 0, 0, TimeSpan.Zero);
+
+    private sealed class FixedClock(DateTimeOffset utcNow) : IClock
+    {
+        public DateTimeOffset UtcNow => utcNow;
+    }
+
     private sealed class FakeProjectionRepository(PreTriageHistoryProjectionGraph? graph)
         : IPreTriageHistoryProjectionRepository
     {
-        public int Reads { get; private set; }
+        public int Deliveries { get; private set; }
 
-        public Task<PreTriageHistoryProjectionGraph?> GetAsync(
+        public ClinicalHistoryEvent? StoredEvent { get; private set; }
+
+        public Task<PreTriageHistoryProjectionOutcome?> ProjectAsync(
             EntityId sourceEpisodeId,
+            Func<PreTriageHistoryProjectionGraph, ClinicalHistoryEvent> createEvent,
             CancellationToken cancellationToken = default)
         {
-            Reads++;
-            return Task.FromResult(
-                graph?.Episode.Id == sourceEpisodeId ? graph : null);
-        }
-    }
+            Deliveries++;
+            if (StoredEvent is not null)
+            {
+                return Task.FromResult<PreTriageHistoryProjectionOutcome?>(new(
+                    StoredEvent,
+                    IsNewlyProjected: false));
+            }
 
-    private sealed class FrozenDefinitionProvider(
-        ClinicalDefinitionPackage package,
-        ClinicalDefinitionPackage? activePackage = null)
-        : IClinicalDefinitionProvider
-    {
-        public int ActiveReads { get; private set; }
+            if (graph?.Episode.Id != sourceEpisodeId)
+            {
+                return Task.FromResult<PreTriageHistoryProjectionOutcome?>(null);
+            }
 
-        public int FrozenReads { get; private set; }
-
-        public Task<ClinicalDefinitionPackage?> GetActiveDefinitionAsync(
-            ClinicalPathwayCode pathway,
-            CancellationToken cancellationToken = default)
-        {
-            ActiveReads++;
-            return Task.FromResult(activePackage);
-        }
-
-        public Task<ClinicalDefinitionPackage?> GetDefinitionAsync(
-            ClinicalPathwayCode pathway,
-            DefinitionVersion version,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<ClinicalDefinitionPackage?>(null);
-
-        public Task<ClinicalDefinitionPackage?> GetDefinitionByQuestionnaireIdAsync(
-            EntityId questionnaireVersionId,
-            CancellationToken cancellationToken = default)
-        {
-            FrozenReads++;
-            return Task.FromResult<ClinicalDefinitionPackage?>(
-                package.Questionnaire.Id == questionnaireVersionId ? package : null);
+            StoredEvent = createEvent(graph);
+            return Task.FromResult<PreTriageHistoryProjectionOutcome?>(new(
+                StoredEvent,
+                IsNewlyProjected: true));
         }
     }
 }

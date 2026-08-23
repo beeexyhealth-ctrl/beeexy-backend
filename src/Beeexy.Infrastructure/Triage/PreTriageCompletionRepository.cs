@@ -1,5 +1,6 @@
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
+using Beeexy.Domain.History;
 using Beeexy.Domain.Triage;
 using Beeexy.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -66,6 +67,10 @@ public sealed class PreTriageCompletionRepository(BeeexyDbContext dbContext)
             {
                 dbContext.PreTriageHistoryProjectionRecords.Add(
                     PreTriageHistoryProjectionRecord.Create(
+                        decision.NewEpisode,
+                        decision.NewEpisode.CompletedAt));
+                dbContext.ClinicalHistoryEvents.Add(
+                    ClinicalHistoryEvent.CreateCompletedPreTriage(
                         decision.NewEpisode,
                         decision.NewEpisode.CompletedAt));
             }

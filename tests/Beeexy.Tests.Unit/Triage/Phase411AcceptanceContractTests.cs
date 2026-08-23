@@ -23,24 +23,8 @@ public sealed class Phase411AcceptanceContractTests
             ],
             PropertyNames(typeof(NeutralPreTriageResultResponse)));
         Assert.Equal(
-            [
-                "AdditionalSymptoms",
-                "CompletedAt",
-                "ContentStatus",
-                "DurationUnit",
-                "DurationValue",
-                "Intensity",
-                "PackageCode",
-                "PackageVersion",
-                "PatientProfileId",
-                "PrimarySymptom",
-                "PrimarySymptomDisplay",
-                "QuestionnaireCode",
-                "QuestionnaireVersion",
-                "SourceEpisodeId",
-                "SourceType"
-            ],
-            PropertyNames(typeof(PreTriageHistoryProjection)));
+            ["Event", "IsNewlyProjected"],
+            PropertyNames(typeof(PreTriageHistoryProjectionOutcome)));
     }
 
     [Fact]
@@ -48,7 +32,7 @@ public sealed class Phase411AcceptanceContractTests
     {
         var assemblies = new[]
         {
-            typeof(PreTriageHistoryProjection).Assembly,
+            typeof(PreTriageHistoryProjectionOutcome).Assembly,
             typeof(Beeexy.Domain.Triage.PreTriageSession).Assembly,
             typeof(Beeexy.Infrastructure.Triage.PreTriageCompletionRepository).Assembly,
             typeof(PreTriageEndpointExtensions).Assembly

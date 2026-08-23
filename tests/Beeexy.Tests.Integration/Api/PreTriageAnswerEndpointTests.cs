@@ -8,6 +8,7 @@ using System.Text.Json;
 using Beeexy.Application.Common;
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
+using Beeexy.Domain.History;
 using Beeexy.Domain.Identity;
 using Beeexy.Domain.Patients;
 using Beeexy.Domain.Triage;
@@ -453,6 +454,8 @@ public sealed class PreTriageAnswerEndpointTests(
             value => value.SourceSessionId == EntityId.From(session.SessionId)));
         Assert.False(await dbContext.PreTriageHistoryProjectionRecords.AnyAsync(
             value => value.SourceEpisodeId == episode.Id));
+        Assert.False(await dbContext.ClinicalHistoryEvents.AnyAsync(
+            value => value.SourceId == episode.Id));
         Assert.Equal(3, await dbContext.TriageAnswers.CountAsync(
             value => value.EpisodeId == episode.Id));
         var symptoms = await dbContext.ReportedSymptoms
@@ -488,11 +491,19 @@ public sealed class PreTriageAnswerEndpointTests(
         Assert.Equal(HttpStatusCode.UnprocessableEntity, complete.StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, result.StatusCode);
         await using var dbContext = CreateDbContext();
+        var sessionEntityId = EntityId.From(session.SessionId);
         Assert.False(await dbContext.PreTriageEpisodes.AnyAsync(
-            value => value.SourceSessionId == EntityId.From(session.SessionId)));
+            value => value.SourceSessionId == sessionEntityId));
+        Assert.False(await dbContext.ClinicalHistoryEvents
+            .Join(
+                dbContext.PreTriageEpisodes,
+                historyEvent => historyEvent.SourceId,
+                episode => episode.Id,
+                (historyEvent, episode) => episode)
+            .AnyAsync(episode => episode.SourceSessionId == sessionEntityId));
         Assert.Equal(PreTriageSessionStatus.Active,
             (await dbContext.PreTriageSessions.AsNoTracking().SingleAsync(
-                value => value.Id == EntityId.From(session.SessionId))).Status);
+                value => value.Id == sessionEntityId)).Status);
     }
 
     [Fact]
@@ -620,6 +631,13 @@ public sealed class PreTriageAnswerEndpointTests(
         Assert.Contains(records, value => value.PatientProfileId == primary.ProfileId);
         Assert.Contains(records, value => value.PatientProfileId == managed.Id);
         Assert.All(records, value => Assert.Equal(value.CompletedAt, value.CreatedAt));
+        var historyEvents = await verify.ClinicalHistoryEvents
+            .AsNoTracking()
+            .Where(value => episodeIds.Contains(value.SourceId))
+            .ToArrayAsync();
+        Assert.Equal(2, historyEvents.Length);
+        Assert.Contains(historyEvents, value => value.PatientProfileId == primary.ProfileId);
+        Assert.Contains(historyEvents, value => value.PatientProfileId == managed.Id);
     }
 
     [Theory]
@@ -695,6 +713,9 @@ public sealed class PreTriageAnswerEndpointTests(
         var projection = await verify.PreTriageHistoryProjectionRecords
             .AsNoTracking()
             .SingleAsync(value => value.SourceEpisodeId == episode.Id);
+        var historyEvent = await verify.ClinicalHistoryEvents
+            .AsNoTracking()
+            .SingleAsync(value => value.SourceId == episode.Id);
 
         Assert.Equal(PreTriageSessionStatus.Completed, session.Status);
         Assert.Equal(patientId, session.PatientProfileId);
@@ -705,6 +726,17 @@ public sealed class PreTriageAnswerEndpointTests(
         Assert.Equal(patientId, projection.PatientProfileId);
         Assert.Equal(episode.CompletedAt, projection.CompletedAt);
         Assert.Equal(episode.CompletedAt, projection.CreatedAt);
+        Assert.Equal(patientId, historyEvent.PatientProfileId);
+        Assert.Equal(episode.Id, historyEvent.SourceId);
+        Assert.Equal(episode.CompletedAt, historyEvent.OccurredAt);
+        Assert.Equal(episode.CompletedAt, historyEvent.RecordedAt);
+        Assert.Equal(episode.QuestionnaireVersionId,
+            historyEvent.SourceQuestionnaireVersionId);
+        Assert.Equal(episode.ClinicalRuleSetVersionId,
+            historyEvent.SourceClinicalRuleSetVersionId);
+        Assert.Equal(
+            ClinicalHistoryEventType.CompletedPreTriage,
+            historyEvent.EventType);
     }
 
     [Fact]
@@ -765,9 +797,11 @@ public sealed class PreTriageAnswerEndpointTests(
         var sessionId = await StartAuthenticatedAsync(client, null);
         await MakeReadyAuthenticatedAsync(client, sessionId);
         int projectionCountBefore;
+        int historyCountBefore;
         await using (var before = CreateDbContext())
         {
             projectionCountBefore = await before.PreTriageHistoryProjectionRecords.CountAsync();
+            historyCountBefore = await before.ClinicalHistoryEvents.CountAsync();
         }
 
         await SetProjectionInsertFailureTriggerAsync(enabled: true);
@@ -790,6 +824,9 @@ public sealed class PreTriageAnswerEndpointTests(
             Assert.Equal(
                 projectionCountBefore,
                 await verify.PreTriageHistoryProjectionRecords.CountAsync());
+            Assert.Equal(
+                historyCountBefore,
+                await verify.ClinicalHistoryEvents.CountAsync());
         }
         finally
         {
@@ -810,35 +847,133 @@ public sealed class PreTriageAnswerEndpointTests(
         var completed = await completion.Content.ReadFromJsonAsync<ResultResponse>();
         Assert.Equal(HttpStatusCode.Created, completion.StatusCode);
 
+        await using (var removeAutomaticProjection = CreateDbContext())
+        {
+            await removeAutomaticProjection.ClinicalHistoryEvents
+                .Where(value => value.SourceId == EntityId.From(completed!.EpisodeId))
+                .ExecuteDeleteAsync();
+        }
+
+        var episodeId = EntityId.From(completed!.EpisodeId);
+        await using var beforeProjection = CreateDbContext();
+        var episodeBefore = await beforeProjection.PreTriageEpisodes
+            .AsNoTracking()
+            .Where(value => value.Id == episodeId)
+            .Select(value => new
+            {
+                value.Id,
+                value.SourceSessionId,
+                value.PatientProfileId,
+                value.QuestionnaireVersionId,
+                value.ClinicalRuleSetVersionId,
+                value.CompletedAt,
+                value.AnonymousExpiresAt,
+                value.ClaimedAt
+            })
+            .SingleAsync();
+        var answersBefore = await beforeProjection.TriageAnswers
+            .AsNoTracking()
+            .Where(value => value.EpisodeId == episodeId)
+            .OrderBy(value => value.Sequence)
+            .Select(value => new
+            {
+                value.Id,
+                value.EpisodeId,
+                value.QuestionnaireVersionId,
+                value.QuestionId,
+                value.AnswerJson,
+                value.Sequence,
+                value.RecordedAt
+            })
+            .ToArrayAsync();
+        var assessmentBefore = await beforeProjection.ClinicalAssessments
+            .AsNoTracking()
+            .Where(value => value.EpisodeId == episodeId)
+            .Select(value => new
+            {
+                value.Id,
+                value.EpisodeId,
+                value.ClinicalRuleSetVersionId,
+                value.UrgencyCode,
+                value.ResultMessageReference,
+                value.CreatedAt
+            })
+            .SingleAsync();
+
         await using var firstContext = CreateDbContext();
         await using var secondContext = CreateDbContext();
+        var recordedAt = episodeBefore.CompletedAt.AddMinutes(5);
+        var clock = new MutableClock(recordedAt);
         var first = new ProjectCompletedPreTriageEpisode(
-            new ClinicalDefinitionProvider(
-                firstContext,
-                new ClinicalDefinitionPackageValidator()),
-            new CheckDemoQuestionnaireCompleteness(),
+            clock,
             new PreTriageHistoryProjectionRepository(firstContext));
         var second = new ProjectCompletedPreTriageEpisode(
-            new ClinicalDefinitionProvider(
-                secondContext,
-                new ClinicalDefinitionPackageValidator()),
-            new CheckDemoQuestionnaireCompleteness(),
+            clock,
             new PreTriageHistoryProjectionRepository(secondContext));
         var projections = await Task.WhenAll(
             first.ExecuteAsync(EntityId.From(completed!.EpisodeId)),
             second.ExecuteAsync(EntityId.From(completed.EpisodeId)));
 
         Assert.All(projections, value => Assert.NotNull(value));
-        Assert.Equivalent(projections[0], projections[1], strict: true);
-        var projection = Assert.IsType<PreTriageHistoryProjection>(projections[0]);
-        Assert.Equal(PreTriageHistoryProjection.SourceTypeCode, projection.SourceType);
-        Assert.Equal(identity.ProfileId, projection.PatientProfileId);
-        Assert.Equal(
-            ClinicalContentSource.ProductDemoDefined,
-            projection.ContentStatus.Source);
+        Assert.Equal(1, projections.Count(value => value!.IsNewlyProjected));
+        Assert.Equal(1, projections.Count(value => !value!.IsNewlyProjected));
+        Assert.Equal(projections[0]!.Event.Id, projections[1]!.Event.Id);
+        Assert.Equal(identity.ProfileId, projections[0]!.Event.PatientProfileId);
+        Assert.Equal(episodeId, projections[0]!.Event.SourceId);
+        Assert.Equal(recordedAt, projections[0]!.Event.RecordedAt);
         await using var verify = CreateDbContext();
         Assert.Equal(1, await verify.PreTriageHistoryProjectionRecords.CountAsync(
-            value => value.SourceEpisodeId == EntityId.From(completed.EpisodeId)));
+            value => value.SourceEpisodeId == episodeId));
+        Assert.Equal(1, await verify.ClinicalHistoryEvents.CountAsync(
+            value => value.SourceId == episodeId));
+        Assert.False(await verify.ClinicalAmendments.AnyAsync(value =>
+            value.ClinicalHistoryEventId == projections[0]!.Event.Id));
+        var episodeAfter = await verify.PreTriageEpisodes
+            .AsNoTracking()
+            .Where(value => value.Id == episodeId)
+            .Select(value => new
+            {
+                value.Id,
+                value.SourceSessionId,
+                value.PatientProfileId,
+                value.QuestionnaireVersionId,
+                value.ClinicalRuleSetVersionId,
+                value.CompletedAt,
+                value.AnonymousExpiresAt,
+                value.ClaimedAt
+            })
+            .SingleAsync();
+        var answersAfter = await verify.TriageAnswers
+            .AsNoTracking()
+            .Where(value => value.EpisodeId == episodeId)
+            .OrderBy(value => value.Sequence)
+            .Select(value => new
+            {
+                value.Id,
+                value.EpisodeId,
+                value.QuestionnaireVersionId,
+                value.QuestionId,
+                value.AnswerJson,
+                value.Sequence,
+                value.RecordedAt
+            })
+            .ToArrayAsync();
+        var assessmentAfter = await verify.ClinicalAssessments
+            .AsNoTracking()
+            .Where(value => value.EpisodeId == episodeId)
+            .Select(value => new
+            {
+                value.Id,
+                value.EpisodeId,
+                value.ClinicalRuleSetVersionId,
+                value.UrgencyCode,
+                value.ResultMessageReference,
+                value.CreatedAt
+            })
+            .SingleAsync();
+        Assert.Equal(episodeBefore, episodeAfter);
+        Assert.Equal(answersBefore, answersAfter);
+        Assert.Equal(assessmentBefore, assessmentAfter);
     }
 
     [Fact]
@@ -873,6 +1008,11 @@ public sealed class PreTriageAnswerEndpointTests(
                 .SingleAsync(value => value.SourceEpisodeId == episodeId);
             Assert.Equal(identity.ProfileId, record.PatientProfileId);
             Assert.Equal(record.CompletedAt, record.CreatedAt);
+            var historyEvent = await verify.ClinicalHistoryEvents
+                .AsNoTracking()
+                .SingleAsync(value => value.SourceId == episodeId);
+            Assert.Equal(identity.ProfileId, historyEvent.PatientProfileId);
+            Assert.Equal(record.CompletedAt, historyEvent.OccurredAt);
         }
         finally
         {
@@ -977,6 +1117,12 @@ public sealed class PreTriageAnswerEndpointTests(
             Assert.Equal(identity.ProfileId, projectionRecord.PatientProfileId);
             Assert.Equal(episode.CompletedAt, projectionRecord.CompletedAt);
             Assert.Equal(claimed.ClaimedAt, projectionRecord.CreatedAt);
+            var historyEvent = await dbContext.ClinicalHistoryEvents
+                .AsNoTracking()
+                .SingleAsync(value => value.SourceId == episode.Id);
+            Assert.Equal(identity.ProfileId, historyEvent.PatientProfileId);
+            Assert.Equal(episode.CompletedAt, historyEvent.OccurredAt);
+            Assert.Equal(claimed.ClaimedAt, historyEvent.RecordedAt);
         }
 
         var transitionLogs = logger.Messages.Where(message => message.Contains(
@@ -1292,6 +1438,8 @@ public sealed class PreTriageAnswerEndpointTests(
             await using var verify = CreateDbContext();
             Assert.False(await verify.PreTriageHistoryProjectionRecords.AnyAsync(
                 value => value.SourceEpisodeId == EntityId.From(snapshot.EpisodeId)));
+            Assert.False(await verify.ClinicalHistoryEvents.AnyAsync(
+                value => value.SourceId == EntityId.From(snapshot.EpisodeId)));
         }
         finally
         {
@@ -1328,6 +1476,8 @@ public sealed class PreTriageAnswerEndpointTests(
             await using var verify = CreateDbContext();
             Assert.False(await verify.PreTriageHistoryProjectionRecords.AnyAsync(
                 value => value.SourceEpisodeId == EntityId.From(snapshot.EpisodeId)));
+            Assert.False(await verify.ClinicalHistoryEvents.AnyAsync(
+                value => value.SourceId == EntityId.From(snapshot.EpisodeId)));
         }
         finally
         {
@@ -1362,9 +1512,14 @@ public sealed class PreTriageAnswerEndpointTests(
               "RAISE EXCEPTION 'forced projection insert failure'; END; $$; " +
               "CREATE TRIGGER reject_projection_insert " +
               "BEFORE INSERT ON history.pre_triage_projection_records FOR EACH ROW " +
+              "EXECUTE FUNCTION history.reject_projection_insert(); " +
+              "CREATE TRIGGER reject_history_event_insert " +
+              "BEFORE INSERT ON history.clinical_history_events FOR EACH ROW " +
               "EXECUTE FUNCTION history.reject_projection_insert();"
             : "DROP TRIGGER IF EXISTS reject_projection_insert " +
               "ON history.pre_triage_projection_records; " +
+              "DROP TRIGGER IF EXISTS reject_history_event_insert " +
+              "ON history.clinical_history_events; " +
               "DROP FUNCTION IF EXISTS history.reject_projection_insert();");
     }
 
@@ -1400,6 +1555,9 @@ public sealed class PreTriageAnswerEndpointTests(
         dbContext.RemoveRange(assessments);
         dbContext.RemoveRange(answers);
         dbContext.RemoveRange(symptoms);
+        await dbContext.ClinicalHistoryEvents
+            .Where(value => episodeIds.Contains(value.SourceId))
+            .ExecuteDeleteAsync();
         await dbContext.PreTriageHistoryProjectionRecords
             .Where(value => episodeIds.Contains(value.SourceEpisodeId))
             .ExecuteDeleteAsync();

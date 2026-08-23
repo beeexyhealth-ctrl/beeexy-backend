@@ -1,54 +1,28 @@
 using Beeexy.Domain.Common;
+using Beeexy.Domain.History;
 using Beeexy.Domain.Triage;
 
 namespace Beeexy.Application.Triage;
 
 public sealed class ProjectCompletedPreTriageEpisode(
-    IClinicalDefinitionProvider definitionProvider,
-    CheckDemoQuestionnaireCompleteness completeness,
+    IClock clock,
     IPreTriageHistoryProjectionRepository repository) : IPreTriageHistoryProjector
 {
-    public async Task<PreTriageHistoryProjection?> ExecuteAsync(
+    public Task<PreTriageHistoryProjectionOutcome?> ExecuteAsync(
         EntityId sourceEpisodeId,
         CancellationToken cancellationToken = default)
     {
-        var graph = await repository.GetAsync(sourceEpisodeId, cancellationToken);
-        if (graph is null)
-        {
-            return null;
-        }
-
-        EnsureEligible(graph);
-        var package = await definitionProvider.GetDefinitionByQuestionnaireIdAsync(
-            graph.Episode.QuestionnaireVersionId,
-            cancellationToken) ?? throw new InvalidOperationException(
-                "The projection source's frozen questionnaire package is unavailable.");
-        if (package.Profile != ClinicalDefinitionPackageProfile.SimplifiedDemoIntake ||
-            package.Questionnaire.Id != graph.Episode.QuestionnaireVersionId ||
-            package.RuleSet.Id != graph.Episode.ClinicalRuleSetVersionId ||
-            package.ContentStatus != ClinicalContentStatus.NonClinicalDemo)
-        {
-            throw new InvalidOperationException(
-                "The projection source's frozen definition provenance is inconsistent.");
-        }
-
-        var summary = completeness.CheckPermanent(graph.Episode, package);
-        return new PreTriageHistoryProjection(
-            SourceType: PreTriageHistoryProjection.SourceTypeCode,
-            graph.Episode.Id,
-            graph.Episode.PatientProfileId!.Value,
-            graph.Episode.CompletedAt,
-            package.Pathway,
-            summary.PrimarySymptomDisplay,
-            summary.DurationValue,
-            summary.DurationUnit,
-            summary.Intensity,
-            summary.AdditionalSymptoms,
-            package.Questionnaire.QuestionnaireCode,
-            package.Questionnaire.Version,
-            package.RuleSet.RuleSetCode,
-            package.RuleSet.Version,
-            package.ContentStatus);
+        var recordedAt = ToPostgreSqlPrecision(clock.UtcNow);
+        return repository.ProjectAsync(
+            sourceEpisodeId,
+            graph =>
+            {
+                EnsureEligible(graph);
+                return ClinicalHistoryEvent.CreateCompletedPreTriage(
+                    graph.Episode,
+                    recordedAt);
+            },
+            cancellationToken);
     }
 
     private static void EnsureEligible(PreTriageHistoryProjectionGraph graph)
@@ -87,27 +61,14 @@ public sealed class ProjectCompletedPreTriageEpisode(
                 "The completed pre-triage projection graph is inconsistent.");
         }
     }
+
+    private static DateTimeOffset ToPostgreSqlPrecision(DateTimeOffset value) =>
+        new(value.UtcTicks - (value.UtcTicks % 10), TimeSpan.Zero);
 }
 
-public sealed record PreTriageHistoryProjection(
-    string SourceType,
-    EntityId SourceEpisodeId,
-    EntityId PatientProfileId,
-    DateTimeOffset CompletedAt,
-    ClinicalPathwayCode PrimarySymptom,
-    string PrimarySymptomDisplay,
-    decimal DurationValue,
-    string DurationUnit,
-    int Intensity,
-    IReadOnlyList<string> AdditionalSymptoms,
-    QuestionnaireCode QuestionnaireCode,
-    DefinitionVersion QuestionnaireVersion,
-    RuleSetCode PackageCode,
-    DefinitionVersion PackageVersion,
-    ClinicalContentStatus ContentStatus)
-{
-    public const string SourceTypeCode = "PRE_TRIAGE_EPISODE";
-}
+public sealed record PreTriageHistoryProjectionOutcome(
+    ClinicalHistoryEvent Event,
+    bool IsNewlyProjected);
 
 public sealed record PreTriageHistoryProjectionGraph(
     PreTriageHistoryProjectionRecord Record,
@@ -117,14 +78,15 @@ public sealed record PreTriageHistoryProjectionGraph(
 
 public interface IPreTriageHistoryProjectionRepository
 {
-    Task<PreTriageHistoryProjectionGraph?> GetAsync(
+    Task<PreTriageHistoryProjectionOutcome?> ProjectAsync(
         EntityId sourceEpisodeId,
+        Func<PreTriageHistoryProjectionGraph, ClinicalHistoryEvent> createEvent,
         CancellationToken cancellationToken = default);
 }
 
 public interface IPreTriageHistoryProjector
 {
-    Task<PreTriageHistoryProjection?> ExecuteAsync(
+    Task<PreTriageHistoryProjectionOutcome?> ExecuteAsync(
         EntityId sourceEpisodeId,
         CancellationToken cancellationToken = default);
 }

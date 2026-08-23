@@ -2,6 +2,7 @@ using Beeexy.Application.Identity;
 using Beeexy.Application.Patients;
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
+using Beeexy.Domain.History;
 using Beeexy.Domain.Identity;
 using Beeexy.Domain.Patients;
 using Beeexy.Domain.Triage;
@@ -46,6 +47,7 @@ public sealed class PreTriageCleanupTests(PostgreSqlContainerFixture postgres)
             value => value.SourceSessionId == session.Session.Id));
         Assert.Empty(await verify.ClinicalAssessments.ToListAsync());
         Assert.Empty(await verify.ClinicalFindings.ToListAsync());
+        Assert.Empty(await verify.ClinicalHistoryEvents.ToListAsync());
         Assert.True(await verify.QuestionnaireVersions.AnyAsync(
             value => value.Id == definitions.Questionnaire.Id));
         Assert.Equal(remains ? 0 : 1, result.AnonymousActiveRemoved);
@@ -73,6 +75,8 @@ public sealed class PreTriageCleanupTests(PostgreSqlContainerFixture postgres)
             value => value.EpisodeId == graph.Episode.Id));
         Assert.False(await verify.ReportedSymptoms.AnyAsync(
             value => value.EpisodeId == graph.Episode.Id));
+        Assert.False(await verify.ClinicalHistoryEvents.AnyAsync(
+            value => value.SourceId == graph.Episode.Id));
         Assert.True(await verify.QuestionnaireVersions.AnyAsync(
             value => value.Id == definitions.Questionnaire.Id));
         Assert.True(await verify.ClinicalRuleSetVersions.AnyAsync(
@@ -122,6 +126,16 @@ public sealed class PreTriageCleanupTests(PostgreSqlContainerFixture postgres)
                 PreTriageHistoryProjectionRecord.Create(
                     managedCompleted.Episode,
                     managedCompleted.Episode.CompletedAt));
+            context.ClinicalHistoryEvents.AddRange(
+                ClinicalHistoryEvent.CreateCompletedPreTriage(
+                    claimed.Episode,
+                    claimed.Episode.ClaimedAt!.Value),
+                ClinicalHistoryEvent.CreateCompletedPreTriage(
+                    primaryCompleted.Episode,
+                    primaryCompleted.Episode.CompletedAt),
+                ClinicalHistoryEvent.CreateCompletedPreTriage(
+                    managedCompleted.Episode,
+                    managedCompleted.Episode.CompletedAt));
             await context.SaveChangesAsync();
         }
 
@@ -140,6 +154,7 @@ public sealed class PreTriageCleanupTests(PostgreSqlContainerFixture postgres)
         Assert.Equal(3, await verify.TriageAnswers.CountAsync());
         Assert.Equal(3, await verify.ReportedSymptoms.CountAsync());
         Assert.Equal(3, await verify.PreTriageHistoryProjectionRecords.CountAsync());
+        Assert.Equal(3, await verify.ClinicalHistoryEvents.CountAsync());
         Assert.Equal(0, result.Removed);
     }
 
@@ -164,6 +179,7 @@ public sealed class PreTriageCleanupTests(PostgreSqlContainerFixture postgres)
         Assert.Empty(await verify.PreTriageEpisodes.ToListAsync());
         Assert.Empty(await verify.ClinicalAssessments.ToListAsync());
         Assert.Empty(await verify.ClinicalFindings.ToListAsync());
+        Assert.Empty(await verify.ClinicalHistoryEvents.ToListAsync());
         Assert.True(await verify.PatientProfiles.AnyAsync(value => value.Id == primary.Id));
         Assert.True(await verify.PatientProfiles.AnyAsync(value => value.Id == managed.Id));
     }
@@ -275,6 +291,8 @@ public sealed class PreTriageCleanupTests(PostgreSqlContainerFixture postgres)
         Assert.Equal(sessionExists ? 1 : 0, assessmentCount);
         Assert.Equal(sessionExists ? 1 : 0,
             await verify.PreTriageHistoryProjectionRecords.CountAsync());
+        Assert.Equal(sessionExists ? 1 : 0,
+            await verify.ClinicalHistoryEvents.CountAsync());
         Assert.True(cleanupOutcome is PreTriageCleanupOutcome.Removed or
             PreTriageCleanupOutcome.PreservedPermanent);
     }
@@ -338,6 +356,8 @@ public sealed class PreTriageCleanupTests(PostgreSqlContainerFixture postgres)
         Assert.Equal(episode is null ? 0 : 1, await verify.ReportedSymptoms.CountAsync());
         Assert.Equal(episode is null ? 0 : 1,
             await verify.PreTriageHistoryProjectionRecords.CountAsync());
+        Assert.Equal(episode is null ? 0 : 1,
+            await verify.ClinicalHistoryEvents.CountAsync());
     }
 
     [Fact]
