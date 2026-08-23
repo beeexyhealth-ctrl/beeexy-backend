@@ -1,8 +1,10 @@
 using Beeexy.Application.Identity;
+using Beeexy.Application.History;
 using Beeexy.Application.Patients;
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
 using Beeexy.Infrastructure.Identity;
+using Beeexy.Infrastructure.History;
 using Beeexy.Infrastructure.Patients;
 using Beeexy.Infrastructure.Persistence;
 using Beeexy.Infrastructure.Time;
@@ -65,6 +67,7 @@ public static class DependencyInjection
             PatientAccessAuthorizationRepository>();
         services.AddScoped<IPatientProfileReadRepository, PatientProfileReadRepository>();
         services.AddScoped<IPatientProfileUpdateRepository, PatientProfileUpdateRepository>();
+        services.AddScoped<IClinicalHistoryReadRepository, ClinicalHistoryReadRepository>();
         services.AddSingleton<IPatientProfileAuditLogger, PatientProfileAuditLogger>();
         services.AddSingleton<ClinicalDefinitionPackageValidator>();
         services.AddScoped<IClinicalDefinitionImporter, ClinicalDefinitionImporter>();

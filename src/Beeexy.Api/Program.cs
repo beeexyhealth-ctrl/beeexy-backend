@@ -1,11 +1,13 @@
 using Beeexy.Api.Configuration;
 using Beeexy.Api.Errors;
 using Beeexy.Api.Health;
+using Beeexy.Api.History;
 using Beeexy.Api.Identity;
 using Beeexy.Api.Middleware;
 using Beeexy.Api.Patients;
 using Beeexy.Api.Triage;
 using Beeexy.Application.Identity;
+using Beeexy.Application.History;
 using Beeexy.Application.Patients;
 using Beeexy.Application.Triage;
 using Beeexy.Infrastructure;
@@ -80,6 +82,7 @@ builder.Services.AddScoped<CompletePreTriage>();
 builder.Services.AddScoped<GetPreTriageResult>();
 builder.Services.AddScoped<ClaimAnonymousPreTriage>();
 builder.Services.AddScoped<ProjectCompletedPreTriageEpisode>();
+builder.Services.AddScoped<ListClinicalHistory>();
 builder.Services.AddScoped<IPreTriageHistoryProjector>(provider =>
     provider.GetRequiredService<ProjectCompletedPreTriageEpisode>());
 builder.Services.AddScoped<ExpireAnonymousPreTriage>();
@@ -194,6 +197,7 @@ if (app.Environment.IsDevelopment())
 app.MapBeeexyHealthEndpoints();
 app.MapBeeexyAuthenticationEndpoints();
 app.MapBeeexyPatientEndpoints();
+app.MapBeeexyClinicalHistoryEndpoints();
 app.MapBeeexyCareRelationshipEndpoints();
 app.MapBeeexyPreTriageEndpoints();
 
