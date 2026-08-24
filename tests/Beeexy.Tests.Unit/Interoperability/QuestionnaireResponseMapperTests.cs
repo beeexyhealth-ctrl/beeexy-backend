@@ -277,29 +277,24 @@ public sealed class QuestionnaireResponseMapperTests
     }
 
     [Fact]
-    public void Phase63_GeneratesNoOtherFhirResourceOrClinicalConclusion()
+    public void QuestionnaireResponseMapper_GeneratesNoOtherResourceOrClinicalConclusion()
     {
-        var interoperabilityTypes = typeof(QuestionnaireResponseMapper).Assembly.GetTypes()
-            .Where(type => type.Namespace == "Beeexy.Application.Interoperability")
-            .ToArray();
-        var concreteMappers = interoperabilityTypes
-            .Where(type => type is { IsAbstract: false, IsInterface: false } &&
-                type.Name.EndsWith("Mapper", StringComparison.Ordinal))
-            .ToArray();
         var forbiddenProperties = new[]
         {
             "Urgency", "Disposition", "Diagnosis", "Probability", "Treatment",
             "Prescription", "Prediction", "Mitigation", "RedFlag"
         };
 
-        Assert.Equal([typeof(QuestionnaireResponseMapper)], concreteMappers);
         Assert.DoesNotContain(
             typeof(QuestionnaireResponseRepresentation).GetProperties(),
             property => forbiddenProperties.Any(value =>
                 property.Name.Contains(value, StringComparison.OrdinalIgnoreCase)));
-        Assert.DoesNotContain(interoperabilityTypes, type =>
-            type.Name is "RiskAssessmentRepresentation" or "DeviceRepresentation" or
-                "ProvenanceRepresentation" or "BundleRepresentation");
+        Assert.DoesNotContain(
+            typeof(QuestionnaireResponseMapper).GetFields(
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.NonPublic),
+            field => field.FieldType.Name is
+                "RiskAssessmentMapper" or "DeviceMapper" or "ProvenanceMapper");
     }
 
     private static QuestionnaireResponseMapper Mapper() => new(

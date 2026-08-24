@@ -193,18 +193,7 @@ public sealed class QuestionnaireResponseMapper :
         ResolveUnresolvedRequirements(
             FhirMappingSpecificationIdentity mappingSpecification)
     {
-        var unresolved = new List<FhirUnresolvedMappingRequirement>();
-        if (mappingSpecification.FhirRelease is null)
-        {
-            unresolved.Add(FhirUnresolvedMappingRequirement.FhirRelease);
-        }
-
-        if (mappingSpecification.ProfileResolution.Status ==
-            FhirProfileResolutionStatus.Unresolved)
-        {
-            unresolved.Add(
-                FhirUnresolvedMappingRequirement.CanonicalProfilesAndVersions);
-        }
+        var unresolved = FhirRepresentationRequirements.From(mappingSpecification);
 
         unresolved.AddRange(
         [

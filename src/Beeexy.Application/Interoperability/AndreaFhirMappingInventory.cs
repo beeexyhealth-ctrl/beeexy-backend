@@ -9,6 +9,7 @@ public enum FhirUnresolvedMappingRequirement
     QuestionnaireResourceIdentityAndVersionEncoding,
     QuestionnaireItemLinkIdStrategy,
     QuestionnaireAnswerTypeTranslation,
+    ResourceIdentityAndReferenceStrategy,
     RiskPredictionOutcome,
     RiskPredictionProbability,
     RiskMitigation,
@@ -37,6 +38,16 @@ public static class AndreaFhirMappingInventory
     public const string DeviceModelNumber = "triage-core";
     public const string DeviceManufacturer = "Beeexy Inc.";
     public const string DeviceTypeText = "Clinical decision support software";
+
+    public const string ProvenanceActivitySystem =
+        "http://terminology.hl7.org/CodeSystem/v3-DataOperation";
+    public const string ProvenanceActivityCode = "CREATE";
+    public const string ProvenanceActivityDisplay = "create";
+    public const string ProvenanceAgentTypeSystem =
+        "http://terminology.hl7.org/CodeSystem/provenance-participant-type";
+    public const string ProvenanceAgentTypeCode = "author";
+    public const string ProvenanceAgentTypeDisplay = "Author";
+    public const string ProvenanceEntityRole = "source";
 
     public const string RiskAssessmentDisclaimer =
         "Evaluación generada automáticamente por Beeexy a partir de las respuestas del paciente. No constituye un diagnóstico médico.";
@@ -77,6 +88,7 @@ public static class AndreaFhirMappingInventory
                 FhirUnresolvedMappingRequirement.FhirRelease,
                 FhirUnresolvedMappingRequirement.CanonicalProfilesAndVersions,
                 FhirUnresolvedMappingRequirement.PatientResourceIdentity,
+                FhirUnresolvedMappingRequirement.ResourceIdentityAndReferenceStrategy,
                 FhirUnresolvedMappingRequirement.RiskPredictionOutcome,
                 FhirUnresolvedMappingRequirement.RiskPredictionProbability,
                 FhirUnresolvedMappingRequirement.RiskMitigation
@@ -94,23 +106,25 @@ public static class AndreaFhirMappingInventory
             [
                 FhirUnresolvedMappingRequirement.FhirRelease,
                 FhirUnresolvedMappingRequirement.CanonicalProfilesAndVersions,
+                FhirUnresolvedMappingRequirement.ResourceIdentityAndReferenceStrategy,
                 FhirUnresolvedMappingRequirement.SoftwareRuntimeVersion
             ]),
         new(
             FhirConceptualResource.Provenance,
             typeof(ProvenanceMappingInput),
             [
-                new("activity.coding.system", "http://terminology.hl7.org/CodeSystem/v3-DataOperation"),
-                new("activity.coding.code", "CREATE"),
-                new("activity.coding.display", "create"),
-                new("agent.type.coding.system", "http://terminology.hl7.org/CodeSystem/provenance-participant-type"),
-                new("agent.type.coding.code", "author"),
-                new("agent.type.coding.display", "Author"),
-                new("entity.role", "source")
+                new("activity.coding.system", ProvenanceActivitySystem),
+                new("activity.coding.code", ProvenanceActivityCode),
+                new("activity.coding.display", ProvenanceActivityDisplay),
+                new("agent.type.coding.system", ProvenanceAgentTypeSystem),
+                new("agent.type.coding.code", ProvenanceAgentTypeCode),
+                new("agent.type.coding.display", ProvenanceAgentTypeDisplay),
+                new("entity.role", ProvenanceEntityRole)
             ],
             [
                 FhirUnresolvedMappingRequirement.FhirRelease,
-                FhirUnresolvedMappingRequirement.CanonicalProfilesAndVersions
+                FhirUnresolvedMappingRequirement.CanonicalProfilesAndVersions,
+                FhirUnresolvedMappingRequirement.ResourceIdentityAndReferenceStrategy
             ])
     ];
 

@@ -20,19 +20,19 @@ Unresolved: the FHIR release and profiles; the QuestionnaireResponse's own resou
 
 Andrea establishes `status: final` for a completed assessment, a Patient subject, occurrence time, a mandatory Beeexy `basis` reference to the `QuestionnaireResponse`, prediction content, mitigation text, and the exact automatic-evaluation/non-diagnosis note shown in the source document. The prediction example contains a SNOMED outcome, decimal probability, and optional qualitative risk.
 
-The authoritative current Beeexy assessment is deliberately neutral. It truthfully supplies only patient/source/episode/assessment/rule-set identities and occurrence time. It supplies no prediction, probability, qualitative risk, mitigation, urgency, disposition, diagnosis, treatment, or recommendation. Consequently its mapping input is explicitly not ready for resource generation. Prediction outcome, probability, and mitigation remain unresolved clinical input requirements; the vertigo outcome, `0.72`, `moderate`, and referral wording are example data and are never reused.
+The authoritative current Beeexy assessment is deliberately neutral. It truthfully supplies only patient/source/episode/assessment/rule-set identities and occurrence time. It supplies no prediction, probability, qualitative risk, mitigation, urgency, disposition, diagnosis, treatment, or recommendation. Consequently its mapping input is explicitly not ready for resource generation. Prediction outcome, probability, and mitigation remain unresolved clinical input requirements; the vertigo outcome, `0.72`, `moderate`, and referral wording are example data and are never reused. Resource identity and final Patient/QuestionnaireResponse reference construction also remain unresolved.
 
 ## Device
 
 Andrea establishes the Beeexy software identity fields: name `Beeexy Triage Engine`, name type `manufacturer-name`, model number `triage-core`, manufacturer `Beeexy Inc.`, and type text `Clinical decision support software`. The exact runtime software version is required input. The example's `2.4.1` is not treated as the current configured version or silently defaulted.
 
-Unresolved: the FHIR release, profiles, and actual runtime software version supplied by the future generation component.
+Unresolved at the contract level: the FHIR release, profiles, actual runtime software version supplied by the generation component, and final resource identity/reference strategy. Phase 6.4 consumes an explicit runtime version but does not turn the example ID into a production logical ID.
 
 ## Provenance
 
 Andrea establishes that Provenance targets the generated `RiskAssessment`, records generation time, uses the `CREATE` activity from `http://terminology.hl7.org/CodeSystem/v3-DataOperation`, identifies the Device as `author` using `http://terminology.hl7.org/CodeSystem/provenance-participant-type`, and identifies the `QuestionnaireResponse` with entity role `source`.
 
-The mapping input preserves those three typed outbound relationships plus the export UUID and the internal patient, Clinical History event, episode, and assessment UUIDs. Outbound logical IDs support references only and confer no patient authorization.
+The mapping input preserves those three typed generation relationships plus the export UUID and the internal patient, Clinical History event, episode, and assessment UUIDs. The logical labels are internal generation identities until a final FHIR reference strategy is approved. They are not emitted as `Resource/id` references and confer no patient authorization.
 
 ## Mapping specification identity
 
