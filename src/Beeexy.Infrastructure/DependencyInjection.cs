@@ -1,10 +1,12 @@
 using Beeexy.Application.Identity;
 using Beeexy.Application.History;
+using Beeexy.Application.Interoperability;
 using Beeexy.Application.Patients;
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
 using Beeexy.Infrastructure.Identity;
 using Beeexy.Infrastructure.History;
+using Beeexy.Infrastructure.Interoperability;
 using Beeexy.Infrastructure.Patients;
 using Beeexy.Infrastructure.Persistence;
 using Beeexy.Infrastructure.Time;
@@ -24,7 +26,8 @@ public static class DependencyInjection
         GoogleExternalIdentityOptions googleOptions,
         string otpHashingKey,
         AuthenticationEmailSenderOptions authenticationEmailSenderOptions,
-        PreTriageCleanupOptions preTriageCleanupOptions)
+        PreTriageCleanupOptions preTriageCleanupOptions,
+        string? privateFhirArtifactRoot = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
         ArgumentNullException.ThrowIfNull(emailChallengePolicy);
@@ -101,6 +104,13 @@ public static class DependencyInjection
         services.AddScoped<IPreTriageCleanupRepository, PreTriageCleanupRepository>();
         services.AddSingleton<IPreTriageCleanupTelemetry, PreTriageCleanupTelemetry>();
         services.AddHostedService<PreTriageCleanupWorker>();
+        services.AddSingleton<FhirSnapshotSerializer>();
+        services.AddSingleton<FhirArtifactChecksumCalculator>();
+        services.AddScoped<IFhirExportGenerationTransaction, FhirExportGenerationTransaction>();
+        services.AddScoped<GenerateFhirExport>();
+        services.AddSingleton<IFhirArtifactStore>(_ => new FileSystemFhirArtifactStore(
+            privateFhirArtifactRoot ??
+            Path.Combine(AppContext.BaseDirectory, "private-fhir-artifacts")));
 
         services.AddSingleton(googleOptions);
         if (googleOptions.Enabled)
