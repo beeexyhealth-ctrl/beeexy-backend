@@ -79,6 +79,12 @@ internal sealed class ClinicalAmendmentConfiguration
             .HasColumnType("timestamp with time zone")
             .IsRequired();
 
+        builder.Property(amendment => amendment.IdempotencyKey)
+            .HasColumnName("idempotency_key")
+            .HasConversion(
+                id => id.HasValue ? id.Value.Value : (Guid?)null,
+                value => value.HasValue ? EntityId.From(value.Value) : (EntityId?)null);
+
         builder.Ignore(amendment => amendment.SourceReference);
         builder.Ignore(amendment => amendment.SourceProvenance);
 
@@ -92,6 +98,15 @@ internal sealed class ClinicalAmendmentConfiguration
 
         builder.HasIndex(amendment => amendment.AuthorAccountId)
             .HasDatabaseName("ix_clinical_amendments_author_account");
+
+        builder.HasIndex(amendment => new
+        {
+            amendment.ClinicalHistoryEventId,
+            amendment.IdempotencyKey
+        })
+            .IsUnique()
+            .HasFilter("idempotency_key IS NOT NULL")
+            .HasDatabaseName("ux_clinical_amendments_event_idempotency_key");
 
         builder.HasIndex(amendment => amendment.SourceId)
             .HasDatabaseName("ix_clinical_amendments_source_episode");

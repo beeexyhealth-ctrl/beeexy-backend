@@ -2,6 +2,8 @@ using Beeexy.Application.History;
 using Beeexy.Application.Patients;
 using Beeexy.Domain.Common;
 using Beeexy.Domain.History;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Beeexy.Api.History;
 
@@ -27,6 +29,27 @@ internal static class ClinicalHistoryEndpointExtensions
             .Produces<ClinicalHistoryPageResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        endpoints.MapPost(
+                "/api/v1/pre-triage/episodes/{episodeId:guid}/amendments",
+                AmendPreTriageEpisodeAsync)
+            .WithName("AmendPreTriageEpisode")
+            .WithTags("Clinical History")
+            .WithDescription(
+                "Adds an immutable, traceable amendment to an eligible completed " +
+                "Pre-Triage episode for its primary patient or active manager. The current " +
+                "Phase 5 amendment model records reason and server-controlled audit " +
+                "metadata; it does not accept a clinical patch or overwrite the original. " +
+                "A non-empty UUID idempotencyKey is required, and repeating it for the " +
+                "same event returns 409. Absent and inaccessible sources both return a " +
+                "concealed 404.")
+            .RequireAuthorization()
+            .Produces<ClinicalHistoryAmendmentResponse>(StatusCodes.Status201Created)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
@@ -103,15 +126,44 @@ internal static class ClinicalHistoryEndpointExtensions
                 result.AuthoritativeSource.QuestionnaireVersionId,
                 result.AuthoritativeSource.ClinicalRuleSetVersionId)),
             result.Amendments.Select(amendment =>
-                new ClinicalHistoryAmendmentResponse(
-                    amendment.AmendmentId.Value,
-                    amendment.Reason,
-                    new ClinicalHistoryAmendmentAuthorResponse(
-                        "BEEEXY_ACCOUNT",
-                        amendment.Author.BeeexyId),
-                    amendment.CreatedAt,
-                    ToResponse(amendment.Provenance)))
+                ToResponse(amendment))
                 .ToArray()));
+    }
+
+    private static async Task<IResult> AmendPreTriageEpisodeAsync(
+        Guid episodeId,
+        AmendPreTriageEpisodeRequest request,
+        AmendPreTriageEpisode useCase,
+        CancellationToken cancellationToken)
+    {
+        if (episodeId == Guid.Empty)
+        {
+            throw new PatientProfileNotFoundException();
+        }
+
+        var result = await useCase.ExecuteAsync(
+            new AmendPreTriageEpisodeCommand(
+                EntityId.From(episodeId),
+                request.IdempotencyKey,
+                request.Reason,
+                request.AdditionalFields is { Count: > 0 }),
+            cancellationToken);
+        var amendment = result.Amendment;
+        var response = new ClinicalHistoryAmendmentResponse(
+            amendment.Id.Value,
+            amendment.Reason.Value,
+            new ClinicalHistoryAmendmentAuthorResponse(
+                "BEEEXY_ACCOUNT",
+                result.AuthorBeeexyId),
+            amendment.CreatedAt,
+            ToResponse(new ClinicalHistoryProvenance(
+                amendment.SourceType,
+                amendment.SourceId,
+                amendment.SourceQuestionnaireVersionId,
+                amendment.SourceClinicalRuleSetVersionId)));
+        return Results.Created(
+            $"/api/v1/pre-triage/episodes/{episodeId:D}/amendments/{amendment.Id.Value:D}",
+            response);
     }
 
     private static ClinicalHistoryItemResponse ToResponse(
@@ -142,6 +194,27 @@ internal static class ClinicalHistoryEndpointExtensions
             provenance.SourceId.Value,
             provenance.QuestionnaireVersionId.Value,
             provenance.ClinicalRuleSetVersionId.Value);
+
+    private static ClinicalHistoryAmendmentResponse ToResponse(
+        ClinicalHistoryAmendmentDetail amendment) =>
+        new(
+            amendment.AmendmentId.Value,
+            amendment.Reason,
+            new ClinicalHistoryAmendmentAuthorResponse(
+                "BEEEXY_ACCOUNT",
+                amendment.Author.BeeexyId),
+            amendment.CreatedAt,
+            ToResponse(amendment.Provenance));
+}
+
+internal sealed record AmendPreTriageEpisodeRequest
+{
+    public string? IdempotencyKey { get; init; }
+
+    public string? Reason { get; init; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? AdditionalFields { get; init; }
 }
 
 internal sealed record ClinicalHistoryPageResponse(

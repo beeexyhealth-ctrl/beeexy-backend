@@ -84,6 +84,7 @@ builder.Services.AddScoped<ClaimAnonymousPreTriage>();
 builder.Services.AddScoped<ProjectCompletedPreTriageEpisode>();
 builder.Services.AddScoped<ListClinicalHistory>();
 builder.Services.AddScoped<GetClinicalHistoryEvent>();
+builder.Services.AddScoped<AmendPreTriageEpisode>();
 builder.Services.AddScoped<IPreTriageHistoryProjector>(provider =>
     provider.GetRequiredService<ProjectCompletedPreTriageEpisode>());
 builder.Services.AddScoped<ExpireAnonymousPreTriage>();

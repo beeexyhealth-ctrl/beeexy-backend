@@ -1,4 +1,5 @@
 using Beeexy.Application.Common;
+using Beeexy.Application.History;
 using Beeexy.Application.Identity;
 using Beeexy.Application.Patients;
 using Beeexy.Application.Triage;
@@ -196,6 +197,16 @@ internal sealed class ApiExceptionHandler(
                 Status = StatusCodes.Status409Conflict,
                 Title = "Pre-triage claim conflict.",
                 Detail = "The anonymous pre-triage episode cannot be claimed by this patient."
+            };
+        }
+
+        if (exception is ClinicalAmendmentDuplicateException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Clinical amendment conflict.",
+                Detail = "An amendment with this idempotency key already exists."
             };
         }
 

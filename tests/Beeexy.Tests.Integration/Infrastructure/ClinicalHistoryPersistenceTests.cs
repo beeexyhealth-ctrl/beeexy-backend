@@ -232,6 +232,7 @@ public sealed class ClinicalHistoryPersistenceTests(PostgreSqlContainerFixture p
                 "SELECT indexname, indexdef FROM pg_indexes " +
                 "WHERE schemaname = 'history' AND indexname IN " +
                 "('ux_clinical_history_events_source_projection', " +
+                "'ux_clinical_amendments_event_idempotency_key', " +
                 "'ix_clinical_history_events_patient_occurred_id', " +
                 "'ix_clinical_history_events_patient_event_type') " +
                 "ORDER BY indexname;";
@@ -242,7 +243,11 @@ public sealed class ClinicalHistoryPersistenceTests(PostgreSqlContainerFixture p
                 indexes.Add(reader.GetString(0), reader.GetString(1));
             }
 
-            Assert.Equal(3, indexes.Count);
+            Assert.Equal(4, indexes.Count);
+            Assert.Contains("UNIQUE", indexes[
+                "ux_clinical_amendments_event_idempotency_key"]);
+            Assert.Contains("idempotency_key IS NOT NULL", indexes[
+                "ux_clinical_amendments_event_idempotency_key"]);
             Assert.Contains("UNIQUE", indexes[
                 "ux_clinical_history_events_source_projection"]);
             Assert.Contains("occurred_at DESC", indexes[

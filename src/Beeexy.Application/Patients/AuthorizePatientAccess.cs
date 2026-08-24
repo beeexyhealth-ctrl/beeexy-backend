@@ -14,6 +14,7 @@ public sealed class AuthorizePatientAccess(
         await ExecuteCoreAsync(
             targetProfileId,
             lockActiveRelationship: false,
+            current: null,
             cancellationToken);
 
     internal async Task<PatientAccessAuthorizationResult> ExecuteForPatientUpdateAsync(
@@ -22,14 +23,26 @@ public sealed class AuthorizePatientAccess(
         await ExecuteCoreAsync(
             targetProfileId,
             lockActiveRelationship: true,
+            current: null,
+            cancellationToken);
+
+    internal async Task<PatientAccessAuthorizationResult> ExecuteForPatientUpdateAsync(
+        EntityId targetProfileId,
+        ResolvedCurrentAccountProfile current,
+        CancellationToken cancellationToken = default) =>
+        await ExecuteCoreAsync(
+            targetProfileId,
+            lockActiveRelationship: true,
+            current,
             cancellationToken);
 
     private async Task<PatientAccessAuthorizationResult> ExecuteCoreAsync(
         EntityId targetProfileId,
         bool lockActiveRelationship,
+        ResolvedCurrentAccountProfile? current,
         CancellationToken cancellationToken)
     {
-        var current = await currentAccountResolver.ResolveAsync(cancellationToken);
+        current ??= await currentAccountResolver.ResolveAsync(cancellationToken);
 
         if (targetProfileId == current.PrimaryProfile.Id)
         {

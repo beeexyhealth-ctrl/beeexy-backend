@@ -114,6 +114,33 @@ public sealed class ClinicalHistoryDomainTests
     }
 
     [Fact]
+    public void RequestAmendment_AddsOnlyAnImmutableIdempotencyKey()
+    {
+        var historyEvent = ClinicalHistoryEvent.CreateCompletedPreTriage(
+            CreateOwnedEpisode(),
+            Utc(15));
+        var key = EntityId.New();
+
+        var amendment = ClinicalAmendment.CreateForRequest(
+            historyEvent,
+            EntityId.New(),
+            AmendmentReason.Create("Traceable correction"),
+            Utc(16),
+            key);
+
+        Assert.Equal(key, amendment.IdempotencyKey);
+        Assert.False(typeof(ClinicalAmendment)
+            .GetProperty(nameof(ClinicalAmendment.IdempotencyKey))!
+            .SetMethod!.IsPublic);
+        Assert.Throws<ArgumentException>(() => ClinicalAmendment.CreateForRequest(
+            historyEvent,
+            EntityId.New(),
+            AmendmentReason.Create("Traceable correction"),
+            Utc(16),
+            EntityId.From(Guid.Empty)));
+    }
+
+    [Fact]
     public void AmendmentCreation_RejectsBlankReasonMismatchedProvenanceAndEarlyTime()
     {
         var historyEvent = ClinicalHistoryEvent.CreateCompletedPreTriage(

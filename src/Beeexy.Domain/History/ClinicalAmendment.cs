@@ -16,7 +16,8 @@ public sealed class ClinicalAmendment
         ClinicalSourceProvenance sourceProvenance,
         EntityId authorAccountId,
         AmendmentReason reason,
-        DateTimeOffset createdAt)
+        DateTimeOffset createdAt,
+        EntityId? idempotencyKey)
     {
         Id = id;
         ClinicalHistoryEventId = clinicalHistoryEventId;
@@ -27,6 +28,7 @@ public sealed class ClinicalAmendment
         AuthorAccountId = authorAccountId;
         Reason = reason;
         CreatedAt = createdAt;
+        IdempotencyKey = idempotencyKey;
     }
 
     public EntityId Id { get; private set; }
@@ -47,6 +49,8 @@ public sealed class ClinicalAmendment
 
     public DateTimeOffset CreatedAt { get; private set; }
 
+    public EntityId? IdempotencyKey { get; private set; }
+
     public AuthoritativeSourceReference SourceReference =>
         AuthoritativeSourceReference.ForPreTriageEpisode(SourceId);
 
@@ -63,13 +67,14 @@ public sealed class ClinicalAmendment
         EntityId? id = null)
     {
         ArgumentNullException.ThrowIfNull(historyEvent);
-        return Create(
+        return CreateCore(
             historyEvent,
             historyEvent.SourceReference,
             historyEvent.SourceProvenance,
             authorAccountId,
             reason,
             createdAt,
+            idempotencyKey: null,
             id);
     }
 
@@ -81,12 +86,35 @@ public sealed class ClinicalAmendment
         AmendmentReason reason,
         DateTimeOffset createdAt,
         EntityId? id = null)
+        => CreateCore(
+            historyEvent,
+            sourceReference,
+            sourceProvenance,
+            authorAccountId,
+            reason,
+            createdAt,
+            idempotencyKey: null,
+            id);
+
+    private static ClinicalAmendment CreateCore(
+        ClinicalHistoryEvent historyEvent,
+        AuthoritativeSourceReference sourceReference,
+        ClinicalSourceProvenance sourceProvenance,
+        EntityId authorAccountId,
+        AmendmentReason reason,
+        DateTimeOffset createdAt,
+        EntityId? idempotencyKey,
+        EntityId? id)
     {
         ArgumentNullException.ThrowIfNull(historyEvent);
         ArgumentNullException.ThrowIfNull(sourceReference);
         ArgumentNullException.ThrowIfNull(sourceProvenance);
         ArgumentNullException.ThrowIfNull(reason);
         EnsureNonEmpty(authorAccountId, nameof(authorAccountId));
+        if (idempotencyKey.HasValue)
+        {
+            EnsureNonEmpty(idempotencyKey.Value, nameof(idempotencyKey));
+        }
 
         if (sourceReference != historyEvent.SourceReference)
         {
@@ -114,7 +142,28 @@ public sealed class ClinicalAmendment
             sourceProvenance,
             authorAccountId,
             reason,
-            createdAt);
+            createdAt,
+            idempotencyKey);
+    }
+
+    public static ClinicalAmendment CreateForRequest(
+        ClinicalHistoryEvent historyEvent,
+        EntityId authorAccountId,
+        AmendmentReason reason,
+        DateTimeOffset createdAt,
+        EntityId idempotencyKey,
+        EntityId? id = null)
+    {
+        ArgumentNullException.ThrowIfNull(historyEvent);
+        return CreateCore(
+            historyEvent,
+            historyEvent.SourceReference,
+            historyEvent.SourceProvenance,
+            authorAccountId,
+            reason,
+            createdAt,
+            idempotencyKey,
+            id);
     }
 
     private static void EnsureNonEmpty(EntityId id, string parameterName)

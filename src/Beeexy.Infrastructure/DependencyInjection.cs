@@ -71,6 +71,8 @@ public static class DependencyInjection
         services.AddScoped<
             IClinicalHistoryEventReadRepository,
             ClinicalHistoryEventReadRepository>();
+        services.AddScoped<IPreTriageAmendmentRepository, PreTriageAmendmentRepository>();
+        services.AddSingleton<IClinicalAmendmentAuditLogger, ClinicalAmendmentAuditLogger>();
         services.AddSingleton<IPatientProfileAuditLogger, PatientProfileAuditLogger>();
         services.AddSingleton<ClinicalDefinitionPackageValidator>();
         services.AddScoped<IClinicalDefinitionImporter, ClinicalDefinitionImporter>();

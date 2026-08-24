@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(20, paths.EnumerateObject().Count());
+        Assert.Equal(21, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
@@ -75,6 +75,10 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             "/api/v1/patients/{patientId}/clinical-history/{eventId}");
         var clinicalHistoryDetailOperation = clinicalHistoryDetailPath
             .GetProperty("get");
+        var preTriageAmendmentPath = paths.GetProperty(
+            "/api/v1/pre-triage/episodes/{episodeId}/amendments");
+        var preTriageAmendmentOperation = preTriageAmendmentPath
+            .GetProperty("post");
         var clinicalHistoryParameters = clinicalHistoryOperation
             .GetProperty("parameters")
             .EnumerateArray()
@@ -93,6 +97,16 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             "/api/v1/patients/{patientId}/clinical-history",
             StringComparison.Ordinal)));
         Assert.False(clinicalHistoryDetailPath.TryGetProperty("post", out _));
+        Assert.Equal(
+            ["episodeId"],
+            preTriageAmendmentOperation.GetProperty("parameters")
+                .EnumerateArray()
+                .Select(parameter => parameter.GetProperty("name").GetString()));
+        Assert.True(preTriageAmendmentOperation.TryGetProperty("requestBody", out _));
+        Assert.False(preTriageAmendmentPath.TryGetProperty("get", out _));
+        Assert.False(preTriageAmendmentPath.TryGetProperty("put", out _));
+        Assert.False(preTriageAmendmentPath.TryGetProperty("patch", out _));
+        Assert.False(preTriageAmendmentPath.TryGetProperty("delete", out _));
         var careRelationshipPath = paths.GetProperty("/api/v1/care-relationships");
         var careRelationshipListOperation = careRelationshipPath.GetProperty("get");
         Assert.True(careRelationshipPath.TryGetProperty("post", out _));
@@ -136,6 +150,14 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             "200",
             "401",
             "404",
+            "500");
+        AssertResponseCodes(
+            preTriageAmendmentOperation,
+            "201",
+            "401",
+            "404",
+            "409",
+            "422",
             "500");
         AssertResponseCodes(
             managedPatientPatchOperation,
@@ -222,6 +244,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
                      managedPatientPatchOperation,
                      clinicalHistoryOperation,
                      clinicalHistoryDetailOperation,
+                     preTriageAmendmentOperation,
                      careRelationshipListOperation,
                      careRelationshipDeleteOperation,
                      preTriageClaimOperation
@@ -278,6 +301,12 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.Equal(
             ["type", "beeexyId"],
             schemas.GetProperty("ClinicalHistoryAmendmentAuthorResponse")
+                .GetProperty("properties")
+                .EnumerateObject()
+                .Select(property => property.Name));
+        Assert.Equal(
+            ["idempotencyKey", "reason"],
+            schemas.GetProperty("AmendPreTriageEpisodeRequest")
                 .GetProperty("properties")
                 .EnumerateObject()
                 .Select(property => property.Name));
