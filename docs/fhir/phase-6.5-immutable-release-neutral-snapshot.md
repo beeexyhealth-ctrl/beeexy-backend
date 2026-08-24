@@ -57,7 +57,7 @@ The following remain explicitly unresolved and are not inferred:
 - Beeexy answer schema/JSON translation to FHIR `answer.value[x]`;
 - authoritative RiskAssessment prediction outcome, probability, and mitigation.
 
-No FHIR SDK, official serializer, validator, validation transition, download/API endpoint, public URL, external server transmission, amendment mapping, or additional FHIR resource is introduced. Phase 6.6 has not started.
+No FHIR SDK, official serializer, validator, validation transition, download/API endpoint, public URL, external server transmission, amendment mapping, or additional FHIR resource was introduced by Phase 6.5. The subsequent Phase 6.6 pipeline recognizes this artifact as standards-validation blocked and preserves it in `Generated`; see `phase-6.6-validation-pipeline.md`.
 
 ## Persistence and verification
 

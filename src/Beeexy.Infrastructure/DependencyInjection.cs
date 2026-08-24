@@ -108,6 +108,13 @@ public static class DependencyInjection
         services.AddSingleton<FhirArtifactChecksumCalculator>();
         services.AddScoped<IFhirExportGenerationTransaction, FhirExportGenerationTransaction>();
         services.AddScoped<GenerateFhirExport>();
+        services.AddSingleton<IFhirValidationPrerequisiteEvaluator,
+            CurrentFhirValidationPrerequisiteEvaluator>();
+        services.AddSingleton<FhirValidationDiagnosticSanitizer>();
+        services.AddSingleton<IFhirValidator, UnavailableFhirValidator>();
+        services.AddScoped<IFhirExportValidationTransaction,
+            FhirExportValidationTransaction>();
+        services.AddScoped<ValidateFhirExport>();
         services.AddSingleton<IFhirArtifactStore>(_ => new FileSystemFhirArtifactStore(
             privateFhirArtifactRoot ??
             Path.Combine(AppContext.BaseDirectory, "private-fhir-artifacts")));
