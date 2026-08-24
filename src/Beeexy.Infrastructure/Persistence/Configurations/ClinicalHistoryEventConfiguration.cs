@@ -39,6 +39,13 @@ internal sealed class ClinicalHistoryEventConfiguration
         })
             .HasName("ak_clinical_history_events_source_provenance");
 
+        builder.HasAlternateKey(historyEvent => new
+        {
+            historyEvent.Id,
+            historyEvent.PatientProfileId
+        })
+            .HasName("ak_clinical_history_events_id_patient_profile");
+
         builder.Property(historyEvent => historyEvent.Id)
             .HasColumnName("id")
             .HasConversion(id => id.Value, value => EntityId.From(value))
