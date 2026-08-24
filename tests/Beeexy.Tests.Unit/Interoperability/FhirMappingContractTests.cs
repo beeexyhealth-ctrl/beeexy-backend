@@ -59,6 +59,9 @@ public sealed class FhirMappingContractTests
         Assert.Equal(
             graph.Package.Questionnaire.Version.Value,
             input.QuestionnaireVersion);
+        Assert.Equal(
+            graph.Package.Questionnaire.ContentHash.Value,
+            input.QuestionnaireContentHash);
         Assert.Equal(graph.Episode.CompletedAt, input.AuthoredAt);
         Assert.Equal(4, input.Answers.Count);
         Assert.Equal(
@@ -69,6 +72,7 @@ public sealed class FhirMappingContractTests
         Assert.All(input.Answers, answer =>
         {
             Assert.False(string.IsNullOrWhiteSpace(answer.AnswerJson));
+            Assert.False(string.IsNullOrWhiteSpace(answer.AnswerSchemaJson));
             Assert.False(string.IsNullOrWhiteSpace(answer.PromptText));
         });
         var symptom = Assert.Single(input.Symptoms);

@@ -14,7 +14,7 @@ Andrea establishes a completed `QuestionnaireResponse` with its own identity, a 
 
 The current mapping input preserves the patient-owned `PreTriageEpisode`, Clinical History source event, frozen questionnaire UUID/code/version, completion time, exact question UUID/code/text/order, exact answer JSON/time, and reported symptom terminology without translating any value.
 
-Unresolved: the FHIR release and profiles; Patient and Questionnaire resource identities; how the frozen questionnaire version is represented in the Questionnaire reference; the `linkId` rule; and the exact translation from each Beeexy answer schema/JSON value to a FHIR answer choice. The example's `qr-456`, `Patient/patient-789`, `Questionnaire/beeexy-triage`, link IDs, and vertigo code are not hardcoded.
+Unresolved: the FHIR release and profiles; the QuestionnaireResponse's own resource identity; Patient and Questionnaire resource identities; how the frozen questionnaire version is represented in the Questionnaire reference; the `linkId` rule; and the exact translation from each Beeexy answer schema/JSON value to a FHIR answer choice. The example's `qr-456`, `Patient/patient-789`, `Questionnaire/beeexy-triage`, link IDs, and vertigo code are not hardcoded.
 
 ## RiskAssessment
 

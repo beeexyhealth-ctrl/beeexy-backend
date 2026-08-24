@@ -4,6 +4,7 @@ public enum FhirUnresolvedMappingRequirement
 {
     FhirRelease,
     CanonicalProfilesAndVersions,
+    QuestionnaireResponseResourceIdentity,
     PatientResourceIdentity,
     QuestionnaireResourceIdentityAndVersionEncoding,
     QuestionnaireItemLinkIdStrategy,
@@ -58,6 +59,7 @@ public static class AndreaFhirMappingInventory
             [
                 FhirUnresolvedMappingRequirement.FhirRelease,
                 FhirUnresolvedMappingRequirement.CanonicalProfilesAndVersions,
+                FhirUnresolvedMappingRequirement.QuestionnaireResponseResourceIdentity,
                 FhirUnresolvedMappingRequirement.PatientResourceIdentity,
                 FhirUnresolvedMappingRequirement.QuestionnaireResourceIdentityAndVersionEncoding,
                 FhirUnresolvedMappingRequirement.QuestionnaireItemLinkIdStrategy,

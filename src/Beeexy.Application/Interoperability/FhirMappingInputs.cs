@@ -10,6 +10,7 @@ public sealed record QuestionnaireResponseAnswerInput(
     string QuestionCode,
     string PromptText,
     int DisplayOrder,
+    string? AnswerSchemaJson,
     string AnswerJson,
     DateTimeOffset RecordedAt);
 
@@ -31,6 +32,7 @@ public sealed class QuestionnaireResponseMappingInput
         EntityId questionnaireVersionId,
         string questionnaireCode,
         string questionnaireVersion,
+        string questionnaireContentHash,
         DateTimeOffset authoredAt,
         IReadOnlyList<QuestionnaireResponseAnswerInput> answers,
         IReadOnlyList<QuestionnaireResponseSymptomInput> symptoms)
@@ -41,6 +43,7 @@ public sealed class QuestionnaireResponseMappingInput
         QuestionnaireVersionId = questionnaireVersionId;
         QuestionnaireCode = questionnaireCode;
         QuestionnaireVersion = questionnaireVersion;
+        QuestionnaireContentHash = questionnaireContentHash;
         AuthoredAt = authoredAt;
         Answers = answers;
         Symptoms = symptoms;
@@ -57,6 +60,8 @@ public sealed class QuestionnaireResponseMappingInput
     public string QuestionnaireCode { get; }
 
     public string QuestionnaireVersion { get; }
+
+    public string QuestionnaireContentHash { get; }
 
     public DateTimeOffset AuthoredAt { get; }
 
@@ -107,6 +112,7 @@ public sealed class QuestionnaireResponseMappingInput
                 question.Code.Value,
                 question.PromptText,
                 question.DisplayOrder,
+                question.AnswerSchemaJson,
                 answer.AnswerJson,
                 answer.RecordedAt));
         }
@@ -139,6 +145,7 @@ public sealed class QuestionnaireResponseMappingInput
             questionnaire.Id,
             questionnaire.QuestionnaireCode.Value,
             questionnaire.Version.Value,
+            questionnaire.ContentHash.Value,
             episode.CompletedAt,
             answers.AsReadOnly(),
             symptoms);
