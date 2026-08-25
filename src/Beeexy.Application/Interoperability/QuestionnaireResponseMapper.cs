@@ -81,7 +81,9 @@ public sealed class QuestionnaireResponseRepresentation
 
     public IReadOnlyList<FhirUnresolvedMappingRequirement> UnresolvedRequirements { get; }
 
-    public bool CanSerializeAsFhir => false;
+    public bool CanSerializeAsFhir =>
+        FhirR4BaseMvp.Matches(MappingSpecification) &&
+        UnresolvedRequirements.Count == 0;
 }
 
 public sealed class QuestionnaireResponseMapper :
@@ -128,7 +130,7 @@ public sealed class QuestionnaireResponseMapper :
             ResolveUnresolvedRequirements(_mappingSpecification));
     }
 
-    private static QuestionnaireResponseItemRepresentation MapItem(
+    private QuestionnaireResponseItemRepresentation MapItem(
         QuestionnaireResponseAnswerInput source)
     {
         if (string.IsNullOrWhiteSpace(source.AnswerSchemaJson))
@@ -180,7 +182,9 @@ public sealed class QuestionnaireResponseMapper :
             source.QuestionCode,
             source.PromptText,
             source.DisplayOrder,
-            LinkId: null,
+            LinkId: FhirR4BaseMvp.Matches(_mappingSpecification)
+                ? source.QuestionCode
+                : null,
             new QuestionnaireResponseAnswerRepresentation(
                 source.AnswerId,
                 source.AnswerSchemaJson,
@@ -193,6 +197,11 @@ public sealed class QuestionnaireResponseMapper :
         ResolveUnresolvedRequirements(
             FhirMappingSpecificationIdentity mappingSpecification)
     {
+        if (FhirR4BaseMvp.Matches(mappingSpecification))
+        {
+            return [];
+        }
+
         var unresolved = FhirRepresentationRequirements.From(mappingSpecification);
 
         unresolved.AddRange(

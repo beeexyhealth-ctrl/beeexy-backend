@@ -15,7 +15,8 @@ public static class FhirSnapshotArtifactFormat
 
 public enum FhirSnapshotCompleteness
 {
-    IncompleteRequiredResourceBlocked = 1
+    IncompleteRequiredResourceBlocked = 1,
+    CompleteR4MvpRiskAssessmentDeferred = 2
 }
 
 public sealed class FhirSnapshot
@@ -67,11 +68,15 @@ public sealed class FhirSnapshot
     public IReadOnlyList<FhirUnresolvedMappingRequirement> UnresolvedRequirements { get; }
 
     public FhirSnapshotCompleteness Completeness =>
-        FhirSnapshotCompleteness.IncompleteRequiredResourceBlocked;
+        FhirR4BaseMvp.Matches(MappingSpecification) &&
+        UnresolvedRequirements.Count == 0
+            ? FhirSnapshotCompleteness.CompleteR4MvpRiskAssessmentDeferred
+            : FhirSnapshotCompleteness.IncompleteRequiredResourceBlocked;
 
     public bool IsOfficialFhirJson => false;
 
-    public bool IsCompleteFhirExport => false;
+    public bool IsCompleteFhirExport =>
+        Completeness == FhirSnapshotCompleteness.CompleteR4MvpRiskAssessmentDeferred;
 
-    public bool CanBeFhirValidated => false;
+    public bool CanBeFhirValidated => IsCompleteFhirExport;
 }

@@ -81,8 +81,25 @@ public sealed class GenerateFhirExport(
     IFhirExportGenerationTransaction transaction,
     IFhirArtifactStore artifactStore,
     FhirSnapshotSerializer serializer,
+    IFhirR4BundleSerializer r4Serializer,
     FhirArtifactChecksumCalculator checksumCalculator)
 {
+    public GenerateFhirExport(
+        IClock clock,
+        IFhirExportGenerationTransaction transaction,
+        IFhirArtifactStore artifactStore,
+        FhirSnapshotSerializer serializer,
+        FhirArtifactChecksumCalculator checksumCalculator)
+        : this(
+            clock,
+            transaction,
+            artifactStore,
+            serializer,
+            new UnsupportedR4BundleSerializer(),
+            checksumCalculator)
+    {
+    }
+
     public async Task<GenerateFhirExportResult> ExecuteAsync(
         GenerateFhirExportCommand command,
         CancellationToken cancellationToken = default)
@@ -113,11 +130,14 @@ public sealed class GenerateFhirExport(
                 return Result(existing, newlyGenerated: false);
             }
 
+            var isR4BaseMvp = FhirR4BaseMvp.Matches(command.MappingSpecification);
             var export = FhirExport.CreatePending(
                 source.HistoryEvent,
-                FhirExportVersionMetadata.Create(
-                    FhirSnapshotArtifactFormat.UnresolvedFhirReleaseMarker,
-                    command.MappingSpecification.MappingVersion),
+                isR4BaseMvp
+                    ? command.MappingSpecification.ToExportVersionMetadata()
+                    : FhirExportVersionMetadata.Create(
+                        FhirSnapshotArtifactFormat.UnresolvedFhirReleaseMarker,
+                        command.MappingSpecification.MappingVersion),
                 command.IdempotencyKey,
                 generatedAt);
             transaction.Add(export);
@@ -135,12 +155,20 @@ public sealed class GenerateFhirExport(
                         source.Episode,
                         source.Assessment),
                     DeviceMappingInput.Create(command.SoftwareRuntimeVersion),
-                    ProvenanceMappingInput.Create(
-                        source.HistoryEvent,
-                        source.Episode,
-                        source.Assessment,
-                        trace)));
-            var artifactBytes = serializer.Serialize(snapshot);
+                    isR4BaseMvp
+                        ? ProvenanceMappingInput.CreateForQuestionnaireResponseTarget(
+                            source.HistoryEvent,
+                            source.Episode,
+                            source.Assessment,
+                            trace)
+                        : ProvenanceMappingInput.Create(
+                            source.HistoryEvent,
+                            source.Episode,
+                            source.Assessment,
+                            trace)));
+            var artifactBytes = isR4BaseMvp
+                ? r4Serializer.Serialize(snapshot)
+                : serializer.Serialize(snapshot);
             var checksum = checksumCalculator.Calculate(artifactBytes);
             var artifactReference = FhirArtifactStorageReference.CreateNew();
             await artifactStore.StoreImmutableAsync(
@@ -187,11 +215,23 @@ public sealed class GenerateFhirExport(
 
     private static GenerateFhirExportResult Result(
         FhirExport export,
-        bool newlyGenerated) => new(
+        bool newlyGenerated)
+    {
+        var isR4BaseMvp = string.Equals(
+                export.FhirVersion,
+                FhirR4BaseMvp.FhirRelease,
+                StringComparison.Ordinal) &&
+            string.Equals(
+                export.MappingVersion,
+                FhirR4BaseMvp.MappingVersion,
+                StringComparison.Ordinal) &&
+            export.ProfileCanonical is null && export.ProfileVersion is null;
+        return new GenerateFhirExportResult(
             export,
             newlyGenerated,
-            FhirSnapshotArtifactFormat.ArtifactKind,
-            FhirSnapshotArtifactFormat.MediaType);
+            isR4BaseMvp ? FhirR4BaseMvp.ArtifactKind : FhirSnapshotArtifactFormat.ArtifactKind,
+            isR4BaseMvp ? FhirR4BaseMvp.MediaType : FhirSnapshotArtifactFormat.MediaType);
+    }
 
     private static void Validate(GenerateFhirExportCommand command)
     {
@@ -208,6 +248,10 @@ public sealed class GenerateFhirExport(
         FhirExport existing,
         GenerateFhirExportCommand command)
     {
+        var isR4BaseMvp = FhirR4BaseMvp.Matches(command.MappingSpecification);
+        var expectedFhirVersion = isR4BaseMvp
+            ? FhirR4BaseMvp.FhirRelease
+            : FhirSnapshotArtifactFormat.UnresolvedFhirReleaseMarker;
         if (existing.SourceClinicalHistoryEventId !=
                 command.SourceClinicalHistoryEventId ||
             !string.Equals(
@@ -216,7 +260,7 @@ public sealed class GenerateFhirExport(
                 StringComparison.Ordinal) ||
             !string.Equals(
                 existing.FhirVersion,
-                FhirSnapshotArtifactFormat.UnresolvedFhirReleaseMarker,
+                expectedFhirVersion,
                 StringComparison.Ordinal) ||
             existing.ProfileCanonical is not null ||
             existing.ProfileVersion is not null)
@@ -259,4 +303,11 @@ public sealed class GenerateFhirExport(
 
     private static DateTimeOffset ToPostgreSqlPrecision(DateTimeOffset value) =>
         new(value.UtcTicks - (value.UtcTicks % 10), TimeSpan.Zero);
+
+    private sealed class UnsupportedR4BundleSerializer : IFhirR4BundleSerializer
+    {
+        public byte[] Serialize(FhirSnapshot snapshot) =>
+            throw new InvalidOperationException(
+                "An R4 bundle serializer is required for the concrete R4 mapping.");
+    }
 }

@@ -58,7 +58,9 @@ public sealed class FhirSnapshotAssembler
             provenance);
 
         var unresolved = questionnaireResponse.UnresolvedRequirements
-            .Concat(riskAssessmentBoundary.UnresolvedRequirements)
+            .Concat(FhirR4BaseMvp.Matches(_mappingSpecification)
+                ? []
+                : riskAssessmentBoundary.UnresolvedRequirements)
             .Concat(device.UnresolvedRequirements)
             .Concat(provenance.UnresolvedRequirements)
             .Distinct()
@@ -94,7 +96,9 @@ public sealed class FhirSnapshotAssembler
             questionnaireResponse.SourceEpisodeId != provenance.SourceEpisodeId ||
             riskAssessment.SourceAssessmentId != provenance.SourceAssessmentId ||
             provenance.InternalTargetIdentity.Resource !=
-                FhirConceptualResource.RiskAssessment ||
+                (FhirR4BaseMvp.Matches(provenance.MappingSpecification)
+                    ? FhirConceptualResource.QuestionnaireResponse
+                    : FhirConceptualResource.RiskAssessment) ||
             provenance.InternalAgentIdentity.Resource != FhirConceptualResource.Device ||
             provenance.InternalSourceEntityIdentity.Resource !=
                 FhirConceptualResource.QuestionnaireResponse)

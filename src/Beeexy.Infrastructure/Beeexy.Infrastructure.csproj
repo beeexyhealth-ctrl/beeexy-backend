@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <PackageReference Include="Google.Apis.Auth" Version="1.75.0" />
+    <PackageReference Include="Hl7.Fhir.R4" Version="6.4.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.30" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.30" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />

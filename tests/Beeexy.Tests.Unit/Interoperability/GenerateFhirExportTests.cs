@@ -1,11 +1,44 @@
 using Beeexy.Application.Interoperability;
 using Beeexy.Domain.Common;
 using Beeexy.Domain.Interoperability;
+using Beeexy.Infrastructure.Interoperability;
 
 namespace Beeexy.Tests.Unit.Interoperability;
 
 public sealed class GenerateFhirExportTests
 {
+    [Fact]
+    public async Task Execute_R4MvpStoresOfficialBytesWithFrozenSpecification()
+    {
+        var graph = FhirSnapshotTestData.CreateGraph();
+        var transaction = new FakeTransaction(Source(graph));
+        var store = new FakeStore();
+        var generator = new GenerateFhirExport(
+            new FixedClock(FhirSnapshotTestData.Utc(18)),
+            transaction,
+            store,
+            new FhirSnapshotSerializer(),
+            new FirelyFhirR4BundleSerializer(),
+            new FhirArtifactChecksumCalculator());
+        var command = Command(graph) with
+        {
+            MappingSpecification = FhirR4BaseMvp.MappingSpecification()
+        };
+
+        var result = await generator.ExecuteAsync(command);
+
+        Assert.Equal(FhirR4BaseMvp.FhirRelease, result.Export.FhirVersion);
+        Assert.Equal(FhirR4BaseMvp.MappingVersion, result.Export.MappingVersion);
+        Assert.Null(result.Export.ProfileCanonical);
+        Assert.Equal(FhirR4BaseMvp.ArtifactKind, result.ArtifactKind);
+        Assert.Equal(FhirR4BaseMvp.MediaType, result.ArtifactMediaType);
+        Assert.Equal(
+            new FhirArtifactChecksumCalculator().Calculate(store.StoredBytes!),
+            result.Export.Checksum);
+        Assert.Contains("\"resourceType\":\"Bundle\"",
+            System.Text.Encoding.UTF8.GetString(store.StoredBytes!));
+    }
+
     [Fact]
     public async Task Execute_StoresExactBytesThenPersistsGeneratedMetadata()
     {

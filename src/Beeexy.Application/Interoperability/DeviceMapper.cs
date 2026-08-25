@@ -42,7 +42,9 @@ public sealed class DeviceRepresentation
 
     public IReadOnlyList<FhirUnresolvedMappingRequirement> UnresolvedRequirements { get; }
 
-    public bool CanSerializeAsFhir => false;
+    public bool CanSerializeAsFhir =>
+        FhirR4BaseMvp.Matches(MappingSpecification) &&
+        UnresolvedRequirements.Count == 0;
 }
 
 public sealed class DeviceMapper :
@@ -59,6 +61,11 @@ public sealed class DeviceMapper :
     public DeviceRepresentation Map(DeviceMappingInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
+        if (FhirR4BaseMvp.Matches(_mappingSpecification))
+        {
+            return new DeviceRepresentation(input, _mappingSpecification, []);
+        }
+
         var unresolved = FhirRepresentationRequirements.From(_mappingSpecification);
         unresolved.Add(
             FhirUnresolvedMappingRequirement.ResourceIdentityAndReferenceStrategy);

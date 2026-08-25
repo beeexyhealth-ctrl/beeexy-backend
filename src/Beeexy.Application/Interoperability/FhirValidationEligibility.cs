@@ -187,6 +187,12 @@ public sealed class CurrentFhirValidationPrerequisiteEvaluator
             return CurrentSnapshotBlocked;
         }
 
+        var r4Base = FhirR4BaseMvp.ValidationSpecification();
+        if (r4Base.Matches(export))
+        {
+            return FhirValidationEligibility.Eligible(r4Base);
+        }
+
         return FhirValidationEligibility.Blocked(
             [FhirValidationBlocker.NoApprovedValidationSpecification]);
     }

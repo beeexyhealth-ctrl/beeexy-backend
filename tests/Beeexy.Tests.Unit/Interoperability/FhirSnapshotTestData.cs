@@ -22,7 +22,7 @@ internal static class FhirSnapshotTestData
                     QuestionCode.Create("SYMPTOM_TEXT"),
                     "Describe the symptom",
                     1,
-                    "{\"type\":\"string\"}",
+                    "{\"answer\":{\"type\":\"FREE_TEXT\"},\"priority\":\"ORDINARY\"}",
                     Id: EntityId.New())
             ]);
         var patientId = EntityId.New();
@@ -50,6 +50,43 @@ internal static class FhirSnapshotTestData
             episode,
             assessment,
             historyEvent);
+    }
+
+    public static TestGraph CreateTypedGraph(params TypedAnswer[] values)
+    {
+        var questionnaire = QuestionnaireDefinitionVersion.ImportApproved(
+            QuestionnaireCode.Create("phase-6.6-typed-questionnaire"),
+            DefinitionVersion.Create("typed-v1"),
+            DefinitionHash.FromHash(new string('b', 64)),
+            Utc(10),
+            Utc(11),
+            id: EntityId.New(),
+            questions: values.Select((value, index) => new TriageQuestionInput(
+                QuestionCode.Create(value.Code),
+                $"Prompt for {value.Code}",
+                index + 1,
+                value.SchemaJson,
+                Id: EntityId.New())).ToArray());
+        var patientId = EntityId.New();
+        var session = PreTriageSession.CreateForPatient(
+            patientId,
+            questionnaire.Id,
+            Utc(20),
+            Utc(12));
+        foreach (var value in values.Select((answer, index) => (answer, index)))
+        {
+            session.RecordAnswer(
+                questionnaire.Questions.Single(question =>
+                    question.Code == QuestionCode.Create(value.answer.Code)),
+                value.answer.AnswerJson,
+                value.index + 1,
+                Utc(13));
+        }
+
+        var episode = PreTriageEpisode.CreateFrom(session, EntityId.New(), Utc(14));
+        var assessment = ClinicalAssessment.CreateNeutral(episode, Utc(15));
+        var historyEvent = ClinicalHistoryEvent.CreateCompletedPreTriage(episode, Utc(16));
+        return new TestGraph(patientId, questionnaire, episode, assessment, historyEvent);
     }
 
     public static FhirSnapshot CreateSnapshot(TestGraph? graph = null)
@@ -82,6 +119,35 @@ internal static class FhirSnapshotTestData
                     trace)));
     }
 
+    public static FhirSnapshot CreateR4Snapshot(TestGraph? graph = null)
+    {
+        graph ??= CreateGraph();
+        var exportId = EntityId.From(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+        var trace = FhirGenerationTrace.Create(
+            exportId,
+            Identity(FhirConceptualResource.QuestionnaireResponse, exportId),
+            Identity(FhirConceptualResource.RiskAssessment, exportId),
+            Identity(FhirConceptualResource.Device, exportId),
+            Identity(FhirConceptualResource.Provenance, exportId),
+            Utc(18));
+        return new FhirSnapshotAssembler(FhirR4BaseMvp.MappingSpecification()).Assemble(
+            new FhirSnapshotAssemblyInput(
+                QuestionnaireResponseMappingInput.Create(
+                    graph.HistoryEvent,
+                    graph.Episode,
+                    graph.Questionnaire),
+                RiskAssessmentMappingInput.Create(
+                    graph.HistoryEvent,
+                    graph.Episode,
+                    graph.Assessment),
+                DeviceMappingInput.Create("6.6-test-runtime"),
+                ProvenanceMappingInput.CreateForQuestionnaireResponseTarget(
+                    graph.HistoryEvent,
+                    graph.Episode,
+                    graph.Assessment,
+                    trace)));
+    }
+
     public static FhirMappingSpecificationIdentity Specification() =>
         FhirMappingSpecificationIdentity.Create("phase-6.5-test");
 
@@ -100,4 +166,9 @@ internal static class FhirSnapshotTestData
         PreTriageEpisode Episode,
         ClinicalAssessment Assessment,
         ClinicalHistoryEvent HistoryEvent);
+
+    internal sealed record TypedAnswer(
+        string Code,
+        string SchemaJson,
+        string AnswerJson);
 }

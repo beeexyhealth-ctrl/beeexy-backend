@@ -31,4 +31,9 @@
     <ProjectReference Include="..\..\src\Beeexy.Api\Beeexy.Api.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="Fixtures\beeexy-r4-base-mvp-reference.json"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

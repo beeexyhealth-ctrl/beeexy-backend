@@ -105,13 +105,14 @@ public static class DependencyInjection
         services.AddSingleton<IPreTriageCleanupTelemetry, PreTriageCleanupTelemetry>();
         services.AddHostedService<PreTriageCleanupWorker>();
         services.AddSingleton<FhirSnapshotSerializer>();
+        services.AddSingleton<IFhirR4BundleSerializer, FirelyFhirR4BundleSerializer>();
         services.AddSingleton<FhirArtifactChecksumCalculator>();
         services.AddScoped<IFhirExportGenerationTransaction, FhirExportGenerationTransaction>();
         services.AddScoped<GenerateFhirExport>();
         services.AddSingleton<IFhirValidationPrerequisiteEvaluator,
             CurrentFhirValidationPrerequisiteEvaluator>();
         services.AddSingleton<FhirValidationDiagnosticSanitizer>();
-        services.AddSingleton<IFhirValidator, UnavailableFhirValidator>();
+        services.AddSingleton<IFhirValidator, FirelyFhirR4Validator>();
         services.AddScoped<IFhirExportValidationTransaction,
             FhirExportValidationTransaction>();
         services.AddScoped<ValidateFhirExport>();

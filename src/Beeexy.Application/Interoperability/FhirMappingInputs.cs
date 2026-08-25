@@ -259,13 +259,15 @@ public sealed class ProvenanceMappingInput
         EntityId sourceClinicalHistoryEventId,
         EntityId sourceEpisodeId,
         EntityId sourceAssessmentId,
-        FhirGenerationTrace generationTrace)
+        FhirGenerationTrace generationTrace,
+        FhirLogicalResourceIdentity target)
     {
         PatientProfileId = patientProfileId;
         SourceClinicalHistoryEventId = sourceClinicalHistoryEventId;
         SourceEpisodeId = sourceEpisodeId;
         SourceAssessmentId = sourceAssessmentId;
         GenerationTrace = generationTrace;
+        Target = target;
     }
 
     public EntityId PatientProfileId { get; }
@@ -278,7 +280,7 @@ public sealed class ProvenanceMappingInput
 
     public FhirGenerationTrace GenerationTrace { get; }
 
-    public FhirLogicalResourceIdentity Target => GenerationTrace.RiskAssessment;
+    public FhirLogicalResourceIdentity Target { get; }
 
     public FhirLogicalResourceIdentity Agent => GenerationTrace.Device;
 
@@ -306,7 +308,33 @@ public sealed class ProvenanceMappingInput
             sourceEvent.Id,
             episode.Id,
             assessment.Id,
-            generationTrace);
+            generationTrace,
+            generationTrace.RiskAssessment);
+    }
+
+    public static ProvenanceMappingInput CreateForQuestionnaireResponseTarget(
+        ClinicalHistoryEvent sourceEvent,
+        PreTriageEpisode episode,
+        ClinicalAssessment assessment,
+        FhirGenerationTrace generationTrace)
+    {
+        ArgumentNullException.ThrowIfNull(assessment);
+        ArgumentNullException.ThrowIfNull(generationTrace);
+        FhirMappingInputGuard.EnsureSourceGraph(sourceEvent, episode);
+        FhirMappingInputGuard.EnsureAssessment(episode, assessment);
+        if (generationTrace.RecordedAt < assessment.CreatedAt)
+        {
+            throw new FhirMappingInputException(
+                "FHIR generation provenance cannot precede its source assessment.");
+        }
+
+        return new ProvenanceMappingInput(
+            sourceEvent.PatientProfileId,
+            sourceEvent.Id,
+            episode.Id,
+            assessment.Id,
+            generationTrace,
+            generationTrace.QuestionnaireResponse);
     }
 }
 

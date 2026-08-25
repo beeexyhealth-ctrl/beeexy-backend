@@ -77,7 +77,9 @@ public sealed class ProvenanceRepresentation
 
     public IReadOnlyList<FhirUnresolvedMappingRequirement> UnresolvedRequirements { get; }
 
-    public bool CanSerializeAsFhir => false;
+    public bool CanSerializeAsFhir =>
+        FhirR4BaseMvp.Matches(MappingSpecification) &&
+        UnresolvedRequirements.Count == 0;
 }
 
 public sealed class ProvenanceMapper :
@@ -95,6 +97,11 @@ public sealed class ProvenanceMapper :
     public ProvenanceRepresentation Map(ProvenanceMappingInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
+        if (FhirR4BaseMvp.Matches(_mappingSpecification))
+        {
+            return new ProvenanceRepresentation(input, _mappingSpecification, []);
+        }
+
         var unresolved = FhirRepresentationRequirements.From(_mappingSpecification);
         unresolved.Add(
             FhirUnresolvedMappingRequirement.ResourceIdentityAndReferenceStrategy);
