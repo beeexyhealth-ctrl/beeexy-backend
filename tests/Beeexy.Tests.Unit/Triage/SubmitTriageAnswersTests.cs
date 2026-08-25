@@ -28,6 +28,11 @@ public sealed class SubmitTriageAnswersTests
 
         Assert.Equal(TriageIntakeSubmissionOutcome.Accepted, result.Outcome);
         Assert.Equal(["DURATION"], result.AcceptedAnswerCodes.Select(value => value.Value));
+        var accepted = Assert.Single(result.AcceptedValues);
+        Assert.Equal("DURATION", accepted.Code.Value);
+        Assert.Equal(
+            new ClinicalAiDurationValue(2, ClinicalDurationUnit.Days),
+            accepted.Value);
         Assert.Equal("INTENSITY", result.Progression.NextQuestion!.Code.Value);
         Assert.Equal(["INTENSITY", "ADDITIONAL_SYMPTOMS"],
             result.Progression.MissingRequiredFields.Select(value => value.Value));
@@ -45,6 +50,9 @@ public sealed class SubmitTriageAnswersTests
             fixture.Session.Id, intensity: intensity));
 
         Assert.Equal(["INTENSITY"], result.AcceptedAnswerCodes.Select(value => value.Value));
+        Assert.Equal(
+            new ClinicalAiIntegerValue(intensity),
+            Assert.Single(result.AcceptedValues).Value);
         Assert.Single(fixture.Session.Answers);
     }
 
@@ -91,9 +99,13 @@ public sealed class SubmitTriageAnswersTests
     {
         var fixture = CreateFixture(pathway);
 
-        await fixture.UseCase.ExecuteAsync(StructuredCommand(
+        var result = await fixture.UseCase.ExecuteAsync(StructuredCommand(
             fixture.Session.Id, additional: [symptom]));
 
+        Assert.Equal(
+            [symptom],
+            Assert.IsType<ClinicalAiMultipleChoiceValue>(
+                Assert.Single(result.AcceptedValues).Value).Values);
         Assert.Single(fixture.Session.Answers);
         Assert.Contains(symptom, fixture.Session.Answers.Single().AnswerJson,
             StringComparison.Ordinal);
@@ -146,6 +158,15 @@ public sealed class SubmitTriageAnswersTests
         Assert.Null(result.Progression.NextQuestion);
         Assert.Equal(PreTriageSessionStatus.Active, fixture.Session.Status);
         Assert.Equal(3, fixture.Session.Answers.Count);
+        Assert.Collection(
+            result.AcceptedValues,
+            value => Assert.Equal(
+                new ClinicalAiDurationValue(1, ClinicalDurationUnit.Hours),
+                value.Value),
+            value => Assert.Equal(new ClinicalAiIntegerValue(6), value.Value),
+            value => Assert.Equal(
+                ["NAUSEA", "FEVER"],
+                Assert.IsType<ClinicalAiMultipleChoiceValue>(value.Value).Values));
     }
 
     [Fact]
@@ -185,19 +206,28 @@ public sealed class SubmitTriageAnswersTests
     {
         var output = Output(
         [
-            Fact("DURATION", new ClinicalAiDurationValue(2, ClinicalDurationUnit.Days)),
-            Fact("INTENSITY", new ClinicalAiIntegerValue(7)),
+            Fact("DURATION", new ClinicalAiDurationValue(1, ClinicalDurationUnit.Months)),
+            Fact("INTENSITY", new ClinicalAiIntegerValue(3)),
             Fact("ADDITIONAL_SYMPTOMS", new ClinicalAiMultipleChoiceValue(["NAUSEA"]))
         ]);
         var fixture = CreateFixture("ABDOMINAL_PAIN", output);
 
         var result = await fixture.UseCase.ExecuteAsync(NaturalCommand(
             fixture.Session.Id,
-            "I've had a stomachache for two days, seven out of ten, with nausea."));
+            "I've had this stomachache since one month ago, three out of ten, with nausea."));
 
         Assert.Equal(TriageIntakeSubmissionOutcome.Accepted, result.Outcome);
         Assert.True(result.Progression.ReadyToComplete);
         Assert.Equal(3, fixture.Session.Answers.Count);
+        Assert.Collection(
+            result.AcceptedValues,
+            value => Assert.Equal(
+                new ClinicalAiDurationValue(1, ClinicalDurationUnit.Months),
+                value.Value),
+            value => Assert.Equal(new ClinicalAiIntegerValue(3), value.Value),
+            value => Assert.Equal(
+                ["NAUSEA"],
+                Assert.IsType<ClinicalAiMultipleChoiceValue>(value.Value).Values));
     }
 
     [Theory]
@@ -221,6 +251,17 @@ public sealed class SubmitTriageAnswersTests
 
         Assert.Equal(TriageIntakeSubmissionOutcome.Accepted, result.Outcome);
         Assert.Equal([code], result.AcceptedAnswerCodes.Select(item => item.Value));
+        var acceptedValue = Assert.Single(result.AcceptedValues).Value;
+        if (value is ClinicalAiMultipleChoiceValue expectedMultiple)
+        {
+            Assert.Equal(
+                expectedMultiple.Values,
+                Assert.IsType<ClinicalAiMultipleChoiceValue>(acceptedValue).Values);
+        }
+        else
+        {
+            Assert.Equal(value, acceptedValue);
+        }
         Assert.Single(fixture.Session.Answers);
     }
 
@@ -238,6 +279,7 @@ public sealed class SubmitTriageAnswersTests
             fixture.Session.Id, "It might be seven out of ten."));
 
         Assert.Equal(TriageIntakeSubmissionOutcome.ClarificationRequired, result.Outcome);
+        Assert.Empty(result.AcceptedValues);
         Assert.Empty(fixture.Session.Answers);
         Assert.Equal("DURATION", result.Progression.NextQuestion!.Code.Value);
     }
@@ -258,6 +300,7 @@ public sealed class SubmitTriageAnswersTests
             fixture.Session.Id, "I am not sure how intense it is."));
 
         Assert.Equal(TriageIntakeSubmissionOutcome.ClarificationRequired, result.Outcome);
+        Assert.Empty(result.AcceptedValues);
         Assert.Empty(fixture.Session.Answers);
     }
 
@@ -283,6 +326,7 @@ public sealed class SubmitTriageAnswersTests
             fixture.Session.Id, "Provider candidate requiring validation."));
 
         Assert.Equal(TriageIntakeSubmissionOutcome.ClarificationRequired, result.Outcome);
+        Assert.Empty(result.AcceptedValues);
         Assert.Empty(fixture.Session.Answers);
     }
 
@@ -327,6 +371,9 @@ public sealed class SubmitTriageAnswersTests
 
         Assert.Equal(TriageIntakeSubmissionOutcome.ClarificationRequired, result.Outcome);
         Assert.Equal(["DURATION"], result.AcceptedAnswerCodes.Select(item => item.Value));
+        Assert.Equal(
+            new ClinicalAiDurationValue(1, ClinicalDurationUnit.Days),
+            Assert.Single(result.AcceptedValues).Value);
         Assert.Single(fixture.Session.Answers);
         Assert.Equal("INTENSITY", result.Progression.NextQuestion!.Code.Value);
     }
@@ -451,6 +498,7 @@ public sealed class SubmitTriageAnswersTests
         foreach (var type in new[]
                  {
                      typeof(SubmitTriageAnswersResult),
+                     typeof(AcceptedTriageAnswerValue),
                      typeof(DemoQuestionnaireProgress),
                      typeof(DemoNextQuestion)
                  })

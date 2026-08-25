@@ -55,14 +55,21 @@ public sealed class PreTriageAnswerEndpointTests(
             });
         var durationResult = await duration.Content.ReadFromJsonAsync<AnswerResponse>();
         Assert.Equal(HttpStatusCode.OK, duration.StatusCode);
-        Assert.Equal("INTENSITY", durationResult!.Progression.NextQuestion!.Code);
+        Assert.Equal(new DurationResponse(1, "DAYS"),
+            durationResult!.AcceptedValues.Duration);
+        Assert.Null(durationResult.AcceptedValues.Intensity);
+        Assert.Null(durationResult.AcceptedValues.AdditionalSymptoms);
+        Assert.Equal("INTENSITY", durationResult.Progression.NextQuestion!.Code);
 
         using var intensity = await SubmitAnonymousAsync(client, session,
             new { structured = new { intensity = 6 } });
         var intensityResult = await intensity.Content.ReadFromJsonAsync<AnswerResponse>();
         Assert.Equal(HttpStatusCode.OK, intensity.StatusCode);
+        Assert.Equal(6, intensityResult!.AcceptedValues.Intensity);
+        Assert.Null(intensityResult.AcceptedValues.Duration);
+        Assert.Null(intensityResult.AcceptedValues.AdditionalSymptoms);
         Assert.Equal("ADDITIONAL_SYMPTOMS",
-            intensityResult!.Progression.NextQuestion!.Code);
+            intensityResult.Progression.NextQuestion!.Code);
         Assert.Equal(
             pathway == "FEVER"
                 ? ["NAUSEA", "DIARRHEA"]
@@ -83,6 +90,11 @@ public sealed class PreTriageAnswerEndpointTests(
 
         Assert.Equal(HttpStatusCode.OK, additional.StatusCode);
         Assert.Equal(pathway, final!.Pathway);
+        Assert.Equal(
+            pathway == "FEVER" ? ["NAUSEA", "DIARRHEA"] : ["FEVER"],
+            final.AcceptedValues.AdditionalSymptoms);
+        Assert.Null(final.AcceptedValues.Duration);
+        Assert.Null(final.AcceptedValues.Intensity);
         Assert.Equal("READY_TO_COMPLETE", final.Progression.State);
         Assert.True(final.Progression.ReadyToComplete);
         Assert.Null(final.Progression.NextQuestion);
@@ -311,14 +323,15 @@ public sealed class PreTriageAnswerEndpointTests(
     {
         using var logger = new InMemoryLoggerProvider();
         const string narrative =
-            "I've had a stomachache since yesterday, six out of ten, with nausea.";
+            "I've had this stomachache since 1 month ago. The pain is around 3 out of 10, " +
+            "with nausea.";
         var provider = new FixedAiProvider(new ClinicalAiProviderOutput(
             ClinicalAiProviderOutput.CurrentSchemaVersion,
             ClinicalIntentClassification.PreTriageInput,
             "ABDOMINAL_PAIN",
             [
-                Fact("DURATION", new ClinicalAiDurationValue(1, ClinicalDurationUnit.Days)),
-                Fact("INTENSITY", new ClinicalAiIntegerValue(6)),
+                Fact("DURATION", new ClinicalAiDurationValue(1, ClinicalDurationUnit.Months)),
+                Fact("INTENSITY", new ClinicalAiIntegerValue(3)),
                 Fact("ADDITIONAL_SYMPTOMS",
                     new ClinicalAiMultipleChoiceValue(["NAUSEA"]))
             ],
@@ -343,6 +356,12 @@ public sealed class PreTriageAnswerEndpointTests(
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("ACCEPTED", result!.Outcome);
+        Assert.Equal(
+            ["DURATION", "INTENSITY", "ADDITIONAL_SYMPTOMS"],
+            result.AcceptedAnswers);
+        Assert.Equal(new DurationResponse(1, "MONTHS"), result.AcceptedValues.Duration);
+        Assert.Equal(3, result.AcceptedValues.Intensity);
+        Assert.Equal(["NAUSEA"], result.AcceptedValues.AdditionalSymptoms);
         Assert.True(result.Progression.ReadyToComplete);
         Assert.Equal(3, await CountAnswersAsync(session.SessionId));
         Assert.Equal(1, provider.CallCount);
@@ -376,12 +395,14 @@ public sealed class PreTriageAnswerEndpointTests(
             var result = await blocked.Content.ReadFromJsonAsync<AnswerResponse>();
             Assert.Equal(HttpStatusCode.OK, blocked.StatusCode);
             Assert.Equal("SAFETY_RESTRICTED", result!.Outcome);
+            AssertAcceptedValuesEmpty(result.AcceptedValues);
         }
 
         using var outage = await SubmitAnonymousAsync(client, session,
             new { naturalLanguage = "This started two hours ago." });
         var outageResult = await outage.Content.ReadFromJsonAsync<AnswerResponse>();
         Assert.Equal("PROVIDER_UNAVAILABLE", outageResult!.Outcome);
+        AssertAcceptedValuesEmpty(outageResult.AcceptedValues);
         Assert.Equal(0, await CountAnswersAsync(session.SessionId));
 
         using var structured = await SubmitAnonymousAsync(client, session,
@@ -1838,6 +1859,13 @@ public sealed class PreTriageAnswerEndpointTests(
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", token);
 
+    private static void AssertAcceptedValuesEmpty(AcceptedValuesResponse values)
+    {
+        Assert.Null(values.Duration);
+        Assert.Null(values.Intensity);
+        Assert.Null(values.AdditionalSymptoms);
+    }
+
     private BeeexyDbContext CreateDbContext() => new(
         new DbContextOptionsBuilder<BeeexyDbContext>()
             .UseNpgsql(postgres.ConnectionString)
@@ -1904,8 +1932,14 @@ public sealed class PreTriageAnswerEndpointTests(
         string QuestionnaireVersion,
         string Outcome,
         IReadOnlyList<string> AcceptedAnswers,
+        AcceptedValuesResponse AcceptedValues,
         ProgressionResponse Progression,
         ClarificationResponse? Clarification);
+
+    private sealed record AcceptedValuesResponse(
+        DurationResponse? Duration,
+        int? Intensity,
+        IReadOnlyList<string>? AdditionalSymptoms);
 
     private sealed record ProgressionResponse(
         string State,

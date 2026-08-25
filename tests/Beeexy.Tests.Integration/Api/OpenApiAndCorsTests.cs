@@ -453,6 +453,27 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.Contains("expiry", claimDescription, StringComparison.OrdinalIgnoreCase);
 
         var neutralResult = schemas.GetProperty("NeutralPreTriageResultResponse");
+        var answerResponse = schemas.GetProperty("PreTriageAnswerResponse");
+        Assert.Equal(
+            [
+                "sessionId",
+                "pathway",
+                "questionnaireVersion",
+                "outcome",
+                "acceptedAnswers",
+                "acceptedValues",
+                "progression",
+                "clarification"
+            ],
+            answerResponse.GetProperty("properties")
+                .EnumerateObject()
+                .Select(value => value.Name));
+        Assert.Equal(
+            ["duration", "intensity", "additionalSymptoms"],
+            schemas.GetProperty("PreTriageAcceptedValuesResponse")
+                .GetProperty("properties")
+                .EnumerateObject()
+                .Select(value => value.Name));
         var neutralProperties = neutralResult.GetProperty("properties")
             .EnumerateObject()
             .Select(value => value.Name)
@@ -464,6 +485,12 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
                  })
         {
             Assert.DoesNotContain(forbidden, neutralProperties,
+                StringComparer.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                forbidden,
+                answerResponse.GetProperty("properties")
+                    .EnumerateObject()
+                    .Select(value => value.Name),
                 StringComparer.OrdinalIgnoreCase);
         }
         var claimSchema = schemas.GetProperty("ClaimAnonymousPreTriageResponse");

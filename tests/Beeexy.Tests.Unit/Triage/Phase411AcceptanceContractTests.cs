@@ -10,6 +10,21 @@ public sealed class Phase411AcceptanceContractTests
     {
         Assert.Equal(
             [
+                "AcceptedAnswers",
+                "AcceptedValues",
+                "Clarification",
+                "Outcome",
+                "Pathway",
+                "Progression",
+                "QuestionnaireVersion",
+                "SessionId"
+            ],
+            PropertyNames(typeof(PreTriageAnswerResponse)));
+        Assert.Equal(
+            ["AdditionalSymptoms", "Duration", "Intensity"],
+            PropertyNames(typeof(PreTriageAcceptedValuesResponse)));
+        Assert.Equal(
+            [
                 "AdditionalSymptoms",
                 "ClinicalContent",
                 "CompletedAt",

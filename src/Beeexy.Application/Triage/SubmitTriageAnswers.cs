@@ -79,10 +79,10 @@ public sealed class SubmitTriageAnswers(
                         "The session questionnaire changed after it was read.");
                 }
 
-                var acceptedCodes = ApplyCandidates(session, package, acceptedCandidates,
+                var acceptedAnswers = ApplyCandidates(session, package, acceptedCandidates,
                     clock.UtcNow);
                 return new IntakeMutationResult(
-                    acceptedCodes,
+                    acceptedAnswers,
                     ResolveProgression(session, package));
             },
             cancellationToken) ?? throw new PreTriageSessionNotFoundException();
@@ -90,14 +90,15 @@ public sealed class SubmitTriageAnswers(
         auditLogger.AnswersProcessed(
             command.SessionId,
             outcome,
-            mutation.AcceptedAnswerCodes.Count,
+            mutation.AcceptedAnswers.Count,
             mutation.Progression.ReadyToComplete);
         return new SubmitTriageAnswersResult(
             command.SessionId,
             package.Pathway,
             package.Version,
             outcome,
-            mutation.AcceptedAnswerCodes,
+            mutation.AcceptedAnswers.Select(value => value.Code).ToArray(),
+            mutation.AcceptedAnswers,
             mutation.Progression,
             clarificationClassification,
             clarificationCode);
@@ -337,7 +338,7 @@ public sealed class SubmitTriageAnswers(
         };
     }
 
-    private static IReadOnlyList<QuestionCode> ApplyCandidates(
+    private static IReadOnlyList<AcceptedTriageAnswerValue> ApplyCandidates(
         PreTriageSession session,
         ClinicalDefinitionPackage package,
         IReadOnlyList<ClinicalAiValidatedFactCandidate> candidates,
@@ -376,7 +377,17 @@ public sealed class SubmitTriageAnswers(
                 recordedAt);
         }
 
-        return pending.Select(value => value.Code).Distinct().ToArray();
+        return pending.Select(item =>
+        {
+            var storedAnswer = session.Answers.Single(
+                answer => answer.QuestionId == item.Question.Id);
+            return new AcceptedTriageAnswerValue(
+                item.Code,
+                DemoTriageAnswerCodec.Decode(
+                    storedAnswer.AnswerJson,
+                    item.Code,
+                    package));
+        }).ToArray();
     }
 
     private static bool JsonAnswersEqual(string existing, string submitted) =>
@@ -431,7 +442,7 @@ public sealed class SubmitTriageAnswers(
         new(code, message);
 
     private sealed record IntakeMutationResult(
-        IReadOnlyList<QuestionCode> AcceptedAnswerCodes,
+        IReadOnlyList<AcceptedTriageAnswerValue> AcceptedAnswers,
         DemoQuestionnaireProgress Progression);
 }
 
@@ -620,9 +631,14 @@ public sealed record SubmitTriageAnswersResult(
     DefinitionVersion QuestionnaireVersion,
     TriageIntakeSubmissionOutcome Outcome,
     IReadOnlyList<QuestionCode> AcceptedAnswerCodes,
+    IReadOnlyList<AcceptedTriageAnswerValue> AcceptedValues,
     DemoQuestionnaireProgress Progression,
     ClinicalIntentClassification? ClarificationClassification,
     string? ClarificationCode);
+
+public sealed record AcceptedTriageAnswerValue(
+    QuestionCode Code,
+    ClinicalAiCandidateValue Value);
 
 public interface IPreTriageAnswerRepository
 {

@@ -47,7 +47,8 @@ internal static class PreTriageEndpointExtensions
             .WithDescription(
                 "Submits either explicit structured demo answers or one natural-language " +
                 "message (never both) and returns backend-authoritative questionnaire " +
-                "progression. " +
+                "progression together with the exact validated values accepted into the " +
+                "session. " +
                 $"Anonymous sessions require {AnonymousCapabilityHeader}; authenticated " +
                 "sessions require an authorized Bearer identity. Structured duration units " +
                 "are MINUTES, HOURS, DAYS, WEEKS, or MONTHS; intensity is 1-10; additional " +
@@ -313,6 +314,7 @@ internal static class PreTriageEndpointExtensions
         result.QuestionnaireVersion.Value,
         ToApiEnum(result.Outcome),
         result.AcceptedAnswerCodes.Select(value => value.Value).ToArray(),
+        ToAcceptedValuesResponse(result.AcceptedValues),
         new QuestionnaireProgressResponse(
             ToApiEnum(result.Progression.State),
             result.Progression.AnsweredRequiredFields.Select(value => value.Value).ToArray(),
@@ -335,6 +337,39 @@ internal static class PreTriageEndpointExtensions
                 result.ClarificationClassification.HasValue
                     ? ToApiEnum(result.ClarificationClassification.Value)
                     : null));
+
+    private static PreTriageAcceptedValuesResponse ToAcceptedValuesResponse(
+        IReadOnlyList<AcceptedTriageAnswerValue> acceptedValues)
+    {
+        DurationResultResponse? duration = null;
+        int? intensity = null;
+        IReadOnlyList<string>? additionalSymptoms = null;
+        foreach (var accepted in acceptedValues)
+        {
+            switch (accepted.Value)
+            {
+                case ClinicalAiDurationValue value:
+                    duration = new DurationResultResponse(
+                        value.Value,
+                        ToApiValue(value.Unit));
+                    break;
+                case ClinicalAiIntegerValue value:
+                    intensity = value.Value;
+                    break;
+                case ClinicalAiMultipleChoiceValue value:
+                    additionalSymptoms = value.Values;
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "An accepted Pre-Triage answer has an unsupported response value.");
+            }
+        }
+
+        return new PreTriageAcceptedValuesResponse(
+            duration,
+            intensity,
+            additionalSymptoms);
+    }
 
     private static NeutralPreTriageResultResponse ToResponse(NeutralPreTriageResult result) =>
         new(
@@ -360,6 +395,16 @@ internal static class PreTriageEndpointExtensions
 
     private static string ToApiEnum<T>(T value) where T : struct, Enum =>
         JsonNamingPolicy.SnakeCaseUpper.ConvertName(value.ToString());
+
+    private static string ToApiValue(ClinicalDurationUnit value) => value switch
+    {
+        ClinicalDurationUnit.Minutes => "MINUTES",
+        ClinicalDurationUnit.Hours => "HOURS",
+        ClinicalDurationUnit.Days => "DAYS",
+        ClinicalDurationUnit.Weeks => "WEEKS",
+        ClinicalDurationUnit.Months => "MONTHS",
+        _ => throw new ArgumentOutOfRangeException(nameof(value))
+    };
 
     private static string ToApiValue(ClinicalContentSource value) => value switch
     {
@@ -460,9 +505,18 @@ internal sealed record PreTriageAnswerResponse(
     string QuestionnaireVersion,
     string Outcome,
     IReadOnlyList<string> AcceptedAnswers,
+    PreTriageAcceptedValuesResponse AcceptedValues,
     QuestionnaireProgressResponse Progression,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IntakeClarificationResponse? Clarification);
+
+internal sealed record PreTriageAcceptedValuesResponse(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    DurationResultResponse? Duration,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    int? Intensity,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<string>? AdditionalSymptoms);
 
 internal sealed record QuestionnaireProgressResponse(
     string State,
