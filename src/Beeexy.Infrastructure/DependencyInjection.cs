@@ -27,6 +27,7 @@ public static class DependencyInjection
         string otpHashingKey,
         AuthenticationEmailSenderOptions authenticationEmailSenderOptions,
         PreTriageCleanupOptions preTriageCleanupOptions,
+        ClinicalAiProviderOptions clinicalAiProviderOptions,
         string? privateFhirArtifactRoot = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
@@ -36,6 +37,7 @@ public static class DependencyInjection
         ArgumentException.ThrowIfNullOrWhiteSpace(otpHashingKey);
         ArgumentNullException.ThrowIfNull(authenticationEmailSenderOptions);
         ArgumentNullException.ThrowIfNull(preTriageCleanupOptions);
+        ArgumentNullException.ThrowIfNull(clinicalAiProviderOptions);
 
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton(emailChallengePolicy);
@@ -81,7 +83,24 @@ public static class DependencyInjection
         services.AddScoped<IClinicalDefinitionImporter, ClinicalDefinitionImporter>();
         services.AddScoped<IClinicalDefinitionProvider, ClinicalDefinitionProvider>();
         services.AddScoped<IClinicalPathwayRegistry, ClinicalPathwayRegistry>();
-        services.AddSingleton<IClinicalAiProvider, UnavailableClinicalAiProvider>();
+        if (clinicalAiProviderOptions.TryCreateNvidia(out var nvidiaOptions))
+        {
+            var configuredNvidiaOptions = nvidiaOptions!;
+            services.AddSingleton(configuredNvidiaOptions);
+            services.AddHttpClient(NvidiaClinicalAiProvider.HttpClientName, client =>
+            {
+                client.BaseAddress = configuredNvidiaOptions.BaseUri;
+                client.Timeout = System.Threading.Timeout.InfiniteTimeSpan;
+            });
+            services.AddSingleton<IClinicalAiProvider>(provider => new NvidiaClinicalAiProvider(
+                provider.GetRequiredService<IHttpClientFactory>()
+                    .CreateClient(NvidiaClinicalAiProvider.HttpClientName),
+                configuredNvidiaOptions));
+        }
+        else
+        {
+            services.AddSingleton<IClinicalAiProvider, UnavailableClinicalAiProvider>();
+        }
         services.AddSingleton<IClinicalSafetyPolicy, ClinicalSafetyPolicy>();
         services.AddScoped<IClinicalAiOutputValidator, ClinicalAiOutputValidator>();
         services.AddScoped<InterpretClinicalInput>();

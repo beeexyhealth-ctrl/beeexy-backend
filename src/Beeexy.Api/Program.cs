@@ -43,6 +43,8 @@ var googleAuthenticationSettings = StartupConfiguration.GetGoogleAuthenticationS
     builder.Configuration);
 var preTriageCleanupOptions = StartupConfiguration.GetRequiredPreTriageCleanupOptions(
     builder.Configuration);
+var clinicalAiProviderOptions = StartupConfiguration.GetClinicalAiProviderOptions(
+    builder.Configuration);
 
 builder.Services.AddInfrastructure(
     databaseConnectionString,
@@ -53,7 +55,8 @@ builder.Services.AddInfrastructure(
     googleAuthenticationSettings.ClientId),
     emailChallengeSettings.OtpHashingKey,
     emailChallengeSettings.EmailSender,
-    preTriageCleanupOptions);
+    preTriageCleanupOptions,
+    clinicalAiProviderOptions);
 if (builder.Environment.IsDevelopment())
 {
     builder.Services.AddHostedService<DevelopmentDemoDefinitionsBootstrapper>();

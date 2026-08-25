@@ -17,6 +17,7 @@ internal static class StartupConfiguration
     private const string TokenSectionKey = "Authentication:Tokens";
     private const string GoogleSectionKey = "Authentication:Google";
     private const string PreTriageCleanupSectionKey = "PreTriageCleanup";
+    private const string ClinicalAiSectionKey = "ClinicalAi";
 
     public static string GetRequiredDatabaseConnectionString(IConfiguration configuration)
     {
@@ -240,6 +241,19 @@ internal static class StartupConfiguration
                 $"Configuration section '{PreTriageCleanupSectionKey}' is invalid.",
                 exception);
         }
+    }
+
+    public static ClinicalAiProviderOptions GetClinicalAiProviderOptions(
+        IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        var section = configuration.GetSection(ClinicalAiSectionKey);
+        return new ClinicalAiProviderOptions(
+            section["Provider"],
+            section["ApiKey"],
+            section["Model"],
+            section["BaseUrl"],
+            section.GetValue<int?>("TimeoutSeconds"));
     }
 
     private static bool IsValidOrigin(string origin)
