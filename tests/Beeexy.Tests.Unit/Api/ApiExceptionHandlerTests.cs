@@ -1,4 +1,5 @@
 using Beeexy.Api.Errors;
+using Beeexy.Application.Interoperability;
 using Beeexy.Domain.Common;
 using Microsoft.AspNetCore.Http;
 
@@ -34,5 +35,28 @@ public sealed class ApiExceptionHandlerTests
         Assert.Null(problem.Detail);
         Assert.DoesNotContain(sensitiveMessage, problem.ToString());
         Assert.DoesNotContain(nameof(InvalidOperationException), problem.ToString());
+    }
+
+    [Theory]
+    [InlineData(typeof(FhirExportNotFoundException), StatusCodes.Status404NotFound)]
+    [InlineData(typeof(FhirExportDownloadStateConflictException), StatusCodes.Status409Conflict)]
+    [InlineData(typeof(FhirExportValidationRejectedException), StatusCodes.Status422UnprocessableEntity)]
+    [InlineData(typeof(FhirExportMappingUnavailableException), StatusCodes.Status422UnprocessableEntity)]
+    [InlineData(typeof(FhirExportInfrastructureUnavailableException), StatusCodes.Status503ServiceUnavailable)]
+    [InlineData(typeof(FhirExportArtifactIntegrityException), StatusCodes.Status500InternalServerError)]
+    public void MapException_MapsFhirExportFailuresWithoutPrivateDetails(
+        Type exceptionType,
+        int expectedStatus)
+    {
+        var exception = Assert.IsAssignableFrom<Exception>(
+            Activator.CreateInstance(exceptionType));
+
+        var problem = ApiExceptionHandler.MapException(exception);
+
+        Assert.Equal(expectedStatus, problem.Status);
+        Assert.DoesNotContain("storage", problem.ToString(),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("resourceType", problem.ToString(),
+            StringComparison.OrdinalIgnoreCase);
     }
 }

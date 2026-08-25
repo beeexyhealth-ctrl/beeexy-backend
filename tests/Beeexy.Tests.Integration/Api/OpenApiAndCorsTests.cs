@@ -20,9 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(21, paths.EnumerateObject().Count());
-        Assert.DoesNotContain(paths.EnumerateObject(), path =>
-            path.Name.Contains("fhir", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(24, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
@@ -130,6 +128,15 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var preTriageClaimOperation = paths
             .GetProperty("/api/v1/pre-triage/sessions/{id}/claim")
             .GetProperty("post");
+        var fhirCreateOperation = paths
+            .GetProperty("/api/v1/patients/{patientId}/fhir-exports")
+            .GetProperty("post");
+        var fhirMetadataOperation = paths
+            .GetProperty("/api/v1/fhir-exports/{id}")
+            .GetProperty("get");
+        var fhirContentOperation = paths
+            .GetProperty("/api/v1/fhir-exports/{id}/content")
+            .GetProperty("get");
 
         AssertResponseCodes(challengeOperation, "202", "400", "422", "429", "500");
         AssertResponseCodes(verifyOperation, "200", "400", "401", "409", "422", "429", "500");
@@ -222,6 +229,33 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             "404",
             "409",
             "500");
+        AssertResponseCodes(
+            fhirCreateOperation,
+            "200",
+            "201",
+            "400",
+            "401",
+            "404",
+            "409",
+            "422",
+            "503",
+            "500");
+        AssertResponseCodes(fhirMetadataOperation, "200", "401", "404", "500");
+        AssertResponseCodes(
+            fhirContentOperation,
+            "200",
+            "401",
+            "404",
+            "409",
+            "503",
+            "500");
+        Assert.True(fhirCreateOperation.TryGetProperty("requestBody", out _));
+        Assert.False(fhirMetadataOperation.TryGetProperty("requestBody", out _));
+        Assert.False(fhirContentOperation.TryGetProperty("requestBody", out _));
+        Assert.True(fhirContentOperation.GetProperty("responses")
+            .GetProperty("200")
+            .GetProperty("content")
+            .TryGetProperty("application/fhir+json", out _));
 
         foreach (var operation in new[]
                  {
@@ -249,7 +283,10 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
                      preTriageAmendmentOperation,
                      careRelationshipListOperation,
                      careRelationshipDeleteOperation,
-                     preTriageClaimOperation
+                     preTriageClaimOperation,
+                     fhirCreateOperation,
+                     fhirMetadataOperation,
+                     fhirContentOperation
                  })
         {
             var security = operation.GetProperty("security");

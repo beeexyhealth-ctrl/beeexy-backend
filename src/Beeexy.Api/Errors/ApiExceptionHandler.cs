@@ -1,6 +1,7 @@
 using Beeexy.Application.Common;
 using Beeexy.Application.History;
 using Beeexy.Application.Identity;
+using Beeexy.Application.Interoperability;
 using Beeexy.Application.Patients;
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
@@ -167,6 +168,80 @@ internal sealed class ApiExceptionHandler(
                 Status = StatusCodes.Status404NotFound,
                 Title = "Patient profile not found.",
                 Detail = "The requested patient profile could not be found."
+            };
+        }
+
+        if (exception is FhirExportNotFoundException or
+            FhirExportSourceNotFoundException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "FHIR export not found.",
+                Detail = "The requested FHIR export could not be found."
+            };
+        }
+
+        if (exception is FhirExportIdempotencyConflictException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "FHIR export conflict.",
+                Detail = "The idempotency key belongs to different export inputs."
+            };
+        }
+
+        if (exception is FhirExportDownloadStateConflictException or
+            FhirExportNotGeneratedException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "FHIR export state conflict.",
+                Detail = "The FHIR export is not available for this operation."
+            };
+        }
+
+        if (exception is FhirExportValidationRejectedException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status422UnprocessableEntity,
+                Title = "FHIR validation failed.",
+                Detail = "The generated artifact did not pass FHIR validation."
+            };
+        }
+
+        if (exception is FhirExportMappingUnavailableException or
+            FhirMappingInputException or
+            FhirR4BundleSerializationException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status422UnprocessableEntity,
+                Title = "FHIR export mapping failed.",
+                Detail = "The source cannot be exported with the current FHIR mapping."
+            };
+        }
+
+        if (exception is FhirExportInfrastructureUnavailableException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status503ServiceUnavailable,
+                Title = "FHIR export service unavailable.",
+                Detail = "FHIR export infrastructure is currently unavailable."
+            };
+        }
+
+        if (exception is FhirExportArtifactIntegrityException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status500InternalServerError,
+                Title = "FHIR artifact integrity failure.",
+                Detail = "The immutable artifact could not be safely processed."
             };
         }
 

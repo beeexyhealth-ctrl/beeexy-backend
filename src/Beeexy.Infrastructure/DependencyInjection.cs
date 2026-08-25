@@ -116,6 +116,10 @@ public static class DependencyInjection
         services.AddScoped<IFhirExportValidationTransaction,
             FhirExportValidationTransaction>();
         services.AddScoped<ValidateFhirExport>();
+        services.AddScoped<IFhirExportReadRepository, FhirExportReadRepository>();
+        services.AddSingleton<IFhirExportRuntimeVersionProvider,
+            FhirExportRuntimeVersionProvider>();
+        services.AddSingleton<IFhirExportAuditLogger, FhirExportAuditLogger>();
         services.AddSingleton<IFhirArtifactStore>(_ => new FileSystemFhirArtifactStore(
             privateFhirArtifactRoot ??
             Path.Combine(AppContext.BaseDirectory, "private-fhir-artifacts")));

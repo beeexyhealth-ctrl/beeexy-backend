@@ -25,6 +25,11 @@ internal sealed class FhirExportValidationTransaction(BeeexyDbContext dbContext)
                 "The FHIR validation transaction is already active.");
         }
 
+        // Generation and validation intentionally compose in one HTTP request and
+        // therefore share the scoped DbContext. Drop generation's committed tracked
+        // snapshot so the validation advisory-lock winner always reloads the latest
+        // lifecycle state written by a concurrent request.
+        dbContext.ChangeTracker.Clear();
         transaction = await dbContext.Database.BeginTransactionAsync(
             IsolationLevel.ReadCommitted,
             cancellationToken);

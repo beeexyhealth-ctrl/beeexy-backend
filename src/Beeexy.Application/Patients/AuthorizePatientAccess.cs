@@ -17,6 +17,16 @@ public sealed class AuthorizePatientAccess(
             current: null,
             cancellationToken);
 
+    internal async Task<PatientAccessAuthorizationResult> ExecuteAsync(
+        EntityId targetProfileId,
+        ResolvedCurrentAccountProfile current,
+        CancellationToken cancellationToken = default) =>
+        await ExecuteCoreAsync(
+            targetProfileId,
+            lockActiveRelationship: false,
+            current,
+            cancellationToken);
+
     internal async Task<PatientAccessAuthorizationResult> ExecuteForPatientUpdateAsync(
         EntityId targetProfileId,
         CancellationToken cancellationToken = default) =>
