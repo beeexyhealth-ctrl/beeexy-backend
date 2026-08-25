@@ -61,9 +61,10 @@ internal static class ClinicalHistoryEndpointExtensions
             .WithDescription(
                 "Returns one Clinical History event for an authorized primary or actively " +
                 "managed patient, including its frozen authoritative Pre-Triage source " +
-                "provenance and existing amendments in oldest-to-newest order. The original " +
-                "source remains immutable. Absent patients, inaccessible patients, absent " +
-                "events, and events belonging to another patient all return a concealed 404.")
+                "provenance, immutable neutral intake summary, and existing amendments in " +
+                "oldest-to-newest order. The original source remains immutable. Absent " +
+                "patients, inaccessible patients, absent events, and events belonging to " +
+                "another patient all return a concealed 404.")
             .RequireAuthorization()
             .Produces<ClinicalHistoryEventDetailResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -114,6 +115,7 @@ internal static class ClinicalHistoryEndpointExtensions
             EntityId.From(eventId),
             cancellationToken);
         var item = ToResponse(result.Event);
+        var summary = result.PreTriageSummary;
         return Results.Ok(new ClinicalHistoryEventDetailResponse(
             item.EventId,
             item.EventType,
@@ -125,6 +127,18 @@ internal static class ClinicalHistoryEndpointExtensions
                 result.AuthoritativeSource.Id,
                 result.AuthoritativeSource.QuestionnaireVersionId,
                 result.AuthoritativeSource.ClinicalRuleSetVersionId)),
+            summary is null
+                ? null
+                : new ClinicalHistoryPrimarySymptomResponse(
+                    summary.PrimarySymptom.Code,
+                    summary.PrimarySymptom.Display),
+            summary is null
+                ? null
+                : new ClinicalHistoryDurationResponse(
+                    summary.Duration.Value,
+                    summary.Duration.Unit),
+            summary?.Intensity,
+            summary?.AdditionalSymptoms,
             result.Amendments.Select(amendment =>
                 ToResponse(amendment))
                 .ToArray()));
@@ -241,7 +255,19 @@ internal sealed record ClinicalHistoryEventDetailResponse(
     DateTimeOffset RecordedAt,
     ClinicalHistorySourceResponse Source,
     ClinicalHistoryProvenanceResponse Provenance,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    ClinicalHistoryPrimarySymptomResponse? PrimarySymptom,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    ClinicalHistoryDurationResponse? Duration,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    int? Intensity,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<string>? AdditionalSymptoms,
     IReadOnlyList<ClinicalHistoryAmendmentResponse> Amendments);
+
+internal sealed record ClinicalHistoryPrimarySymptomResponse(string Code, string Display);
+
+internal sealed record ClinicalHistoryDurationResponse(decimal Value, string Unit);
 
 internal sealed record ClinicalHistoryProvenanceResponse(
     string SourceType,

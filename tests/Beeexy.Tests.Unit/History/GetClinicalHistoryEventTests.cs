@@ -18,6 +18,9 @@ public sealed class GetClinicalHistoryEventTests
         Assert.Same(fixture.Detail, result);
         Assert.Equal(fixture.Profiles.PrimaryProfile.Id, fixture.Repository.PatientId);
         Assert.Equal(fixture.Detail.Event.EventId, fixture.Repository.EventId);
+        Assert.Equal("HEADACHE", result.PreTriageSummary!.PrimarySymptom.Code);
+        Assert.Equal(new CompletedPreTriageDuration(1, "DAYS"),
+            result.PreTriageSummary.Duration);
     }
 
     [Fact]
@@ -93,7 +96,12 @@ public sealed class GetClinicalHistoryEventTests
                     item.OccurredAt,
                     item.QuestionnaireVersionId,
                     item.ClinicalRuleSetVersionId),
-                []);
+                [],
+                new CompletedPreTriageSummary(
+                    new CompletedPreTriagePrimarySymptom("HEADACHE", "Headache"),
+                    new CompletedPreTriageDuration(1, "DAYS"),
+                    7,
+                    ["NAUSEA"]));
             Repository.Result = Detail;
         }
 

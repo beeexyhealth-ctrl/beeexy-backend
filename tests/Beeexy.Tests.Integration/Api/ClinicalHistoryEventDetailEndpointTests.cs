@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
 using Beeexy.Domain.History;
 using Beeexy.Domain.Patients;
@@ -10,6 +11,7 @@ using Beeexy.Infrastructure.Persistence;
 using Beeexy.Tests.Integration.Support;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Beeexy.Tests.Integration.Api;
 
@@ -243,7 +245,14 @@ public sealed class ClinicalHistoryEventDetailEndpointTests(
     public async Task CompletedPreTriageLifecycleProjectsToListAndMatchingDetail()
     {
         await EnsureMigratedAsync();
-        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        var aiProvider = new FailIfInvokedClinicalAiProvider();
+        using var factory = new BeeexyApiFactory(
+            postgres.ConnectionString,
+            configureServices: services =>
+            {
+                services.RemoveAll<IClinicalAiProvider>();
+                services.AddSingleton<IClinicalAiProvider>(aiProvider);
+            });
         using var client = factory.CreateApiClient();
         var authentication = await AuthenticateAsync(factory, client, "detail-lifecycle");
         SetBearer(client, authentication.AccessToken);
@@ -294,7 +303,50 @@ public sealed class ClinicalHistoryEventDetailEndpointTests(
         Assert.Equal(listItem.Source, detail.Source);
         Assert.Equal(completed.EpisodeId, detail.Source.Id);
         Assert.Equal(completed.CompletedAt, detail.OccurredAt);
+        Assert.Equal(completed.PrimarySymptom, detail.PrimarySymptom);
+        Assert.Equal(completed.Duration, detail.Duration);
+        Assert.Equal(completed.Intensity, detail.Intensity);
+        Assert.Equal(completed.AdditionalSymptoms, detail.AdditionalSymptoms!.ToArray());
         Assert.Empty(detail.Amendments);
+        Assert.Equal(0, aiProvider.CallCount);
+    }
+
+    [Fact]
+    public async Task MissingAuthoritativeEpisodeIsConcealedAsNotFound()
+    {
+        await EnsureMigratedAsync();
+        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        using var client = factory.CreateApiClient();
+        var authentication = await AuthenticateAsync(factory, client, "detail-missing-source");
+        SetBearer(client, authentication.AccessToken);
+        var graph = CreateGraph(EntityId.From(authentication.Account.ProfileId), 65);
+        await SaveGraphAsync(graph);
+
+        await using (var corrupt = CreateDbContext())
+        {
+            await corrupt.Database.OpenConnectionAsync();
+            try
+            {
+                await corrupt.Database.ExecuteSqlRawAsync(
+                    "SET session_replication_role = replica");
+                await corrupt.Database.ExecuteSqlInterpolatedAsync(
+                    $"UPDATE history.clinical_history_events SET source_id = {Guid.NewGuid()} WHERE id = {graph.HistoryEvent.Id.Value}");
+            }
+            finally
+            {
+                await corrupt.Database.ExecuteSqlRawAsync(
+                    "SET session_replication_role = origin");
+                await corrupt.Database.CloseConnectionAsync();
+            }
+        }
+
+        using var response = await client.GetAsync(Endpoint(
+            authentication.Account.ProfileId,
+            graph.HistoryEvent.Id.Value));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.DoesNotContain("Npgsql", await response.Content.ReadAsStringAsync(),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -323,6 +375,10 @@ public sealed class ClinicalHistoryEventDetailEndpointTests(
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotNull(detail);
         Assert.Empty(detail.Amendments);
+        Assert.Null(detail.PrimarySymptom);
+        Assert.Null(detail.Duration);
+        Assert.Null(detail.Intensity);
+        Assert.Null(detail.AdditionalSymptoms);
         Assert.Equal(HttpStatusCode.NotFound, malformedPatient.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, malformedEvent.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, emptyEvent.StatusCode);
@@ -526,7 +582,13 @@ public sealed class ClinicalHistoryEventDetailEndpointTests(
 
     private sealed record StartedSession(Guid SessionId);
 
-    private sealed record CompletedSession(Guid EpisodeId, DateTimeOffset CompletedAt);
+    private sealed record CompletedSession(
+        Guid EpisodeId,
+        DateTimeOffset CompletedAt,
+        HistoryPrimarySymptom PrimarySymptom,
+        HistoryDuration Duration,
+        int Intensity,
+        IReadOnlyList<string> AdditionalSymptoms);
 
     private sealed record HistoryPage(
         IReadOnlyList<HistoryItem> Items,
@@ -539,7 +601,15 @@ public sealed class ClinicalHistoryEventDetailEndpointTests(
         DateTimeOffset RecordedAt,
         HistorySource Source,
         HistoryProvenance Provenance,
+        HistoryPrimarySymptom? PrimarySymptom,
+        HistoryDuration? Duration,
+        int? Intensity,
+        IReadOnlyList<string>? AdditionalSymptoms,
         IReadOnlyList<HistoryAmendment> Amendments);
+
+    private sealed record HistoryPrimarySymptom(string Code, string Display);
+
+    private sealed record HistoryDuration(decimal Value, string Unit);
 
     private sealed record HistoryItem(
         Guid EventId,
@@ -575,4 +645,18 @@ public sealed class ClinicalHistoryEventDetailEndpointTests(
         string? Type,
         string? Detail,
         string? ErrorCode);
+
+    private sealed class FailIfInvokedClinicalAiProvider : IClinicalAiProvider
+    {
+        public int CallCount { get; private set; }
+
+        public Task<ClinicalAiProviderOutput> InterpretAsync(
+            ClinicalAiInterpretationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            throw new InvalidOperationException(
+                "Clinical History detail must not invoke Clinical AI.");
+        }
+    }
 }

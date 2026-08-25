@@ -17,15 +17,25 @@ public sealed class Phase56AcceptanceContractTests
             PropertyNames(typeof(ClinicalHistoryItemResponse)));
         Assert.Equal(
             [
+                "AdditionalSymptoms",
                 "Amendments",
+                "Duration",
                 "EventId",
                 "EventType",
+                "Intensity",
                 "OccurredAt",
+                "PrimarySymptom",
                 "Provenance",
                 "RecordedAt",
                 "Source"
             ],
             PropertyNames(typeof(ClinicalHistoryEventDetailResponse)));
+        Assert.Equal(
+            ["Code", "Display"],
+            PropertyNames(typeof(ClinicalHistoryPrimarySymptomResponse)));
+        Assert.Equal(
+            ["Unit", "Value"],
+            PropertyNames(typeof(ClinicalHistoryDurationResponse)));
         Assert.Equal(
             ["AmendmentId", "Author", "CreatedAt", "Provenance", "Reason"],
             PropertyNames(typeof(ClinicalHistoryAmendmentResponse)));

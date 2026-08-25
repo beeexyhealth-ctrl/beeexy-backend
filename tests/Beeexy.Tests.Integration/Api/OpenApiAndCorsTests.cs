@@ -328,9 +328,25 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
                 "recordedAt",
                 "source",
                 "provenance",
+                "primarySymptom",
+                "duration",
+                "intensity",
+                "additionalSymptoms",
                 "amendments"
             ],
             historyDetailProperties.EnumerateObject().Select(property => property.Name));
+        Assert.Equal(
+            ["code", "display"],
+            schemas.GetProperty("ClinicalHistoryPrimarySymptomResponse")
+                .GetProperty("properties")
+                .EnumerateObject()
+                .Select(property => property.Name));
+        Assert.Equal(
+            ["value", "unit"],
+            schemas.GetProperty("ClinicalHistoryDurationResponse")
+                .GetProperty("properties")
+                .EnumerateObject()
+                .Select(property => property.Name));
         Assert.Equal(
             ["amendmentId", "reason", "author", "createdAt", "provenance"],
             schemas.GetProperty("ClinicalHistoryAmendmentResponse")

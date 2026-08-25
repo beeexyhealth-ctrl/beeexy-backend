@@ -14,7 +14,18 @@ public interface IClinicalHistoryEventReadRepository
 public sealed record ClinicalHistoryEventDetail(
     ClinicalHistoryListItem Event,
     ClinicalHistorySourceDetail AuthoritativeSource,
-    IReadOnlyList<ClinicalHistoryAmendmentDetail> Amendments);
+    IReadOnlyList<ClinicalHistoryAmendmentDetail> Amendments,
+    CompletedPreTriageSummary? PreTriageSummary = null);
+
+public sealed record CompletedPreTriageSummary(
+    CompletedPreTriagePrimarySymptom PrimarySymptom,
+    CompletedPreTriageDuration Duration,
+    int Intensity,
+    IReadOnlyList<string> AdditionalSymptoms);
+
+public sealed record CompletedPreTriagePrimarySymptom(string Code, string Display);
+
+public sealed record CompletedPreTriageDuration(decimal Value, string Unit);
 
 public sealed record ClinicalHistorySourceDetail(
     AuthoritativeClinicalSourceType SourceType,
