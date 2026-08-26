@@ -13,6 +13,7 @@ public sealed class Phase411AcceptanceContractTests
                 "AcceptedAnswers",
                 "AcceptedValues",
                 "Clarification",
+                "Conversation",
                 "Outcome",
                 "Pathway",
                 "Progression",

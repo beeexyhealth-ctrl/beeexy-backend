@@ -45,7 +45,8 @@ internal static class PreTriageEndpointExtensions
                 "text replays the committed session without interpretation; reusing the key " +
                 "with different text returns 409. Anonymous replay also requires the original " +
                 $"{AnonymousCapabilityHeader} because that one-time secret is stored only as a " +
-                "hash.")
+                "hash. RESOLVED also returns the canonical conversation projection so accepted " +
+                "first-message values automatically skip completed interactions.")
             .WithMetadata(new OptionalBearerAuthorizationMetadata())
             .Accepts<InterpretPreTriageIntakeRequest>("application/json")
             .Produces<StartPreTriageFromIntakeResponse>(StatusCodes.Status200OK)
@@ -90,7 +91,8 @@ internal static class PreTriageEndpointExtensions
                 "Authorization header the session is anonymous and a capability is returned " +
                 "once. With a valid Bearer token, patientId selects an authorized primary or " +
                 "actively managed patient; omitting patientId selects the caller's primary " +
-                "patient. An invalid supplied credential is never downgraded to anonymous.")
+                "patient. An invalid supplied credential is never downgraded to anonymous. " +
+                "The successful response includes the initial canonical conversation projection.")
             .WithMetadata(new OptionalBearerAuthorizationMetadata())
             .Accepts<StartPreTriageSessionRequest>("application/json")
             .Produces<PreTriageSessionStartResponse>(StatusCodes.Status201Created)
@@ -116,7 +118,9 @@ internal static class PreTriageEndpointExtensions
                 "symptoms are NAUSEA, DIARRHEA, and FEVER when allowed by the pinned package; " +
                 "FEVER is excluded when FEVER is the primary pathway. Natural-language " +
                 "interpretation may " +
-                "return a safe clarification or provider-unavailable outcome without writes.")
+                "return a safe clarification or provider-unavailable outcome without writes. " +
+                "Every successful response includes the canonical projection of all accepted " +
+                "session values and the next deterministic interaction or Review readiness.")
             .WithMetadata(new OptionalBearerAuthorizationMetadata())
             .Accepts<SubmitPreTriageAnswersRequest>("application/json")
             .Produces<PreTriageAnswerResponse>(StatusCodes.Status200OK)
@@ -125,6 +129,29 @@ internal static class PreTriageEndpointExtensions
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        endpoints.MapGet(
+                "/api/v1/pre-triage/sessions/{id:guid}/conversation",
+                GetConversationAsync)
+            .WithName("GetPreTriageConversation")
+            .WithTags("Pre-Triage")
+            .WithDescription(
+                "Returns a read-only deterministic conversation projection derived only " +
+                "from the session, its accepted answers, and its exact pinned questionnaire " +
+                "and rule-set. States are IN_PROGRESS, READY_FOR_REVIEW, and COMPLETED. " +
+                "Progress counts accepted required fields only; optional fields do not " +
+                "contribute. IN_PROGRESS returns exactly one nextInteraction with a DURATION, " +
+                "SCALE, or MULTI_SELECT input, versioned prompt, constraints, and controlled " +
+                "options. READY_FOR_REVIEW remains active and requires the existing explicit " +
+                "completion flow. Completed sessions are read-only. Expired sessions preserve " +
+                "the existing concealed not-found behavior. The projection never invokes AI. " +
+                $"Anonymous sessions require {AnonymousCapabilityHeader}; authenticated " +
+                "sessions require current patient authorization.")
+            .WithMetadata(new OptionalBearerAuthorizationMetadata())
+            .Produces<PreTriageConversationResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         endpoints.MapPost(
@@ -221,8 +248,15 @@ internal static class PreTriageEndpointExtensions
             result.CandidatePathways.Count == 0
                 ? null
                 : result.CandidatePathways.Select(value => value.Value).ToArray(),
-            result.Session is null ? null : ToResponse(result.Session),
-            result.InitialAnswers is null ? null : ToResponse(result.InitialAnswers));
+            result.Session is null ? null : ToResponse(result.Session, includeConversation: false),
+            result.InitialAnswers is null
+                ? null
+                : ToResponse(result.InitialAnswers, includeConversation: false),
+            result.InitialAnswers?.Conversation is not null
+                ? ToResponse(result.InitialAnswers.Conversation)
+                : result.Session?.Conversation is not null
+                    ? ToResponse(result.Session.Conversation)
+                    : null);
         return result.Resolution == PreTriageIntakeResolution.Resolved
             ? Results.Json(response, statusCode: StatusCodes.Status201Created)
             : Results.Ok(response);
@@ -320,6 +354,28 @@ internal static class PreTriageEndpointExtensions
 
         var result = await useCase.ExecuteAsync(
             new GetPreTriageResultQuery(EntityId.From(id), callerMode, anonymousCapability),
+            cancellationToken);
+        return Results.Ok(ToResponse(result));
+    }
+
+    private static async Task<IResult> GetConversationAsync(
+        Guid id,
+        HttpContext httpContext,
+        GetPreTriageConversationState useCase,
+        [FromHeader(Name = AnonymousCapabilityHeader)] string? anonymousCapability,
+        CancellationToken cancellationToken)
+    {
+        var callerMode = ResolveCallerMode(httpContext);
+        if (id == Guid.Empty)
+        {
+            throw new PreTriageSessionNotFoundException();
+        }
+
+        var result = await useCase.ExecuteAsync(
+            new GetPreTriageConversationStateQuery(
+                EntityId.From(id),
+                callerMode,
+                anonymousCapability),
             cancellationToken);
         return Results.Ok(ToResponse(result));
     }
@@ -477,7 +533,9 @@ internal static class PreTriageEndpointExtensions
             .Replace('+', '-')
             .Replace('/', '_');
 
-    private static PreTriageSessionStartResponse ToResponse(StartPreTriageResult result) =>
+    private static PreTriageSessionStartResponse ToResponse(
+        StartPreTriageResult result,
+        bool includeConversation = true) =>
         new(
             result.SessionId.Value,
             result.PatientProfileId?.Value,
@@ -494,9 +552,14 @@ internal static class PreTriageEndpointExtensions
                 ToApiValue(result.ClinicalContentStatus.Source),
                 ToApiValue(result.ClinicalContentStatus.ReviewStatus),
                 ToApiValue(result.ClinicalContentStatus.ApprovalStatus)),
-            result.AnonymousCapability);
+            result.AnonymousCapability,
+            includeConversation && result.Conversation is not null
+                ? ToResponse(result.Conversation)
+                : null);
 
-    private static PreTriageAnswerResponse ToResponse(SubmitTriageAnswersResult result) => new(
+    private static PreTriageAnswerResponse ToResponse(
+        SubmitTriageAnswersResult result,
+        bool includeConversation = true) => new(
         result.SessionId.Value,
         result.Pathway.Value,
         result.QuestionnaireVersion.Value,
@@ -524,7 +587,50 @@ internal static class PreTriageEndpointExtensions
                 result.ClarificationCode,
                 result.ClarificationClassification.HasValue
                     ? ToApiEnum(result.ClarificationClassification.Value)
-                    : null));
+                    : null),
+        includeConversation && result.Conversation is not null
+            ? ToResponse(result.Conversation)
+            : null);
+
+    private static PreTriageConversationResponse ToResponse(
+        PreTriageConversationProjection projection) => new(
+            projection.SessionId.Value,
+            ToApiEnum(projection.SessionStatus),
+            ToApiEnum(projection.State),
+            projection.ExpiresAt,
+            new ConversationPathwayResponse(
+                projection.Pathway.Code.Value,
+                projection.Pathway.Label),
+            new ClinicalDefinitionReferenceResponse(
+                projection.Questionnaire.Code,
+                projection.Questionnaire.Version.Value),
+            new ClinicalDefinitionReferenceResponse(
+                projection.RuleSet.Code,
+                projection.RuleSet.Version.Value),
+            new ConversationProgressResponse(
+                projection.Progress.Completed,
+                projection.Progress.Total,
+                projection.Progress.Percentage),
+            ToAcceptedValuesResponse(projection.AcceptedValues),
+            projection.NextInteraction is null
+                ? null
+                : new ConversationInteractionResponse(
+                    projection.NextInteraction.Field,
+                    projection.NextInteraction.QuestionCode.Value,
+                    projection.NextInteraction.Prompt,
+                    ToApiEnum(projection.NextInteraction.InputType),
+                    projection.NextInteraction.Required,
+                    new ConversationConstraintsResponse(
+                        projection.NextInteraction.Constraints.Minimum,
+                        projection.NextInteraction.Constraints.Maximum,
+                        projection.NextInteraction.Constraints.Step,
+                        projection.NextInteraction.Constraints.ExclusiveMinimum,
+                        projection.NextInteraction.Constraints.AllowedUnits,
+                        projection.NextInteraction.Constraints.MinimumSelections,
+                        projection.NextInteraction.Constraints.MaximumSelections,
+                        projection.NextInteraction.Constraints.AllowsEmptySelection),
+                    projection.NextInteraction.Options.Select(option =>
+                        new ConversationOptionResponse(option.Value, option.Label)).ToArray()));
 
     private static PreTriageAcceptedValuesResponse ToAcceptedValuesResponse(
         IReadOnlyList<AcceptedTriageAnswerValue> acceptedValues)
@@ -686,7 +792,9 @@ internal sealed record PreTriageSessionStartResponse(
     ClinicalDefinitionReferenceResponse RuleSet,
     ClinicalContentStatusResponse ClinicalContent,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    string? AnonymousCapability);
+    string? AnonymousCapability,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    PreTriageConversationResponse? Conversation);
 
 internal sealed record PreTriageIntakeInterpretationResponse(
     string Resolution,
@@ -703,7 +811,9 @@ internal sealed record StartPreTriageFromIntakeResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     PreTriageSessionStartResponse? Session,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    PreTriageAnswerResponse? InitialAnswers);
+    PreTriageAnswerResponse? InitialAnswers,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    PreTriageConversationResponse? Conversation);
 
 internal sealed record ClinicalDefinitionReferenceResponse(
     string Code,
@@ -723,7 +833,62 @@ internal sealed record PreTriageAnswerResponse(
     PreTriageAcceptedValuesResponse AcceptedValues,
     QuestionnaireProgressResponse Progression,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    IntakeClarificationResponse? Clarification);
+    IntakeClarificationResponse? Clarification,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    PreTriageConversationResponse? Conversation);
+
+internal sealed record PreTriageConversationResponse(
+    Guid SessionId,
+    string SessionStatus,
+    string State,
+    DateTimeOffset ExpiresAt,
+    ConversationPathwayResponse Pathway,
+    ClinicalDefinitionReferenceResponse Questionnaire,
+    ClinicalDefinitionReferenceResponse RuleSet,
+    ConversationProgressResponse Progress,
+    PreTriageAcceptedValuesResponse AcceptedValues,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    ConversationInteractionResponse? NextInteraction);
+
+internal sealed record ConversationPathwayResponse(
+    string Code,
+    string Label);
+
+internal sealed record ConversationProgressResponse(
+    int Completed,
+    int Total,
+    int Percentage);
+
+internal sealed record ConversationInteractionResponse(
+    string Field,
+    string QuestionCode,
+    string Prompt,
+    string InputType,
+    bool Required,
+    ConversationConstraintsResponse Constraints,
+    IReadOnlyList<ConversationOptionResponse> Options);
+
+internal sealed record ConversationConstraintsResponse(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    decimal? Minimum,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    decimal? Maximum,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    decimal? Step,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    bool? ExclusiveMinimum,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<string>? AllowedUnits,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    int? MinimumSelections,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    int? MaximumSelections,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    bool? AllowsEmptySelection);
+
+internal sealed record ConversationOptionResponse(
+    string Value,
+    string Label);
 
 internal sealed record PreTriageAcceptedValuesResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

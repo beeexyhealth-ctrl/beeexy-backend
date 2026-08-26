@@ -66,6 +66,15 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
         Assert.Equal(6, result.InitialAnswers.AcceptedValues.Intensity);
         Assert.Equal("ADDITIONAL_SYMPTOMS",
             result.InitialAnswers.Progression.NextQuestion!.Code);
+        Assert.Equal("IN_PROGRESS", result.Conversation!.State);
+        Assert.Equal(2, result.Conversation.Progress.Completed);
+        Assert.Equal(3, result.Conversation.Progress.Total);
+        Assert.Equal(67, result.Conversation.Progress.Percentage);
+        Assert.Equal("additionalSymptoms", result.Conversation.NextInteraction!.Field);
+        Assert.Equal("MULTI_SELECT", result.Conversation.NextInteraction.InputType);
+        Assert.Equal(new DurationResponse(2, "DAYS"),
+            result.Conversation.AcceptedValues.Duration);
+        Assert.Equal(6, result.Conversation.AcceptedValues.Intensity);
         Assert.Equal(1, provider.CallCount);
 
         await using var db = CreateDbContext();
@@ -113,6 +122,9 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
         Assert.Equal("CHEST_PAIN", result!.Session!.Pathway);
         Assert.Empty(result.InitialAnswers!.AcceptedAnswers);
         Assert.Equal("DURATION", result.InitialAnswers.Progression.NextQuestion!.Code);
+        Assert.Equal("IN_PROGRESS", result.Conversation!.State);
+        Assert.Equal(0, result.Conversation.Progress.Completed);
+        Assert.Equal("duration", result.Conversation.NextInteraction!.Field);
         Assert.Equal(0, provider.CallCount);
     }
 
@@ -138,6 +150,11 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
         Assert.Equal(["DURATION"], result!.InitialAnswers!.AcceptedAnswers);
         Assert.Null(result.InitialAnswers.AcceptedValues.Intensity);
         Assert.Equal("INTENSITY", result.InitialAnswers.Progression.NextQuestion!.Code);
+        Assert.Equal("IN_PROGRESS", result.Conversation!.State);
+        Assert.Equal(1, result.Conversation.Progress.Completed);
+        Assert.Equal(33, result.Conversation.Progress.Percentage);
+        Assert.Equal("intensity", result.Conversation.NextInteraction!.Field);
+        Assert.Equal("SCALE", result.Conversation.NextInteraction.InputType);
         await using var db = CreateDbContext();
         Assert.Equal(1, await db.TriageAnswers.CountAsync(value =>
             value.SessionId == EntityId.From(result.Session!.SessionId)));
@@ -904,6 +921,8 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
         public SessionResponse? Session { get; init; }
 
         public InitialAnswerResponse? InitialAnswers { get; init; }
+
+        public ConversationResponse? Conversation { get; init; }
     }
 
     private sealed class SessionResponse
@@ -943,6 +962,26 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
 
         public bool ReadyToComplete { get; init; }
     }
+
+    private sealed class ConversationResponse
+    {
+        public string State { get; init; } = null!;
+
+        public ConversationProgressResponse Progress { get; init; } = null!;
+
+        public CandidateValuesResponse AcceptedValues { get; init; } = null!;
+
+        public ConversationInteractionResponse? NextInteraction { get; init; }
+    }
+
+    private sealed record ConversationProgressResponse(
+        int Completed,
+        int Total,
+        int Percentage);
+
+    private sealed record ConversationInteractionResponse(
+        string Field,
+        string InputType);
 
     private sealed record NextQuestionResponse(string Code);
 }

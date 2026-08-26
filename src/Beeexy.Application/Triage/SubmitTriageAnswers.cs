@@ -83,7 +83,11 @@ public sealed class SubmitTriageAnswers(
                     clock.UtcNow);
                 return new IntakeMutationResult(
                     acceptedAnswers,
-                    ResolveProgression(session, package));
+                    ResolveProgression(session, package),
+                    PreTriageConversationProjectionBuilder.Build(
+                        session,
+                        session.Answers,
+                        package));
             },
             cancellationToken) ?? throw new PreTriageSessionNotFoundException();
 
@@ -101,7 +105,10 @@ public sealed class SubmitTriageAnswers(
             mutation.AcceptedAnswers,
             mutation.Progression,
             clarificationClassification,
-            clarificationCode);
+            clarificationCode)
+        {
+            Conversation = mutation.Conversation
+        };
     }
 
     public async Task<SubmitTriageAnswersResult> ApplyInitialCandidatesAsync(
@@ -167,7 +174,11 @@ public sealed class SubmitTriageAnswers(
                     clock.UtcNow);
                 return new IntakeMutationResult(
                     acceptedAnswers,
-                    ResolveProgression(session, package));
+                    ResolveProgression(session, package),
+                    PreTriageConversationProjectionBuilder.Build(
+                        session,
+                        session.Answers,
+                        package));
             },
             cancellationToken) ?? throw new PreTriageSessionNotFoundException();
 
@@ -180,7 +191,10 @@ public sealed class SubmitTriageAnswers(
             mutation.AcceptedAnswers,
             mutation.Progression,
             null,
-            null);
+            null)
+        {
+            Conversation = mutation.Conversation
+        };
         if (auditAfterMutation)
         {
             AuditInitialAnswers(result);
@@ -579,7 +593,8 @@ public sealed class SubmitTriageAnswers(
 
     private sealed record IntakeMutationResult(
         IReadOnlyList<AcceptedTriageAnswerValue> AcceptedAnswers,
-        DemoQuestionnaireProgress Progression);
+        DemoQuestionnaireProgress Progression,
+        PreTriageConversationProjection Conversation);
 }
 
 internal static class DemoTriageAnswerCodec
@@ -776,7 +791,10 @@ public sealed record SubmitTriageAnswersResult(
     IReadOnlyList<AcceptedTriageAnswerValue> AcceptedValues,
     DemoQuestionnaireProgress Progression,
     ClinicalIntentClassification? ClarificationClassification,
-    string? ClarificationCode);
+    string? ClarificationCode)
+{
+    public PreTriageConversationProjection? Conversation { get; init; }
+}
 
 public sealed record AcceptedTriageAnswerValue(
     QuestionCode Code,

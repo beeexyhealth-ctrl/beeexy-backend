@@ -81,7 +81,17 @@ public sealed class StartPreTriage(
             package.RuleSet.Version,
             package.ContentStatus,
             generatedCapability?.Value,
-            now);
+            now)
+        {
+            Conversation = package.Profile ==
+                    ClinicalDefinitionPackageProfile.SimplifiedDemoIntake &&
+                package.RuleDefinitions.DemoIntake is not null
+                    ? PreTriageConversationProjectionBuilder.Build(
+                        session,
+                        session.Answers,
+                        package)
+                    : null
+        };
         if (auditAfterSave)
         {
             AuditCreated(result, command.CallerMode);
@@ -221,7 +231,10 @@ public sealed record StartPreTriageResult(
     DefinitionVersion RuleSetVersion,
     ClinicalContentStatus ClinicalContentStatus,
     string? AnonymousCapability,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt)
+{
+    public PreTriageConversationProjection? Conversation { get; init; }
+}
 
 public interface IPreTriageSessionRepository
 {

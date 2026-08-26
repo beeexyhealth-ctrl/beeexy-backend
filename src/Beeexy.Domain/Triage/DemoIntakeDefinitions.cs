@@ -23,6 +23,15 @@ public static class DemoAdditionalSymptoms
         DemoAdditionalSymptom.Fever => FeverCode,
         _ => throw new ArgumentOutOfRangeException(nameof(symptom))
     };
+
+    public static string DisplayLabel(string code) => code switch
+    {
+        NauseaCode => "Nausea",
+        DiarrheaCode => "Diarrhea",
+        FeverCode => "Fever",
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(code), code, "The additional-symptom code is unknown.")
+    };
 }
 
 public sealed record DemoIntakePackageDefinition(

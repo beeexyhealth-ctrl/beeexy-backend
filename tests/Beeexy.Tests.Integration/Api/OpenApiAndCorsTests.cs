@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(30, paths.EnumerateObject().Count());
+        Assert.Equal(31, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
@@ -142,6 +142,9 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var preTriageAnswerOperation = paths
             .GetProperty("/api/v1/pre-triage/sessions/{id}/answers")
             .GetProperty("post");
+        var preTriageConversationOperation = paths
+            .GetProperty("/api/v1/pre-triage/sessions/{id}/conversation")
+            .GetProperty("get");
         var preTriageCompleteOperation = paths
             .GetProperty("/api/v1/pre-triage/sessions/{id}/complete")
             .GetProperty("post");
@@ -246,6 +249,12 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             "404",
             "409",
             "422",
+            "500");
+        AssertResponseCodes(
+            preTriageConversationOperation,
+            "200",
+            "401",
+            "404",
             "500");
         AssertResponseCodes(
             preTriageCompleteOperation,
@@ -502,6 +511,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.True(preTriageAnswerOperation.TryGetProperty("requestBody", out _));
         foreach (var operation in new[]
                  {
+                     preTriageConversationOperation,
                      preTriageCompleteOperation,
                      preTriageResultOperation
                  })
@@ -546,7 +556,8 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
                 "acceptedAnswers",
                 "acceptedValues",
                 "progression",
-                "clarification"
+                "clarification",
+                "conversation"
             ],
             answerResponse.GetProperty("properties")
                 .EnumerateObject()
@@ -576,8 +587,31 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
                 .EnumerateObject()
                 .Select(value => value.Name));
         Assert.Equal(
-            ["resolution", "candidatePathways", "session", "initialAnswers"],
+            ["resolution", "candidatePathways", "session", "initialAnswers", "conversation"],
             schemas.GetProperty("StartPreTriageFromIntakeResponse")
+                .GetProperty("properties")
+                .EnumerateObject()
+                .Select(value => value.Name));
+        Assert.Equal(
+            [
+                "sessionId",
+                "sessionStatus",
+                "state",
+                "expiresAt",
+                "pathway",
+                "questionnaire",
+                "ruleSet",
+                "progress",
+                "acceptedValues",
+                "nextInteraction"
+            ],
+            schemas.GetProperty("PreTriageConversationResponse")
+                .GetProperty("properties")
+                .EnumerateObject()
+                .Select(value => value.Name));
+        Assert.Equal(
+            ["field", "questionCode", "prompt", "inputType", "required", "constraints", "options"],
+            schemas.GetProperty("ConversationInteractionResponse")
                 .GetProperty("properties")
                 .EnumerateObject()
                 .Select(value => value.Name));
@@ -615,6 +649,21 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             StringComparison.Ordinal);
         Assert.Contains("FEVER is excluded", answerDescription,
             StringComparison.Ordinal);
+        var conversationDescription = preTriageConversationOperation
+            .GetProperty("description")
+            .GetString();
+        Assert.Contains("IN_PROGRESS", conversationDescription, StringComparison.Ordinal);
+        Assert.Contains("READY_FOR_REVIEW", conversationDescription, StringComparison.Ordinal);
+        Assert.Contains("COMPLETED", conversationDescription, StringComparison.Ordinal);
+        Assert.Contains("pinned questionnaire", conversationDescription,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("optional fields do not contribute", conversationDescription,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("DURATION", conversationDescription, StringComparison.Ordinal);
+        Assert.Contains("SCALE", conversationDescription, StringComparison.Ordinal);
+        Assert.Contains("MULTI_SELECT", conversationDescription, StringComparison.Ordinal);
+        Assert.Contains("never invokes AI", conversationDescription,
+            StringComparison.OrdinalIgnoreCase);
 
         var securitySchemes = document.RootElement
             .GetProperty("components")

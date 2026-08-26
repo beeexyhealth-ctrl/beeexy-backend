@@ -88,6 +88,7 @@ public sealed class PreTriageCompletionRepository(BeeexyDbContext dbContext)
     {
         var session = await dbContext.PreTriageSessions
             .AsNoTracking()
+            .Include(value => value.Answers)
             .SingleOrDefaultAsync(value => value.Id == sessionId, cancellationToken);
         if (session is null)
         {

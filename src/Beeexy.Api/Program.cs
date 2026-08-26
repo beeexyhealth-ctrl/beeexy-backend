@@ -96,6 +96,7 @@ builder.Services.AddScoped<InterpretPreTriageIntake>();
 builder.Services.AddScoped<StartPreTriageFromIntake>();
 builder.Services.AddScoped<ReplayPreTriageIntake>();
 builder.Services.AddScoped<SubmitTriageAnswers>();
+builder.Services.AddScoped<GetPreTriageConversationState>();
 builder.Services.AddScoped<CheckDemoQuestionnaireCompleteness>();
 builder.Services.AddScoped<NeutralClinicalAssessmentFactory>();
 builder.Services.AddScoped<CompletePreTriage>();

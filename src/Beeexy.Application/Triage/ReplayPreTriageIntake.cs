@@ -45,13 +45,17 @@ public sealed class ReplayPreTriageIntake(
                 DemoTriageAnswerCodec.Decode(answer.AnswerJson, code, package));
         }).ToArray();
 
+        var conversation = PreTriageConversationProjectionBuilder.Build(
+            state.Session,
+            state.Answers,
+            package);
         var session = new StartPreTriageResult(
             state.Session.Id,
             query.CallerMode == PreTriageCallerMode.Anonymous
                 ? null
                 : state.Session.PatientProfileId,
             package.Pathway,
-            PreTriageSessionStatus.Active,
+            state.Session.Status,
             state.Session.ExpiresAt,
             package.Questionnaire.QuestionnaireCode,
             package.Questionnaire.Version,
@@ -61,7 +65,10 @@ public sealed class ReplayPreTriageIntake(
             query.CallerMode == PreTriageCallerMode.Anonymous
                 ? query.AnonymousCapability
                 : null,
-            state.Session.CreatedAt);
+            state.Session.CreatedAt)
+        {
+            Conversation = conversation
+        };
         var answers = new SubmitTriageAnswersResult(
             state.Session.Id,
             package.Pathway,
@@ -71,7 +78,10 @@ public sealed class ReplayPreTriageIntake(
             acceptedValues,
             SubmitTriageAnswers.ResolveProgression(initialCodes, package),
             null,
-            null);
+            null)
+        {
+            Conversation = conversation
+        };
         return new StartPreTriageFromIntakeResult(
             PreTriageIntakeResolution.Resolved,
             [],
