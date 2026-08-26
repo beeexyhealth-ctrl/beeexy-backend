@@ -47,7 +47,9 @@ public sealed class HealthEndpointTests(PostgreSqlContainerFixture postgres)
     [Fact]
     public async Task Live_WhenPostgreSqlIsUnavailable_RemainsHealthy()
     {
-        using var factory = new BeeexyApiFactory(UnavailableConnectionString);
+        using var factory = new BeeexyApiFactory(
+            UnavailableConnectionString,
+            environment: "Test");
         using var client = factory.CreateApiClient();
 
         using var response = await client.GetAsync("/health/live");
@@ -60,7 +62,9 @@ public sealed class HealthEndpointTests(PostgreSqlContainerFixture postgres)
     [Fact]
     public async Task Ready_WhenPostgreSqlIsUnavailable_ReturnsSafeServiceUnavailable()
     {
-        using var factory = new BeeexyApiFactory(UnavailableConnectionString);
+        using var factory = new BeeexyApiFactory(
+            UnavailableConnectionString,
+            environment: "Test");
         using var client = factory.CreateApiClient();
 
         using var response = await client.GetAsync("/health/ready");

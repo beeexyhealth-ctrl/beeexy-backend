@@ -23,6 +23,18 @@ Configure these variables in Render. Store secret values as Render secrets and d
 | `Authentication__Tokens__Audience` | Intended production client audience. |
 | `Authentication__Tokens__SigningKey` | Independent high-entropy JWT signing secret. |
 
+For a private/demo deployment, also configure the private access gate described in [private-demo-access.md](private-demo-access.md):
+
+| Name | Purpose |
+| --- | --- |
+| `PrivateAccess__Enabled` | Set to `true` to require the private demo session. |
+| `PrivateAccess__Username` | Shared demo username. |
+| `PrivateAccess__PasswordHash` | Configuration-ready hash produced by the local setup command. |
+| `PrivateAccess__KeywordHash` | Configuration-ready hash produced by the local setup command. |
+| `PrivateAccess__SessionSigningKey` | Independent base64-encoded random session signing key. |
+
+The checked-in private-access lifetime and rate-limit policies have non-secret defaults. Override their double-underscore environment names only when intentionally changing those policies.
+
 Render supplies `PORT`; do not give it a fixed value. The image requires it and binds the API to `http://0.0.0.0:$PORT`.
 
 These variables are conditional:
@@ -67,7 +79,7 @@ After the migration succeeds, keep the Render runtime variable set to the intend
 
 ## CORS
 
-Set `Cors__AllowedOrigins__0` to the final Vercel production origin. Each additional preview or custom-domain origin must be a separate indexed entry. Beeexy rejects wildcards, credentials, paths, queries, fragments, and trailing slashes; it does not use unrestricted CORS.
+Set `Cors__AllowedOrigins__0` to the final Vercel production origin. Each additional preview or custom-domain origin must be a separate indexed entry. Beeexy rejects wildcards, credentials, paths, queries, fragments, and trailing slashes; it does not use unrestricted CORS. The policy allows credentialed requests from those exact origins so the private-access HTTP-only cookie can cross from Vercel to Render; frontend API calls must opt in with `credentials: "include"`.
 
 ## FHIR artifact persistence
 

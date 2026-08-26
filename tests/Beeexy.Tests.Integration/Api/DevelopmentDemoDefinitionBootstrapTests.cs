@@ -14,7 +14,8 @@ public sealed class DevelopmentDemoDefinitionBootstrapTests(
     private readonly string _databaseName = $"beeexy_phase4_bootstrap_{Guid.NewGuid():N}";
     private string ConnectionString => new NpgsqlConnectionStringBuilder(postgres.ConnectionString)
     {
-        Database = _databaseName
+        Database = _databaseName,
+        Pooling = false
     }.ConnectionString;
 
     [Theory]

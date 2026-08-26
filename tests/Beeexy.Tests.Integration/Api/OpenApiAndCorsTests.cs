@@ -20,9 +20,21 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(24, paths.EnumerateObject().Count());
+        Assert.Equal(27, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
+        Assert.True(paths
+            .GetProperty("/api/v1/private-access/login")
+            .TryGetProperty("post", out _));
+        Assert.True(paths
+            .GetProperty("/api/v1/private-access/session")
+            .TryGetProperty("get", out _));
+        Assert.True(paths
+            .GetProperty("/api/v1/private-access/logout")
+            .TryGetProperty("post", out _));
+        Assert.DoesNotContain(
+            paths.EnumerateObject(),
+            path => path.Name.Contains("generator", StringComparison.OrdinalIgnoreCase));
         Assert.True(paths
             .GetProperty("/api/v1/auth/email/challenges")
             .TryGetProperty("post", out _));

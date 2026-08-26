@@ -2,6 +2,7 @@ using Beeexy.Application.Identity;
 using Beeexy.Infrastructure.Identity;
 using Beeexy.Infrastructure.Persistence;
 using Beeexy.Infrastructure.Triage;
+using Beeexy.Api.PrivateAccess;
 using Microsoft.Extensions.Hosting;
 
 namespace Beeexy.Api.Configuration;
@@ -18,6 +19,88 @@ internal static class StartupConfiguration
     private const string GoogleSectionKey = "Authentication:Google";
     private const string PreTriageCleanupSectionKey = "PreTriageCleanup";
     private const string ClinicalAiSectionKey = "ClinicalAi";
+    private const string PrivateAccessSectionKey = "PrivateAccess";
+
+    public static PrivateAccessSettings GetPrivateAccessSettings(
+        IConfiguration configuration,
+        IHostEnvironment environment)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(environment);
+
+        var section = configuration.GetSection(PrivateAccessSectionKey);
+        bool enabled;
+        try
+        {
+            enabled = section.GetValue("Enabled", false);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new InvalidOperationException(
+                $"Configuration section '{PrivateAccessSectionKey}' is invalid.",
+                exception);
+        }
+
+        if (!enabled)
+        {
+            return PrivateAccessSettings.Disabled;
+        }
+
+        var username = section["Username"]?.Trim();
+        var passwordHash = section["PasswordHash"];
+        var keywordHash = section["KeywordHash"];
+        var signingKeyValue = section["SessionSigningKey"];
+        if (string.IsNullOrWhiteSpace(username) || username.Length > 128 ||
+            !PrivateAccessPasswordHasher.IsValidEncodedHash(passwordHash) ||
+            !PrivateAccessPasswordHasher.IsValidEncodedHash(keywordHash) ||
+            string.IsNullOrWhiteSpace(signingKeyValue))
+        {
+            throw new InvalidOperationException(
+                $"Configuration section '{PrivateAccessSectionKey}' is incomplete or invalid.");
+        }
+
+        byte[] signingKey;
+        try
+        {
+            signingKey = Convert.FromBase64String(signingKeyValue);
+        }
+        catch (FormatException exception)
+        {
+            throw new InvalidOperationException(
+                $"Configuration section '{PrivateAccessSectionKey}' is incomplete or invalid.",
+                exception);
+        }
+
+        if (signingKey.Length < 32)
+        {
+            throw new InvalidOperationException(
+                $"Configuration section '{PrivateAccessSectionKey}' is incomplete or invalid.");
+        }
+
+        var sessionLifetimeMinutes = GetRequiredPositiveInt(section, "SessionLifetimeMinutes");
+        var loginPermitLimit = GetRequiredPositiveInt(section, "LoginPermitLimit");
+        var loginRateLimitWindowMinutes = GetRequiredPositiveInt(
+            section,
+            "LoginRateLimitWindowMinutes");
+        if (sessionLifetimeMinutes > 1_440 ||
+            loginPermitLimit > 1_000 ||
+            loginRateLimitWindowMinutes > 1_440)
+        {
+            throw new InvalidOperationException(
+                $"Configuration section '{PrivateAccessSectionKey}' is invalid.");
+        }
+
+        return new PrivateAccessSettings(
+            true,
+            username,
+            passwordHash,
+            keywordHash,
+            signingKey,
+            TimeSpan.FromMinutes(sessionLifetimeMinutes),
+            loginPermitLimit,
+            TimeSpan.FromMinutes(loginRateLimitWindowMinutes),
+            environment.IsProduction());
+    }
 
     public static string GetRequiredDatabaseConnectionString(IConfiguration configuration)
     {

@@ -66,6 +66,7 @@ public sealed class ProblemDetailsAndLoggingTests(PostgreSqlContainerFixture pos
         using var loggerProvider = new InMemoryLoggerProvider();
         using var factory = new BeeexyApiFactory(
             connectionString,
+            environment: "Test",
             loggerProvider: loggerProvider);
         using var client = factory.CreateApiClient();
 

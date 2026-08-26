@@ -6,6 +6,7 @@ using Beeexy.Api.Identity;
 using Beeexy.Api.Interoperability;
 using Beeexy.Api.Middleware;
 using Beeexy.Api.Patients;
+using Beeexy.Api.PrivateAccess;
 using Beeexy.Api.Triage;
 using Beeexy.Application.Identity;
 using Beeexy.Application.History;
@@ -19,6 +20,11 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using System.Text;
+
+if (PrivateAccessCli.TryRun(args))
+{
+    return;
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -45,6 +51,9 @@ var preTriageCleanupOptions = StartupConfiguration.GetRequiredPreTriageCleanupOp
     builder.Configuration);
 var clinicalAiProviderOptions = StartupConfiguration.GetClinicalAiProviderOptions(
     builder.Configuration);
+var privateAccessSettings = StartupConfiguration.GetPrivateAccessSettings(
+    builder.Configuration,
+    builder.Environment);
 
 builder.Services.AddInfrastructure(
     databaseConnectionString,
@@ -99,6 +108,10 @@ builder.Services.AddScoped<ExpireAnonymousPreTriage>();
 builder.Services.AddScoped<PreTriageCleanupService>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentSessionIdentity, HttpCurrentSessionIdentity>();
+builder.Services.AddSingleton(privateAccessSettings);
+builder.Services.AddSingleton<PrivateAccessCredentialValidator>();
+builder.Services.AddSingleton<PrivateAccessSessionTokenService>();
+builder.Services.AddSingleton<InMemoryPrivateAccessRateLimiter>();
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -138,7 +151,8 @@ builder.Services.AddCors(options =>
         policy => policy
             .WithOrigins(corsAllowedOrigins)
             .AllowAnyHeader()
-            .AllowAnyMethod());
+            .AllowAnyMethod()
+            .AllowCredentials());
 });
 builder.Services
     .AddHealthChecks()
@@ -191,6 +205,7 @@ if (!app.Environment.IsDevelopment())
 
 app.UseStatusCodePages();
 app.UseCors(StartupConfiguration.CorsPolicyName);
+app.UseMiddleware<PrivateAccessGateMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -205,6 +220,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapBeeexyHealthEndpoints();
+app.MapBeeexyPrivateAccessEndpoints();
 app.MapBeeexyAuthenticationEndpoints();
 app.MapBeeexyPatientEndpoints();
 app.MapBeeexyClinicalHistoryEndpoints();
