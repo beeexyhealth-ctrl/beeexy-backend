@@ -102,7 +102,8 @@ public sealed class ClinicalAiOutputValidator(IClinicalPathwayRegistry pathwayRe
             issues.Distinct().ToArray());
     }
 
-    private static ClinicalAiValidationIssue? ValidateStructure(ClinicalAiProviderOutput output)
+    internal static ClinicalAiValidationIssue? ValidateStructure(
+        ClinicalAiProviderOutput output)
     {
         if (!string.Equals(
                 output.SchemaVersion,

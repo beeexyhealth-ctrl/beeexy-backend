@@ -106,6 +106,9 @@ public static class DependencyInjection
         services.AddScoped<IClinicalAiOutputValidator, ClinicalAiOutputValidator>();
         services.AddScoped<InterpretClinicalInput>();
         services.AddSingleton<
+            IPreTriageInterpretationAuditLogger,
+            PreTriageInterpretationAuditLogger>();
+        services.AddSingleton<
             IAnonymousPreTriageCapabilityService,
             CryptographicAnonymousPreTriageCapabilityService>();
         services.AddScoped<IPreTriageSessionRepository, PreTriageSessionRepository>();

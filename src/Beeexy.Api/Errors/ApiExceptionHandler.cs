@@ -265,6 +265,19 @@ internal sealed class ApiExceptionHandler(
             };
         }
 
+        if (exception is PreTriageInterpretationUnavailableException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status503ServiceUnavailable,
+                Title = "Pre-triage interpretation unavailable.",
+                Detail = "The pre-triage interpretation service is temporarily unavailable."
+            };
+            problem.Extensions["errorCode"] =
+                "pre_triage.interpretation_unavailable";
+            return problem;
+        }
+
         if (exception is PreTriageSessionStateConflictException)
         {
             return new ProblemDetails

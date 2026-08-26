@@ -64,9 +64,40 @@ public sealed class NvidiaClinicalAiProviderTests
         Assert.False(requestJson.RootElement
             .GetProperty("chat_template_kwargs").GetProperty("enable_thinking").GetBoolean());
         Assert.Equal(0, requestJson.RootElement.GetProperty("temperature").GetDouble());
-        Assert.Contains("phase-4-simplified-intake-extraction-v1", requestBody,
+        Assert.Contains("pre-triage-structured-extraction-v2", requestBody,
             StringComparison.Ordinal);
         Assert.Contains("HEADACHE", requestBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task InterpretAsync_ConstrainsPreSessionClassificationToFivePathways()
+    {
+        string? requestBody = null;
+        var provider = CreateProvider(
+            SuccessfulResponse("""
+            {
+              "schemaVersion":"clinical-interpretation-v1",
+              "intent":"PRE_TRIAGE_INPUT",
+              "pathwayCandidate":"OTHER_SYMPTOMS",
+              "facts":[],
+              "symptoms":[],
+              "ambiguities":[],
+              "requiresClarification":false
+            }
+            """),
+            async request => requestBody = await request.Content!.ReadAsStringAsync());
+
+        await provider.InterpretAsync(new ClinicalAiInterpretationRequest("My knee hurts"));
+
+        Assert.NotNull(requestBody);
+        Assert.Contains("PRE_SESSION", requestBody, StringComparison.Ordinal);
+        Assert.Contains("HEADACHE", requestBody, StringComparison.Ordinal);
+        Assert.Contains("ABDOMINAL_PAIN", requestBody, StringComparison.Ordinal);
+        Assert.Contains("CHEST_PAIN", requestBody, StringComparison.Ordinal);
+        Assert.Contains("FEVER", requestBody, StringComparison.Ordinal);
+        Assert.Contains("OTHER_SYMPTOMS", requestBody, StringComparison.Ordinal);
+        Assert.Contains("ADDITIONAL_SYMPTOMS", requestBody, StringComparison.Ordinal);
+        Assert.Contains("untrusted patient data", requestBody, StringComparison.Ordinal);
     }
 
     [Theory]

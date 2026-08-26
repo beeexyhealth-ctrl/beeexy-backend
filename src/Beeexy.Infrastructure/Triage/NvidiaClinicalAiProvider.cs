@@ -30,7 +30,7 @@ public sealed class NvidiaClinicalAiProvider(
                     model = options.Model,
                     messages = new[]
                     {
-                        new { role = "system", content = Phase4ClinicalAiExtractionPrompt.SystemMessage },
+                        new { role = "system", content = Phase4ClinicalAiExtractionPrompt.SystemMessage(request) },
                         new { role = "user", content = Phase4ClinicalAiExtractionPrompt.UserMessage(request) }
                     },
                     temperature = 0.0,

@@ -20,6 +20,28 @@ internal static class PreTriageEndpointExtensions
         this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapPost(
+                "/api/v1/pre-triage/intake/interpret",
+                InterpretIntakeAsync)
+            .WithName("InterpretPreTriageIntake")
+            .WithTags("Pre-Triage")
+            .WithDescription(
+                "Interprets one pre-session patient message without creating a session or " +
+                "persisting clinical state. The response contains only backend-validated " +
+                "candidate values and a RESOLVED, AMBIGUOUS, or UNRESOLVED outcome. Only " +
+                "HEADACHE, ABDOMINAL_PAIN, CHEST_PAIN, FEVER, and OTHER_SYMPTOMS can be " +
+                "authoritative pathway outcomes. The endpoint supports anonymous and " +
+                "authenticated callers; an invalid supplied Bearer credential is never " +
+                "downgraded to anonymous.")
+            .WithMetadata(new OptionalBearerAuthorizationMetadata())
+            .Accepts<InterpretPreTriageIntakeRequest>("application/json")
+            .Produces<PreTriageIntakeInterpretationResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        endpoints.MapPost(
                 "/api/v1/pre-triage/sessions",
                 StartSessionAsync)
             .WithName("StartPreTriageSession")
@@ -126,6 +148,28 @@ internal static class PreTriageEndpointExtensions
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         return endpoints;
+    }
+
+    private static async Task<IResult> InterpretIntakeAsync(
+        InterpretPreTriageIntakeRequest request,
+        HttpContext httpContext,
+        InterpretPreTriageIntake useCase,
+        CancellationToken cancellationToken)
+    {
+        _ = ResolveCallerMode(httpContext);
+        var result = await useCase.ExecuteAsync(
+            new InterpretPreTriageIntakeCommand(
+                request.Text,
+                request.UnsupportedFields?.Keys.ToArray() ?? []),
+            cancellationToken);
+
+        return Results.Ok(new PreTriageIntakeInterpretationResponse(
+            ToApiEnum(result.Resolution),
+            result.Pathway?.Value,
+            result.CandidatePathways.Count == 0
+                ? null
+                : result.CandidatePathways.Select(value => value.Value).ToArray(),
+            ToAcceptedValuesResponse(result.CandidateValues)));
     }
 
     private static async Task<IResult> ClaimSessionAsync(
@@ -442,6 +486,16 @@ internal sealed class StartPreTriageSessionRequest
     public Dictionary<string, JsonElement>? UnsupportedFields { get; init; }
 }
 
+internal sealed class InterpretPreTriageIntakeRequest
+{
+    [Required]
+    [StringLength(InterpretPreTriageIntake.MaximumTextLength, MinimumLength = 1)]
+    public string? Text { get; init; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? UnsupportedFields { get; init; }
+}
+
 internal sealed class SubmitPreTriageAnswersRequest
 {
     [StringLength(DefinitionVersion.MaximumLength, MinimumLength = 1)]
@@ -489,6 +543,14 @@ internal sealed record PreTriageSessionStartResponse(
     ClinicalContentStatusResponse ClinicalContent,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     string? AnonymousCapability);
+
+internal sealed record PreTriageIntakeInterpretationResponse(
+    string Resolution,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? Pathway,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<string>? CandidatePathways,
+    PreTriageAcceptedValuesResponse CandidateValues);
 
 internal sealed record ClinicalDefinitionReferenceResponse(
     string Code,

@@ -1,5 +1,6 @@
 using Beeexy.Api.Errors;
 using Beeexy.Application.Interoperability;
+using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
 using Microsoft.AspNetCore.Http;
 
@@ -35,6 +36,22 @@ public sealed class ApiExceptionHandlerTests
         Assert.Null(problem.Detail);
         Assert.DoesNotContain(sensitiveMessage, problem.ToString());
         Assert.DoesNotContain(nameof(InvalidOperationException), problem.ToString());
+    }
+
+    [Fact]
+    public void MapException_MapsPreTriageInterpretationFailureToSafeServiceUnavailable()
+    {
+        var problem = ApiExceptionHandler.MapException(
+            new PreTriageInterpretationUnavailableException(
+                ClinicalAiProviderFailureCategory.InvalidStructuredResponse));
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, problem.Status);
+        Assert.Equal("Pre-triage interpretation unavailable.", problem.Title);
+        Assert.Equal(
+            "pre_triage.interpretation_unavailable",
+            problem.Extensions["errorCode"]);
+        Assert.DoesNotContain("provider", problem.ToString(),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]

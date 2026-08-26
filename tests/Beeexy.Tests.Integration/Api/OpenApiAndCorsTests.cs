@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(28, paths.EnumerateObject().Count());
+        Assert.Equal(29, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
@@ -133,6 +133,9 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var preTriageStartOperation = paths
             .GetProperty("/api/v1/pre-triage/sessions")
             .GetProperty("post");
+        var preTriageInterpretOperation = paths
+            .GetProperty("/api/v1/pre-triage/intake/interpret")
+            .GetProperty("post");
         var preTriageAnswerOperation = paths
             .GetProperty("/api/v1/pre-triage/sessions/{id}/answers")
             .GetProperty("post");
@@ -204,6 +207,14 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             "404",
             "409",
             "422",
+            "500");
+        AssertResponseCodes(
+            preTriageInterpretOperation,
+            "200",
+            "400",
+            "401",
+            "422",
+            "503",
             "500");
         AssertResponseCodes(
             preTriageStartOperation,
@@ -429,6 +440,22 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.Empty(preTriageSecurity[0].EnumerateObject());
         Assert.True(preTriageSecurity[1].TryGetProperty("Bearer", out _));
         Assert.True(preTriageStartOperation.TryGetProperty("requestBody", out _));
+        var preTriageInterpretSecurity = preTriageInterpretOperation.GetProperty("security");
+        Assert.Equal(2, preTriageInterpretSecurity.GetArrayLength());
+        Assert.Empty(preTriageInterpretSecurity[0].EnumerateObject());
+        Assert.True(preTriageInterpretSecurity[1].TryGetProperty("Bearer", out _));
+        Assert.True(preTriageInterpretOperation.TryGetProperty("requestBody", out _));
+        var interpretationDescription = preTriageInterpretOperation
+            .GetProperty("description")
+            .GetString();
+        Assert.Contains("pre-session", interpretationDescription,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("without creating a session", interpretationDescription,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("RESOLVED, AMBIGUOUS, or UNRESOLVED", interpretationDescription,
+            StringComparison.Ordinal);
+        Assert.Contains("OTHER_SYMPTOMS", interpretationDescription,
+            StringComparison.Ordinal);
         var preTriageAnswerSecurity = preTriageAnswerOperation.GetProperty("security");
         Assert.Equal(2, preTriageAnswerSecurity.GetArrayLength());
         Assert.Empty(preTriageAnswerSecurity[0].EnumerateObject());
@@ -488,6 +515,24 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.Equal(
             ["duration", "intensity", "additionalSymptoms"],
             schemas.GetProperty("PreTriageAcceptedValuesResponse")
+                .GetProperty("properties")
+                .EnumerateObject()
+                .Select(value => value.Name));
+        Assert.Equal(
+            ["text"],
+            schemas.GetProperty("InterpretPreTriageIntakeRequest")
+                .GetProperty("properties")
+                .EnumerateObject()
+                .Select(value => value.Name));
+        Assert.Equal(
+            ["text"],
+            schemas.GetProperty("InterpretPreTriageIntakeRequest")
+                .GetProperty("required")
+                .EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.Equal(
+            ["resolution", "pathway", "candidatePathways", "candidateValues"],
+            schemas.GetProperty("PreTriageIntakeInterpretationResponse")
                 .GetProperty("properties")
                 .EnumerateObject()
                 .Select(value => value.Name));
