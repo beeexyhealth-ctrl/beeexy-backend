@@ -8,6 +8,15 @@ public sealed class ClinicalPathwayRegistry(IClinicalDefinitionProvider definiti
 {
     private static readonly IReadOnlyDictionary<string, ClinicalPathwayCode> Recognized =
         ClinicalPathways.Recognized.ToDictionary(pathway => pathway.Value, StringComparer.Ordinal);
+    private static readonly IReadOnlyDictionary<string, ClinicalPathwayCode> Aliases =
+        new Dictionary<string, ClinicalPathwayCode>(StringComparer.Ordinal)
+        {
+            ["Headache"] = ClinicalPathways.Headache,
+            ["Stomach pain"] = ClinicalPathways.AbdominalPain,
+            ["Chest pain"] = ClinicalPathways.ChestPain,
+            ["Fever"] = ClinicalPathways.Fever,
+            ["Other"] = ClinicalPathways.OtherSymptoms
+        };
 
     public bool IsRecognized(ClinicalPathwayCode pathway)
     {
@@ -25,8 +34,10 @@ public sealed class ClinicalPathwayRegistry(IClinicalDefinitionProvider definiti
         string pathwayCode,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(pathwayCode) ||
-            !Recognized.TryGetValue(pathwayCode.Trim(), out var pathway))
+        var normalizedInput = pathwayCode?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedInput) ||
+            !Recognized.TryGetValue(normalizedInput, out var pathway) &&
+            !Aliases.TryGetValue(normalizedInput, out pathway))
         {
             return new ClinicalPathwayResolution(
                 ClinicalPathwayResolutionStatus.Unknown,

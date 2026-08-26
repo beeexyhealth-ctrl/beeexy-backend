@@ -299,10 +299,8 @@ public sealed class PreTriageSessionStartEndpointTests(
     }
 
     [Theory]
-    [InlineData("CHEST_PAIN")]
     [InlineData("RESPIRATORY_SYMPTOMS")]
     [InlineData("BACK_PAIN")]
-    [InlineData("OTHER_SYMPTOMS")]
     public async Task RecognizedUnsupportedPathway_Returns422WithoutSession(
         string pathway)
     {
@@ -323,7 +321,9 @@ public sealed class PreTriageSessionStartEndpointTests(
     [Theory]
     [InlineData("HEADACHE")]
     [InlineData("ABDOMINAL_PAIN")]
+    [InlineData("CHEST_PAIN")]
     [InlineData("FEVER")]
+    [InlineData("OTHER_SYMPTOMS")]
     public async Task ConfirmedDemoPathway_StartsAndPinsItsSimplifiedPackage(string pathway)
     {
         using var factory = new BeeexyApiFactory(postgres.ConnectionString);
@@ -341,6 +341,26 @@ public sealed class PreTriageSessionStartEndpointTests(
         Assert.Equal(expected.Version.Value, result.Questionnaire.Version);
         Assert.Equal(expected.RuleSet.RuleSetCode.Value, result.RuleSet.Code);
         Assert.Equal("PRODUCT_DEMO_DEFINED", result.ClinicalContent.Source);
+    }
+
+    [Theory]
+    [InlineData("Headache", "HEADACHE")]
+    [InlineData("Stomach pain", "ABDOMINAL_PAIN")]
+    [InlineData("Chest pain", "CHEST_PAIN")]
+    [InlineData("Fever", "FEVER")]
+    [InlineData("Other", "OTHER_SYMPTOMS")]
+    public async Task ApprovedDisplayAlias_StartsTheCanonicalPathway(
+        string alias,
+        string canonicalPathway)
+    {
+        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        using var client = factory.CreateApiClient();
+
+        using var response = await client.PostAsJsonAsync(Endpoint, new { pathway = alias });
+        var result = await response.Content.ReadFromJsonAsync<StartResponse>();
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(canonicalPathway, result!.Pathway);
     }
 
     [Fact]

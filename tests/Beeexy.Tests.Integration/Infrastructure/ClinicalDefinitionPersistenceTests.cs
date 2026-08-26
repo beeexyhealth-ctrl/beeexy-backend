@@ -63,6 +63,31 @@ public sealed class ClinicalDefinitionPersistenceTests(PostgreSqlContainerFixtur
                 Assert.Equal(ClinicalContentStatus.NonClinicalDemo, value.ContentStatus);
                 Assert.Null(value.ApprovedAt);
             });
+
+            var expandedQuestionnaires = await verify.QuestionnaireVersions
+                .AsNoTracking()
+                .Include(value => value.Questions)
+                .Where(value => value.Version == DefinitionVersion.Create(
+                    SimplifiedDemoDefinitionPackages.ExpandedVersionIdentifier))
+                .ToArrayAsync();
+            var expandedRuleSets = await verify.ClinicalRuleSetVersions
+                .AsNoTracking()
+                .Where(value => value.Version == DefinitionVersion.Create(
+                    SimplifiedDemoDefinitionPackages.ExpandedVersionIdentifier))
+                .ToArrayAsync();
+            Assert.Equal(2, expandedQuestionnaires.Length);
+            Assert.Equal(2, expandedRuleSets.Length);
+            Assert.All(expandedQuestionnaires, value =>
+            {
+                Assert.Equal(4, value.Questions.Count);
+                Assert.Equal(ClinicalContentStatus.NonClinicalDemo, value.ContentStatus);
+                Assert.Null(value.ApprovedAt);
+            });
+            Assert.All(expandedRuleSets, value =>
+            {
+                Assert.Equal(ClinicalContentStatus.NonClinicalDemo, value.ContentStatus);
+                Assert.Null(value.ApprovedAt);
+            });
         }
 
         await using (var providerContext = CreateDbContext())

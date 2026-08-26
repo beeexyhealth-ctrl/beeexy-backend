@@ -166,10 +166,21 @@ public sealed class ClinicalDefinitionPackageValidator
                 "Demo completeness and progression must be duration, intensity, then additional symptoms.");
         }
 
-        if (package.Pathway == ClinicalPathways.AbdominalPain &&
-            definition.PrimarySymptomDisplayLabel != "Stomach pain")
+        var expectedDisplayLabel = package.Pathway == ClinicalPathways.Headache
+            ? "Headache"
+            : package.Pathway == ClinicalPathways.AbdominalPain
+                ? "Stomach pain"
+                : package.Pathway == ClinicalPathways.ChestPain
+                    ? "Chest pain"
+                    : package.Pathway == ClinicalPathways.Fever
+                        ? "Fever"
+                        : package.Pathway == ClinicalPathways.OtherSymptoms
+                            ? "Other symptoms"
+                            : null;
+        if (expectedDisplayLabel is null ||
+            definition.PrimarySymptomDisplayLabel != expectedDisplayLabel)
         {
-            throw Invalid("ABDOMINAL_PAIN must use the demo display label 'Stomach pain'.");
+            throw Invalid("The demo pathway must use its registered display label.");
         }
     }
 

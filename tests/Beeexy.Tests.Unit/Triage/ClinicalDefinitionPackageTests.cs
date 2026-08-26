@@ -14,7 +14,13 @@ public sealed class ClinicalDefinitionPackageTests
         Assert.Equal("ABDOMINAL_PAIN", ClinicalPathways.AbdominalPain.Value);
         Assert.Equal(7, ClinicalPathways.Recognized.Count);
         Assert.Equal(
-            [ClinicalPathways.Headache, ClinicalPathways.AbdominalPain, ClinicalPathways.Fever],
+            [
+                ClinicalPathways.Headache,
+                ClinicalPathways.AbdominalPain,
+                ClinicalPathways.ChestPain,
+                ClinicalPathways.Fever,
+                ClinicalPathways.OtherSymptoms
+            ],
             ClinicalPathways.Supported);
         Assert.Equal(
             ClinicalPathways.AbdominalPain,
@@ -259,12 +265,15 @@ public sealed class ClinicalDefinitionPackageTests
     [Fact]
     public async Task Registry_DistinguishesSupportedUnsupportedAndUnknownWithoutCrossMapping()
     {
-        var package = SimplifiedDemoDefinitionPackages.Create(ClinicalPathways.AbdominalPain);
-        var registry = new ClinicalPathwayRegistry(new StubDefinitionProvider(package));
-        var supported = await registry.ResolveAsync("ABDOMINAL_PAIN");
+        var packages = SimplifiedDemoDefinitionPackages.CreateAll();
+        var registry = new ClinicalPathwayRegistry(new StubDefinitionProvider(packages));
+        foreach (var package in packages)
+        {
+            var supported = await registry.ResolveAsync(package.Pathway.Value);
 
-        Assert.Equal(ClinicalPathwayResolutionStatus.Supported, supported.Status);
-        Assert.Same(package, supported.ActiveDefinition);
+            Assert.Equal(ClinicalPathwayResolutionStatus.Supported, supported.Status);
+            Assert.Same(package, supported.ActiveDefinition);
+        }
 
         foreach (var unsupported in ClinicalPathways.Recognized.Except(
             ClinicalPathways.Supported))
@@ -284,6 +293,26 @@ public sealed class ClinicalDefinitionPackageTests
         Assert.Null(unknown.ActiveDefinition);
     }
 
+    [Theory]
+    [InlineData("Headache", "HEADACHE")]
+    [InlineData("Stomach pain", "ABDOMINAL_PAIN")]
+    [InlineData("Chest pain", "CHEST_PAIN")]
+    [InlineData("Fever", "FEVER")]
+    [InlineData("Other", "OTHER_SYMPTOMS")]
+    public async Task Registry_NormalizesOnlyTheApprovedDeterministicAliases(
+        string alias,
+        string expectedPathway)
+    {
+        var packages = SimplifiedDemoDefinitionPackages.CreateAll();
+        var registry = new ClinicalPathwayRegistry(new StubDefinitionProvider(packages));
+
+        var resolution = await registry.ResolveAsync(alias);
+
+        Assert.Equal(ClinicalPathwayResolutionStatus.Supported, resolution.Status);
+        Assert.Equal(expectedPathway, resolution.Pathway!.Value);
+        Assert.Equal(expectedPathway, resolution.ActiveDefinition!.Pathway.Value);
+    }
+
     private static IEnumerable<string> PublicMutationMethods(Type type)
     {
         return type.GetMethods()
@@ -299,7 +328,8 @@ public sealed class ClinicalDefinitionPackageTests
         return AbdominalPainProvisionalPackage.Create();
     }
 
-    private sealed class StubDefinitionProvider(ClinicalDefinitionPackage package)
+    private sealed class StubDefinitionProvider(
+        IReadOnlyList<ClinicalDefinitionPackage> packages)
         : IClinicalDefinitionProvider
     {
         public Task<ClinicalDefinitionPackage?> GetActiveDefinitionAsync(
@@ -307,7 +337,7 @@ public sealed class ClinicalDefinitionPackageTests
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult<ClinicalDefinitionPackage?>(
-                pathway == package.Pathway ? package : null);
+                packages.SingleOrDefault(package => pathway == package.Pathway));
         }
 
         public Task<ClinicalDefinitionPackage?> GetDefinitionAsync(
@@ -316,7 +346,8 @@ public sealed class ClinicalDefinitionPackageTests
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult<ClinicalDefinitionPackage?>(
-                pathway == package.Pathway && version == package.Version ? package : null);
+                packages.SingleOrDefault(package =>
+                    pathway == package.Pathway && version == package.Version));
         }
     }
 }

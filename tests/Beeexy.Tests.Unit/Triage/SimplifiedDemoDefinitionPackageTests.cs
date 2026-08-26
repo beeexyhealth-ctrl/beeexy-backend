@@ -13,22 +13,25 @@ public sealed class SimplifiedDemoDefinitionPackageTests
     {
         var packages = SimplifiedDemoDefinitionPackages.CreateAll();
 
-        Assert.Equal(3, packages.Count);
+        Assert.Equal(5, packages.Count);
         Assert.Equal(
-            ["HEADACHE", "ABDOMINAL_PAIN", "FEVER"],
+            ["HEADACHE", "ABDOMINAL_PAIN", "CHEST_PAIN", "FEVER", "OTHER_SYMPTOMS"],
             packages.Select(value => value.Pathway.Value));
-        Assert.Equal(3, packages.Select(value => value.Questionnaire.Id).Distinct().Count());
-        Assert.Equal(3, packages.Select(value => value.RuleSet.Id).Distinct().Count());
+        Assert.Equal(5, packages.Select(value => value.Questionnaire.Id).Distinct().Count());
+        Assert.Equal(5, packages.Select(value => value.RuleSet.Id).Distinct().Count());
     }
 
     [Theory]
-    [InlineData("HEADACHE", "Headache", 3)]
-    [InlineData("ABDOMINAL_PAIN", "Stomach pain", 3)]
-    [InlineData("FEVER", "Fever", 2)]
+    [InlineData("HEADACHE", "Headache", 3, false)]
+    [InlineData("ABDOMINAL_PAIN", "Stomach pain", 3, false)]
+    [InlineData("CHEST_PAIN", "Chest pain", 3, true)]
+    [InlineData("FEVER", "Fever", 2, false)]
+    [InlineData("OTHER_SYMPTOMS", "Other symptoms", 3, true)]
     public void Package_HasExactSimplifiedSchemaAndTruthfulProvenance(
         string pathwayCode,
         string displayLabel,
-        int applicableAdditionalCount)
+        int applicableAdditionalCount,
+        bool expanded)
     {
         var package = Create(pathwayCode);
 
@@ -37,8 +40,16 @@ public sealed class SimplifiedDemoDefinitionPackageTests
         Assert.Equal(ClinicalContentStatus.NonClinicalDemo, package.ContentStatus);
         Assert.Null(package.Questionnaire.ApprovedAt);
         Assert.Null(package.RuleSet.ApprovedAt);
-        Assert.Equal(SimplifiedDemoDefinitionPackages.SourceReference,
+        Assert.Equal(
+            expanded
+                ? SimplifiedDemoDefinitionPackages.ExpandedSourceReference
+                : SimplifiedDemoDefinitionPackages.SourceReference,
             package.Questionnaire.SourceReference);
+        Assert.Equal(
+            expanded
+                ? SimplifiedDemoDefinitionPackages.ExpandedVersionIdentifier
+                : SimplifiedDemoDefinitionPackages.VersionIdentifier,
+            package.Version.Value);
         Assert.Equal(4, package.Questions.Count);
         Assert.Equal(
             ["PRIMARY_SYMPTOM", "DURATION", "INTENSITY", "ADDITIONAL_SYMPTOMS"],
@@ -76,6 +87,8 @@ public sealed class SimplifiedDemoDefinitionPackageTests
     [Theory]
     [InlineData("HEADACHE")]
     [InlineData("ABDOMINAL_PAIN")]
+    [InlineData("CHEST_PAIN")]
+    [InlineData("OTHER_SYMPTOMS")]
     public void NonFeverPathways_ExposeTheExactGlobalCatalog(string pathwayCode)
     {
         var package = Create(pathwayCode);
@@ -88,7 +101,9 @@ public sealed class SimplifiedDemoDefinitionPackageTests
     [Theory]
     [InlineData("HEADACHE")]
     [InlineData("ABDOMINAL_PAIN")]
+    [InlineData("CHEST_PAIN")]
     [InlineData("FEVER")]
+    [InlineData("OTHER_SYMPTOMS")]
     public void Package_HasNoClinicalAuthorityArtifacts(string pathwayCode)
     {
         var definitions = Create(pathwayCode).RuleDefinitions;
@@ -135,7 +150,9 @@ public sealed class SimplifiedDemoDefinitionPackageTests
     public void Create_RejectsRecognizedButUnsupportedAndUnknownPathways()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            SimplifiedDemoDefinitionPackages.Create(ClinicalPathways.ChestPain));
+            SimplifiedDemoDefinitionPackages.Create(ClinicalPathways.RespiratorySymptoms));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            SimplifiedDemoDefinitionPackages.Create(ClinicalPathways.BackPain));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             SimplifiedDemoDefinitionPackages.Create(ClinicalPathwayCode.Create("UNKNOWN")));
     }

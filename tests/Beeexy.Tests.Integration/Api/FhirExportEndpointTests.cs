@@ -116,6 +116,51 @@ public sealed class FhirExportEndpointTests(PostgreSqlContainerFixture postgres)
         Assert.DoesNotContain(authentication.AccessToken, logText, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("CHEST_PAIN")]
+    [InlineData("OTHER_SYMPTOMS")]
+    public async Task ExpandedPathway_UsesTheGenericValidNeutralFhirPipeline(string pathway)
+    {
+        await EnsureMigratedAsync();
+        var store = new MutableArtifactStore();
+        using var factory = Factory(store);
+        using var client = factory.CreateApiClient();
+        var authentication = await AuthenticateAsync(
+            factory,
+            client,
+            $"fhir-{pathway.ToLowerInvariant()}");
+        SetBearer(client, authentication.AccessToken);
+        var source = await CompletePreTriageAsync(
+            client,
+            authentication.Account.ProfileId,
+            pathway);
+
+        using var create = await client.PostAsJsonAsync(
+            CreateEndpoint(authentication.Account.ProfileId),
+            Request(source.EventId, Guid.NewGuid()));
+        var metadata = await create.Content.ReadFromJsonAsync<ExportMetadata>();
+        using var download = await client.GetAsync(ContentEndpoint(metadata!.Id));
+        var bytes = await download.Content.ReadAsByteArrayAsync();
+
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        Assert.Equal("Validated", metadata.Status);
+        Assert.Equal("Passed", metadata.Validation!.Outcome);
+        Assert.Equal(HttpStatusCode.OK, download.StatusCode);
+        using var document = JsonDocument.Parse(bytes);
+        var resources = document.RootElement.GetProperty("entry")
+            .EnumerateArray()
+            .Select(entry => entry.GetProperty("resource"))
+            .ToArray();
+        Assert.Equal(
+            ["QuestionnaireResponse", "Device", "Provenance"],
+            resources.Select(resource => resource.GetProperty("resourceType").GetString()));
+        Assert.Equal(
+            ["DURATION", "INTENSITY", "ADDITIONAL_SYMPTOMS"],
+            resources[0].GetProperty("item").EnumerateArray()
+                .Select(item => item.GetProperty("linkId").GetString()));
+        Assert.DoesNotContain("RiskAssessment", Encoding.UTF8.GetString(bytes));
+    }
+
     [Fact]
     public async Task AuthenticationAuthorizationAndRevocationAreEnforcedForEveryOperation()
     {
@@ -436,11 +481,12 @@ public sealed class FhirExportEndpointTests(PostgreSqlContainerFixture postgres)
 
     private static async Task<SourceResult> CompletePreTriageAsync(
         HttpClient client,
-        Guid patientId)
+        Guid patientId,
+        string pathway = "HEADACHE")
     {
         using var start = await client.PostAsJsonAsync(
             "/api/v1/pre-triage/sessions",
-            new { pathway = "HEADACHE" });
+            new { pathway });
         var started = await start.Content.ReadFromJsonAsync<StartedSession>();
         Assert.Equal(HttpStatusCode.Created, start.StatusCode);
         using var answer = await client.PostAsJsonAsync(

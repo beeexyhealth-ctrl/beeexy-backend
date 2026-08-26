@@ -38,7 +38,9 @@ public sealed class PreTriageAnswerEndpointTests(
     [Theory]
     [InlineData("HEADACHE")]
     [InlineData("ABDOMINAL_PAIN")]
+    [InlineData("CHEST_PAIN")]
     [InlineData("FEVER")]
+    [InlineData("OTHER_SYMPTOMS")]
     public async Task AnonymousStructuredFlow_ProgressesToReadyWithoutPermanentRecords(
         string pathway)
     {
@@ -46,11 +48,13 @@ public sealed class PreTriageAnswerEndpointTests(
         using var client = factory.CreateApiClient();
         var permanentBefore = await LoadPermanentCountsAsync();
         var session = await StartAnonymousAsync(client, pathway);
+        var package = SimplifiedDemoDefinitionPackages.Create(
+            ClinicalPathwayCode.Create(pathway));
 
         using var duration = await SubmitAnonymousAsync(client, session,
             new
             {
-                questionnaireVersion = SimplifiedDemoDefinitionPackages.VersionIdentifier,
+                questionnaireVersion = package.Version.Value,
                 structured = new { duration = new { value = 1, unit = "DAYS" } }
             });
         var durationResult = await duration.Content.ReadFromJsonAsync<AnswerResponse>();
@@ -110,6 +114,26 @@ public sealed class PreTriageAnswerEndpointTests(
         }
 
         Assert.Equal(permanentBefore, await LoadPermanentCountsAsync());
+    }
+
+    [Theory]
+    [InlineData("CHEST_PAIN")]
+    [InlineData("OTHER_SYMPTOMS")]
+    public async Task ExpandedPathway_InvalidControlledValueIsRejectedWithoutMutation(
+        string pathway)
+    {
+        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        using var client = factory.CreateApiClient();
+        var session = await StartAnonymousAsync(client, pathway);
+
+        using var response = await SubmitAnonymousAsync(client, session,
+            new { structured = new { additionalSymptoms = new[] { "COUGH" } } });
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("pre_triage.additional_symptoms_invalid",
+            problem.RootElement.GetProperty("errorCode").GetString());
+        Assert.Equal(0, await CountAnswersAsync(session.SessionId));
     }
 
     [Fact]
@@ -414,7 +438,9 @@ public sealed class PreTriageAnswerEndpointTests(
     [Theory]
     [InlineData("HEADACHE", "Headache", new[] { "FEVER" })]
     [InlineData("ABDOMINAL_PAIN", "Stomach pain", new[] { "NAUSEA", "FEVER" })]
+    [InlineData("CHEST_PAIN", "Chest pain", new[] { "NAUSEA", "FEVER" })]
     [InlineData("FEVER", "Fever", new[] { "NAUSEA", "DIARRHEA" })]
+    [InlineData("OTHER_SYMPTOMS", "Other symptoms", new[] { "DIARRHEA" })]
     public async Task AnonymousCompletion_PersistsAndReturnsCanonicalNeutralResult(
         string pathway,
         string display,
@@ -452,7 +478,8 @@ public sealed class PreTriageAnswerEndpointTests(
         Assert.Equal(new DurationResponse(2, "DAYS"), firstBody.Duration);
         Assert.Equal(7, firstBody.Intensity);
         Assert.Equal(additionalSymptoms, firstBody.AdditionalSymptoms);
-        Assert.Equal(SimplifiedDemoDefinitionPackages.VersionIdentifier,
+        Assert.Equal(SimplifiedDemoDefinitionPackages.Create(
+                ClinicalPathwayCode.Create(pathway)).Version.Value,
             firstBody.Questionnaire.Version);
         Assert.Equal(firstBody.Questionnaire.Version, firstBody.Package.Version);
         Assert.Equal("PRODUCT_DEMO_DEFINED", firstBody.ClinicalContent.Source);
@@ -493,12 +520,15 @@ public sealed class PreTriageAnswerEndpointTests(
         }
     }
 
-    [Fact]
-    public async Task IncompleteCompletionAndResult_CreateNoPermanentState()
+    [Theory]
+    [InlineData("CHEST_PAIN")]
+    [InlineData("OTHER_SYMPTOMS")]
+    public async Task ExpandedPathway_IncompleteCompletionAndResult_CreateNoPermanentState(
+        string pathway)
     {
         using var factory = new BeeexyApiFactory(postgres.ConnectionString);
         using var client = factory.CreateApiClient();
-        var session = await StartAnonymousAsync(client, "HEADACHE");
+        var session = await StartAnonymousAsync(client, pathway);
         using var answer = await SubmitAnonymousAsync(client, session,
             new { structured = new { intensity = 5 } });
 
@@ -664,10 +694,14 @@ public sealed class PreTriageAnswerEndpointTests(
     [Theory]
     [InlineData("HEADACHE", "Headache", false)]
     [InlineData("ABDOMINAL_PAIN", "Stomach pain", false)]
+    [InlineData("CHEST_PAIN", "Chest pain", false)]
     [InlineData("FEVER", "Fever", false)]
+    [InlineData("OTHER_SYMPTOMS", "Other symptoms", false)]
     [InlineData("HEADACHE", "Headache", true)]
     [InlineData("ABDOMINAL_PAIN", "Stomach pain", true)]
+    [InlineData("CHEST_PAIN", "Chest pain", true)]
     [InlineData("FEVER", "Fever", true)]
+    [InlineData("OTHER_SYMPTOMS", "Other symptoms", true)]
     public async Task Phase411_PatientOwnedJourney_CompletesEverySupportedPathwayNeutrally(
         string pathway,
         string display,
@@ -710,7 +744,8 @@ public sealed class PreTriageAnswerEndpointTests(
         Assert.Equal(7, completed.Intensity);
         Assert.Equal(additionalSymptoms, completed.AdditionalSymptoms);
         Assert.Equal(
-            SimplifiedDemoDefinitionPackages.VersionIdentifier,
+            SimplifiedDemoDefinitionPackages.Create(
+                ClinicalPathwayCode.Create(pathway)).Version.Value,
             completed.Questionnaire.Version);
         Assert.Equal(completed.Questionnaire.Version, completed.Package.Version);
         Assert.Equal("PRODUCT_DEMO_DEFINED", completed.ClinicalContent.Source);

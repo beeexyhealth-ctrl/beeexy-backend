@@ -35,5 +35,5 @@ public static class ClinicalPathways
     ];
 
     public static IReadOnlyList<ClinicalPathwayCode> Supported { get; } =
-        [Headache, AbdominalPain, Fever];
+        [Headache, AbdominalPain, ChestPain, Fever, OtherSymptoms];
 }

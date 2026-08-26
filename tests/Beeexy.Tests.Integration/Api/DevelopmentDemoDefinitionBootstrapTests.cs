@@ -21,7 +21,9 @@ public sealed class DevelopmentDemoDefinitionBootstrapTests(
     [Theory]
     [InlineData("HEADACHE")]
     [InlineData("ABDOMINAL_PAIN")]
+    [InlineData("CHEST_PAIN")]
     [InlineData("FEVER")]
+    [InlineData("OTHER_SYMPTOMS")]
     public async Task FreshDevelopmentDatabase_StartsSessionsForEveryDemoPathway(string pathway)
     {
         using var factory = new BeeexyApiFactory(ConnectionString);
@@ -33,8 +35,9 @@ public sealed class DevelopmentDemoDefinitionBootstrapTests(
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        Assert.Equal(
-            SimplifiedDemoDefinitionPackages.VersionIdentifier,
+        var expected = SimplifiedDemoDefinitionPackages.Create(
+            Beeexy.Domain.Triage.ClinicalPathwayCode.Create(pathway));
+        Assert.Equal(expected.Version.Value,
             body.RootElement.GetProperty("questionnaire").GetProperty("version").GetString());
     }
 

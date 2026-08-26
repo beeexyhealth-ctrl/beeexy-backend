@@ -94,12 +94,8 @@ public sealed class StartPreTriageTests
     }
 
     [Theory]
-    [InlineData("HEADACHE")]
-    [InlineData("CHEST_PAIN")]
-    [InlineData("FEVER")]
     [InlineData("RESPIRATORY_SYMPTOMS")]
     [InlineData("BACK_PAIN")]
-    [InlineData("OTHER_SYMPTOMS")]
     public async Task RecognizedUnsupportedPathway_FailsWithoutGeneratingCapability(
         string pathway)
     {

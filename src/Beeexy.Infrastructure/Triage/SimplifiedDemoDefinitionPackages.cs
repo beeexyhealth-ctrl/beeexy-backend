@@ -7,8 +7,11 @@ namespace Beeexy.Infrastructure.Triage;
 public static class SimplifiedDemoDefinitionPackages
 {
     public const string VersionIdentifier = "2026.08.22-demo.1";
+    public const string ExpandedVersionIdentifier = "2026.08.26-demo.1";
     public const string SourceReference =
         "Beeexy_Phase_4.5_Confirmed_Demo_Pathways_Simplified_Packages_Prompt.md";
+    public const string ExpandedSourceReference =
+        "chat-pretriage-part-1-expand-demo-pathways.md";
     public const string PrimarySymptomQuestion = "PRIMARY_SYMPTOM";
     public const string DurationQuestion = "DURATION";
     public const string IntensityQuestion = "INTENSITY";
@@ -16,12 +19,16 @@ public static class SimplifiedDemoDefinitionPackages
 
     private static readonly DateTimeOffset ImportedAndActivatedAt =
         new(2026, 8, 22, 4, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset ExpandedImportedAndActivatedAt =
+        new(2026, 8, 26, 12, 0, 0, TimeSpan.Zero);
 
     public static IReadOnlyList<ClinicalDefinitionPackage> CreateAll() =>
     [
         Create(ClinicalPathways.Headache),
         Create(ClinicalPathways.AbdominalPain),
-        Create(ClinicalPathways.Fever)
+        Create(ClinicalPathways.ChestPain),
+        Create(ClinicalPathways.Fever),
+        Create(ClinicalPathways.OtherSymptoms)
     ];
 
     public static ClinicalDefinitionPackage Create(ClinicalPathwayCode pathway)
@@ -35,14 +42,16 @@ public static class SimplifiedDemoDefinitionPackages
             applicableAdditionalSymptoms);
         var definition = CreateDefinition(specification.DisplayLabel,
             applicableAdditionalSymptoms);
-        var version = DefinitionVersion.Create(VersionIdentifier);
+        var version = DefinitionVersion.Create(specification.VersionIdentifier);
         var questionInputs = questions.Select(question => new TriageQuestionInput(
             question.Code,
             question.PromptText,
             question.DisplayOrder,
             ClinicalDefinitionSerialization.SerializeQuestion(question),
             null,
-            DeterministicId($"{pathway.Value}:question:{question.Code.Value}"))).ToArray();
+            DeterministicId(
+                specification.VersionIdentifier,
+                $"{pathway.Value}:question:{question.Code.Value}"))).ToArray();
         var ruleContent = ClinicalDefinitionSerialization.SerializeRulePackage(definition);
         var questionnaire = QuestionnaireDefinitionVersion.Import(
             pathway,
@@ -50,10 +59,12 @@ public static class SimplifiedDemoDefinitionPackages
             version,
             ClinicalDefinitionIntegrity.QuestionnaireHash(questionInputs),
             ClinicalContentStatus.NonClinicalDemo,
-            ImportedAndActivatedAt,
-            activatedAt: ImportedAndActivatedAt,
-            sourceReference: SourceReference,
-            id: DeterministicId($"{pathway.Value}:questionnaire"),
+            specification.ImportedAndActivatedAt,
+            activatedAt: specification.ImportedAndActivatedAt,
+            sourceReference: specification.SourceReference,
+            id: DeterministicId(
+                specification.VersionIdentifier,
+                $"{pathway.Value}:questionnaire"),
             questions: questionInputs);
         var ruleSet = ClinicalRuleSetVersion.Import(
             pathway,
@@ -62,10 +73,12 @@ public static class SimplifiedDemoDefinitionPackages
             ClinicalDefinitionIntegrity.RulePackageHash(ruleContent),
             ClinicalContentStatus.NonClinicalDemo,
             ruleContent,
-            ImportedAndActivatedAt,
-            activatedAt: ImportedAndActivatedAt,
-            sourceReference: SourceReference,
-            id: DeterministicId($"{pathway.Value}:rules"));
+            specification.ImportedAndActivatedAt,
+            activatedAt: specification.ImportedAndActivatedAt,
+            sourceReference: specification.SourceReference,
+            id: DeterministicId(
+                specification.VersionIdentifier,
+                $"{pathway.Value}:rules"));
 
         return new ClinicalDefinitionPackage(
             pathway,
@@ -149,33 +162,87 @@ public static class SimplifiedDemoDefinitionPackages
             displayOrder,
             answer);
 
-    private static (string DisplayLabel, string QuestionnaireCode, string RuleSetCode)
+    private static PackageSpecification
         GetSpecification(ClinicalPathwayCode pathway)
     {
         if (pathway == ClinicalPathways.Headache)
         {
-            return ("Headache", "headache-demo-questionnaire", "headache-demo-neutral-rules");
+            return OriginalSpecification(
+                "Headache",
+                "headache-demo-questionnaire",
+                "headache-demo-neutral-rules");
         }
 
         if (pathway == ClinicalPathways.AbdominalPain)
         {
-            return ("Stomach pain", "abdominal-pain-demo-questionnaire",
+            return OriginalSpecification(
+                "Stomach pain",
+                "abdominal-pain-demo-questionnaire",
                 "abdominal-pain-demo-neutral-rules");
+        }
+
+        if (pathway == ClinicalPathways.ChestPain)
+        {
+            return ExpandedSpecification(
+                "Chest pain",
+                "chest-pain-demo-questionnaire",
+                "chest-pain-demo-neutral-rules");
         }
 
         if (pathway == ClinicalPathways.Fever)
         {
-            return ("Fever", "fever-demo-questionnaire", "fever-demo-neutral-rules");
+            return OriginalSpecification(
+                "Fever",
+                "fever-demo-questionnaire",
+                "fever-demo-neutral-rules");
+        }
+
+        if (pathway == ClinicalPathways.OtherSymptoms)
+        {
+            return ExpandedSpecification(
+                "Other symptoms",
+                "other-symptoms-demo-questionnaire",
+                "other-symptoms-demo-neutral-rules");
         }
 
         throw new ArgumentOutOfRangeException(
             nameof(pathway), pathway.Value, "The pathway has no simplified demo package.");
     }
 
-    private static EntityId DeterministicId(string seed)
+    private static PackageSpecification OriginalSpecification(
+        string displayLabel,
+        string questionnaireCode,
+        string ruleSetCode) => new(
+            displayLabel,
+            questionnaireCode,
+            ruleSetCode,
+            VersionIdentifier,
+            SourceReference,
+            ImportedAndActivatedAt);
+
+    private static PackageSpecification ExpandedSpecification(
+        string displayLabel,
+        string questionnaireCode,
+        string ruleSetCode) => new(
+            displayLabel,
+            questionnaireCode,
+            ruleSetCode,
+            ExpandedVersionIdentifier,
+            ExpandedSourceReference,
+            ExpandedImportedAndActivatedAt);
+
+    private static EntityId DeterministicId(string versionIdentifier, string seed)
     {
         var bytes = System.Security.Cryptography.SHA256.HashData(
-            Encoding.UTF8.GetBytes($"beeexy:phase4.5:{VersionIdentifier}:{seed}"));
+            Encoding.UTF8.GetBytes($"beeexy:phase4.5:{versionIdentifier}:{seed}"));
         return EntityId.From(new Guid(bytes.AsSpan(0, 16)));
     }
+
+    private sealed record PackageSpecification(
+        string DisplayLabel,
+        string QuestionnaireCode,
+        string RuleSetCode,
+        string VersionIdentifier,
+        string SourceReference,
+        DateTimeOffset ImportedAndActivatedAt);
 }

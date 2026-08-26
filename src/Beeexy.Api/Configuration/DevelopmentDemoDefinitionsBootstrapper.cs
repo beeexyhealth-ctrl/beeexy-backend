@@ -22,15 +22,16 @@ public sealed class DevelopmentDemoDefinitionsBootstrapper(
         await dbContext.Database.MigrateAsync(cancellationToken);
 
         var importer = scope.ServiceProvider.GetRequiredService<IClinicalDefinitionImporter>();
-        foreach (var package in SimplifiedDemoDefinitionPackages.CreateAll())
+        var packages = SimplifiedDemoDefinitionPackages.CreateAll();
+        foreach (var package in packages)
         {
             await importer.ImportAsync(package, cancellationToken);
         }
 
         logger.LogInformation(
-            "Local Phase 4 demo definitions are available and active for {Pathways} at version {Version}.",
-            "HEADACHE, ABDOMINAL_PAIN, FEVER",
-            SimplifiedDemoDefinitionPackages.VersionIdentifier);
+            "Local demo definitions are available and active for {Packages}.",
+            string.Join(", ", packages.Select(package =>
+                $"{package.Pathway.Value}@{package.Version.Value}")));
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

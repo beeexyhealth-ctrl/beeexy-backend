@@ -55,8 +55,8 @@ public sealed class ClinicalAiBoundaryIntegrationTests(PostgreSqlContainerFixtur
         var before = await WorkflowCountsAsync(dbContext);
         var unsupported = await CreateInterpreter(
             dbContext,
-            ValidOutput(pathway: "CHEST_PAIN")).ExecuteAsync(
-                new ClinicalAiInterpretationRequest("I have chest pain."));
+            ValidOutput(pathway: "RESPIRATORY_SYMPTOMS")).ExecuteAsync(
+                new ClinicalAiInterpretationRequest("I have respiratory symptoms."));
         var unknown = await CreateInterpreter(
             dbContext,
             ValidOutput(pathway: "AI_INVENTED_PATHWAY")).ExecuteAsync(
@@ -115,6 +115,36 @@ public sealed class ClinicalAiBoundaryIntegrationTests(PostgreSqlContainerFixtur
         Assert.Contains(
             ClinicalAiValidationIssue.ForbiddenClinicalAuthority,
             forbiddenAuthority.Validation!.Issues);
+        Assert.Equal(before, await WorkflowCountsAsync(dbContext));
+    }
+
+    [Theory]
+    [InlineData("CHEST_PAIN")]
+    [InlineData("OTHER_SYMPTOMS")]
+    public async Task ExpandedDemoDefinition_RejectsAiValueOutsideControlledVocabulary(
+        string pathway)
+    {
+        await EnsurePackageImportedAsync();
+        await using var dbContext = CreateDbContext();
+        var before = await WorkflowCountsAsync(dbContext);
+        var output = ValidOutput(
+        [
+            new ClinicalAiFactCandidate(
+                QuestionCode.Create("ADDITIONAL_SYMPTOMS"),
+                new ClinicalAiMultipleChoiceValue(["COUGH"]),
+                ClinicalAiConfidenceSignal.Sufficient)
+        ], pathway);
+
+        var result = await CreateInterpreter(dbContext, output).ExecuteAsync(
+            new ClinicalAiInterpretationRequest(
+                "A provider candidate outside the controlled demo vocabulary.",
+                ClinicalPathwayCode.Create(pathway),
+                allowedFactCodes: [QuestionCode.Create("ADDITIONAL_SYMPTOMS")]));
+
+        Assert.Equal(ClinicalAiInterpretationOutcome.InvalidProviderOutput, result.Outcome);
+        Assert.Contains(ClinicalAiValidationIssue.InvalidChoice, result.Validation!.Issues);
+        Assert.Empty(result.Validation.Facts.Where(fact =>
+            fact.Status == ClinicalAiCandidateStatus.AcceptedCandidate));
         Assert.Equal(before, await WorkflowCountsAsync(dbContext));
     }
 

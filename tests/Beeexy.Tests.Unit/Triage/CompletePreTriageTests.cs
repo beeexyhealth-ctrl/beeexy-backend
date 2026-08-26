@@ -11,7 +11,9 @@ public sealed class CompletePreTriageTests
     [Theory]
     [InlineData("HEADACHE", "Headache", "[\"FEVER\"]")]
     [InlineData("ABDOMINAL_PAIN", "Stomach pain", "[\"NAUSEA\",\"FEVER\"]")]
+    [InlineData("CHEST_PAIN", "Chest pain", "[\"NAUSEA\",\"FEVER\"]")]
     [InlineData("FEVER", "Fever", "[\"NAUSEA\",\"DIARRHEA\"]")]
+    [InlineData("OTHER_SYMPTOMS", "Other symptoms", "[\"DIARRHEA\"]")]
     public void Completeness_UsesExactPinnedDemoPackage(
         string pathwayCode,
         string display,

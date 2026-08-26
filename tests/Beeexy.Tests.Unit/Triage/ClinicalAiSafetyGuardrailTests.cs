@@ -169,10 +169,8 @@ public sealed class ClinicalAiSafetyGuardrailTests
     }
 
     [Theory]
-    [InlineData("CHEST_PAIN")]
     [InlineData("RESPIRATORY_SYMPTOMS")]
     [InlineData("BACK_PAIN")]
-    [InlineData("OTHER_SYMPTOMS")]
     public async Task Validator_RefusesRecognizedUnsupportedPathways(
         string pathway)
     {
