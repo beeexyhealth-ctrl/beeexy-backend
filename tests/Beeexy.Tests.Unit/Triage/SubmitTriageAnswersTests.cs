@@ -487,6 +487,95 @@ public sealed class SubmitTriageAnswersTests
     }
 
     [Fact]
+    public async Task ApplyInitialCandidates_RevalidatesIndividuallyAgainstPinnedPackage()
+    {
+        var fixture = CreateFixture("HEADACHE");
+        var result = await fixture.UseCase.ApplyInitialCandidatesAsync(
+            new ApplyInitialTriageCandidatesCommand(
+                fixture.Session.Id,
+                PreTriageCallerMode.Anonymous,
+                "valid-capability",
+                [
+                    new AcceptedTriageAnswerValue(
+                        QuestionCode.Create("DURATION"),
+                        new ClinicalAiDurationValue(2, ClinicalDurationUnit.Days)),
+                    new AcceptedTriageAnswerValue(
+                        QuestionCode.Create("INTENSITY"),
+                        new ClinicalAiIntegerValue(15)),
+                    new AcceptedTriageAnswerValue(
+                        QuestionCode.Create("ADDITIONAL_SYMPTOMS"),
+                        new ClinicalAiMultipleChoiceValue(["COUGH"]))
+                ]));
+
+        var accepted = Assert.Single(result.AcceptedValues);
+        Assert.Equal(QuestionCode.Create("DURATION"), accepted.Code);
+        Assert.Equal(new ClinicalAiDurationValue(2, ClinicalDurationUnit.Days), accepted.Value);
+        Assert.Single(fixture.Session.Answers);
+        Assert.Equal(
+            [QuestionCode.Create("INTENSITY"), QuestionCode.Create("ADDITIONAL_SYMPTOMS")],
+            result.Progression.MissingRequiredFields);
+        Assert.Equal(QuestionCode.Create("INTENSITY"), result.Progression.NextQuestion!.Code);
+    }
+
+    [Fact]
+    public async Task ApplyInitialCandidates_AllowsNoOptimizationsAndReturnsInitialProgression()
+    {
+        var fixture = CreateFixture("CHEST_PAIN");
+
+        var result = await fixture.UseCase.ApplyInitialCandidatesAsync(
+            new ApplyInitialTriageCandidatesCommand(
+                fixture.Session.Id,
+                PreTriageCallerMode.Anonymous,
+                "valid-capability",
+                []));
+
+        Assert.Empty(result.AcceptedValues);
+        Assert.Empty(fixture.Session.Answers);
+        Assert.Equal(QuestionCode.Create("DURATION"), result.Progression.NextQuestion!.Code);
+        Assert.False(result.Progression.ReadyToComplete);
+    }
+
+    [Fact]
+    public async Task ApplyInitialCandidates_UsesSessionPinnedDefinitionNotPriorValidation()
+    {
+        var original = SimplifiedDemoDefinitionPackages.Create(ClinicalPathways.Headache);
+        var pinnedQuestions = original.Questions.Select(question =>
+            question.Code == QuestionCode.Create("INTENSITY")
+                ? question with
+                {
+                    Answer = question.Answer with { Maximum = 5 }
+                }
+                : question).ToArray();
+        var pinned = new ClinicalDefinitionPackage(
+            original.Pathway,
+            original.Questionnaire,
+            original.RuleSet,
+            pinnedQuestions,
+            original.Branches,
+            original.RuleDefinitions);
+        var fixture = CreateFixture("HEADACHE", packageOverride: pinned);
+
+        var result = await fixture.UseCase.ApplyInitialCandidatesAsync(
+            new ApplyInitialTriageCandidatesCommand(
+                fixture.Session.Id,
+                PreTriageCallerMode.Anonymous,
+                "valid-capability",
+                [
+                    new AcceptedTriageAnswerValue(
+                        QuestionCode.Create("DURATION"),
+                        new ClinicalAiDurationValue(1, ClinicalDurationUnit.Days)),
+                    new AcceptedTriageAnswerValue(
+                        QuestionCode.Create("INTENSITY"),
+                        new ClinicalAiIntegerValue(6))
+                ]));
+
+        var accepted = Assert.Single(result.AcceptedValues);
+        Assert.Equal(QuestionCode.Create("DURATION"), accepted.Code);
+        Assert.Equal(QuestionCode.Create("INTENSITY"), result.Progression.NextQuestion!.Code);
+        Assert.Single(fixture.Session.Answers);
+    }
+
+    [Fact]
     public void PublicWorkflowContracts_ExposeNoClinicalAuthorityFields()
     {
         var forbidden = new[]
@@ -513,9 +602,10 @@ public sealed class SubmitTriageAnswersTests
         string pathway,
         ClinicalAiProviderOutput? output = null,
         ClinicalAiProviderFailureCategory? providerFailure = null,
-        DateTimeOffset? now = null)
+        DateTimeOffset? now = null,
+        ClinicalDefinitionPackage? packageOverride = null)
     {
-        var package = SimplifiedDemoDefinitionPackages.Create(
+        var package = packageOverride ?? SimplifiedDemoDefinitionPackages.Create(
             ClinicalPathwayCode.Create(pathway));
         var clock = new FakeClock(now ?? Now);
         var session = PreTriageSession.CreateAnonymous(

@@ -20,7 +20,18 @@ public sealed class StartPreTriage(
 
     public async Task<StartPreTriageResult> ExecuteAsync(
         StartPreTriageCommand command,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        await ExecuteCoreAsync(command, auditAfterSave: true, cancellationToken);
+
+    internal async Task<StartPreTriageResult> ExecuteForOrchestrationAsync(
+        StartPreTriageCommand command,
+        CancellationToken cancellationToken = default) =>
+        await ExecuteCoreAsync(command, auditAfterSave: false, cancellationToken);
+
+    private async Task<StartPreTriageResult> ExecuteCoreAsync(
+        StartPreTriageCommand command,
+        bool auditAfterSave,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
         var patientProfileId = await ResolvePatientAsync(command, cancellationToken);
@@ -58,19 +69,7 @@ public sealed class StartPreTriage(
         repository.Add(session);
         await repository.SaveChangesAsync(cancellationToken);
 
-        auditLogger.SessionCreated(
-            session.Id,
-            command.CallerMode,
-            package.Pathway,
-            package.Questionnaire.QuestionnaireCode,
-            package.Questionnaire.Version,
-            package.RuleSet.RuleSetCode,
-            package.RuleSet.Version,
-            patientProfileId,
-            now,
-            expiresAt);
-
-        return new StartPreTriageResult(
+        var result = new StartPreTriageResult(
             session.Id,
             patientProfileId,
             package.Pathway,
@@ -81,8 +80,29 @@ public sealed class StartPreTriage(
             package.RuleSet.RuleSetCode,
             package.RuleSet.Version,
             package.ContentStatus,
-            generatedCapability?.Value);
+            generatedCapability?.Value,
+            now);
+        if (auditAfterSave)
+        {
+            AuditCreated(result, command.CallerMode);
+        }
+
+        return result;
     }
+
+    internal void AuditCreated(
+        StartPreTriageResult result,
+        PreTriageCallerMode callerMode) => auditLogger.SessionCreated(
+            result.SessionId,
+            callerMode,
+            result.Pathway,
+            result.QuestionnaireCode,
+            result.QuestionnaireVersion,
+            result.RuleSetCode,
+            result.RuleSetVersion,
+            result.PatientProfileId,
+            result.CreatedAt,
+            result.ExpiresAt);
 
     private async Task<EntityId?> ResolvePatientAsync(
         StartPreTriageCommand command,
@@ -200,7 +220,8 @@ public sealed record StartPreTriageResult(
     RuleSetCode RuleSetCode,
     DefinitionVersion RuleSetVersion,
     ClinicalContentStatus ClinicalContentStatus,
-    string? AnonymousCapability);
+    string? AnonymousCapability,
+    DateTimeOffset CreatedAt);
 
 public interface IPreTriageSessionRepository
 {

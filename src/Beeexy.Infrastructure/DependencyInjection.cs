@@ -114,6 +114,9 @@ public static class DependencyInjection
         services.AddScoped<IPreTriageSessionRepository, PreTriageSessionRepository>();
         services.AddSingleton<IPreTriageSessionAuditLogger, PreTriageSessionAuditLogger>();
         services.AddScoped<IPreTriageAnswerRepository, PreTriageAnswerRepository>();
+        services.AddScoped<
+            IPreTriageIntakeOrchestrationTransaction,
+            PreTriageIntakeOrchestrationTransaction>();
         services.AddSingleton<IPreTriageIntakeAuditLogger, PreTriageIntakeAuditLogger>();
         services.AddScoped<IPreTriageCompletionRepository, PreTriageCompletionRepository>();
         services.AddSingleton<IPreTriageCompletionAuditLogger, PreTriageCompletionAuditLogger>();

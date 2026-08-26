@@ -24,8 +24,9 @@ public sealed class PreTriageAnswerRepository(BeeexyDbContext dbContext)
         where TResult : class
     {
         ArgumentNullException.ThrowIfNull(mutation);
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(
-            cancellationToken);
+        await using var transaction = dbContext.Database.CurrentTransaction is null
+            ? await dbContext.Database.BeginTransactionAsync(cancellationToken)
+            : null;
         var session = await dbContext.PreTriageSessions
             .FromSqlInterpolated(
                 $"SELECT * FROM triage.pre_triage_sessions WHERE id = {sessionId.Value} FOR UPDATE")
@@ -40,7 +41,11 @@ public sealed class PreTriageAnswerRepository(BeeexyDbContext dbContext)
             .LoadAsync(cancellationToken);
         var result = await mutation(session);
         await dbContext.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+
         return result;
     }
 }

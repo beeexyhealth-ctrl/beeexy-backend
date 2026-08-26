@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(29, paths.EnumerateObject().Count());
+        Assert.Equal(30, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
@@ -133,6 +133,9 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var preTriageStartOperation = paths
             .GetProperty("/api/v1/pre-triage/sessions")
             .GetProperty("post");
+        var preTriageIntakeOperation = paths
+            .GetProperty("/api/v1/pre-triage/intake")
+            .GetProperty("post");
         var preTriageInterpretOperation = paths
             .GetProperty("/api/v1/pre-triage/intake/interpret")
             .GetProperty("post");
@@ -207,6 +210,17 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             "404",
             "409",
             "422",
+            "500");
+        AssertResponseCodes(
+            preTriageIntakeOperation,
+            "200",
+            "201",
+            "400",
+            "401",
+            "404",
+            "409",
+            "422",
+            "503",
             "500");
         AssertResponseCodes(
             preTriageInterpretOperation,
@@ -440,6 +454,18 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.Empty(preTriageSecurity[0].EnumerateObject());
         Assert.True(preTriageSecurity[1].TryGetProperty("Bearer", out _));
         Assert.True(preTriageStartOperation.TryGetProperty("requestBody", out _));
+        var preTriageIntakeSecurity = preTriageIntakeOperation.GetProperty("security");
+        Assert.Equal(2, preTriageIntakeSecurity.GetArrayLength());
+        Assert.Empty(preTriageIntakeSecurity[0].EnumerateObject());
+        Assert.True(preTriageIntakeSecurity[1].TryGetProperty("Bearer", out _));
+        Assert.True(preTriageIntakeOperation.TryGetProperty("requestBody", out _));
+        var intakeDescription = preTriageIntakeOperation.GetProperty("description").GetString();
+        Assert.Contains("only when RESOLVED", intakeDescription,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("pinned questionnaire", intakeDescription,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("AMBIGUOUS and UNRESOLVED return 200", intakeDescription,
+            StringComparison.Ordinal);
         var preTriageInterpretSecurity = preTriageInterpretOperation.GetProperty("security");
         Assert.Equal(2, preTriageInterpretSecurity.GetArrayLength());
         Assert.Empty(preTriageInterpretSecurity[0].EnumerateObject());
@@ -533,6 +559,12 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.Equal(
             ["resolution", "pathway", "candidatePathways", "candidateValues"],
             schemas.GetProperty("PreTriageIntakeInterpretationResponse")
+                .GetProperty("properties")
+                .EnumerateObject()
+                .Select(value => value.Name));
+        Assert.Equal(
+            ["resolution", "candidatePathways", "session", "initialAnswers"],
+            schemas.GetProperty("StartPreTriageFromIntakeResponse")
                 .GetProperty("properties")
                 .EnumerateObject()
                 .Select(value => value.Name));

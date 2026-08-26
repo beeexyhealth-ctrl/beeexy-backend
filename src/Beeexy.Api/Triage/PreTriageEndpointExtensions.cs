@@ -20,6 +20,32 @@ internal static class PreTriageEndpointExtensions
         this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapPost(
+                "/api/v1/pre-triage/intake",
+                StartFromIntakeAsync)
+            .WithName("StartPreTriageFromIntake")
+            .WithTags("Pre-Triage")
+            .WithDescription(
+                "Interprets the first natural-language message and, only when RESOLVED, " +
+                "atomically creates a normal Pre-Triage session and persists initial values " +
+                "that remain valid against that session's pinned questionnaire. RESOLVED " +
+                "returns 201 with canonical session and answer/progression contracts; " +
+                "AMBIGUOUS and UNRESOLVED return 200 and create no clinical state. Only the " +
+                "five authoritative demo pathways are supported. Anonymous and authenticated " +
+                "callers preserve normal Pre-Triage ownership semantics, and invalid supplied " +
+                "Bearer credentials are never downgraded to anonymous.")
+            .WithMetadata(new OptionalBearerAuthorizationMetadata())
+            .Accepts<InterpretPreTriageIntakeRequest>("application/json")
+            .Produces<StartPreTriageFromIntakeResponse>(StatusCodes.Status200OK)
+            .Produces<StartPreTriageFromIntakeResponse>(StatusCodes.Status201Created)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        endpoints.MapPost(
                 "/api/v1/pre-triage/intake/interpret",
                 InterpretIntakeAsync)
             .WithName("InterpretPreTriageIntake")
@@ -148,6 +174,31 @@ internal static class PreTriageEndpointExtensions
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         return endpoints;
+    }
+
+    private static async Task<IResult> StartFromIntakeAsync(
+        InterpretPreTriageIntakeRequest request,
+        HttpContext httpContext,
+        StartPreTriageFromIntake useCase,
+        CancellationToken cancellationToken)
+    {
+        var callerMode = ResolveCallerMode(httpContext);
+        var result = await useCase.ExecuteAsync(
+            new StartPreTriageFromIntakeCommand(
+                request.Text,
+                callerMode,
+                request.UnsupportedFields?.Keys.ToArray() ?? []),
+            cancellationToken);
+        var response = new StartPreTriageFromIntakeResponse(
+            ToApiEnum(result.Resolution),
+            result.CandidatePathways.Count == 0
+                ? null
+                : result.CandidatePathways.Select(value => value.Value).ToArray(),
+            result.Session is null ? null : ToResponse(result.Session),
+            result.InitialAnswers is null ? null : ToResponse(result.InitialAnswers));
+        return result.Resolution == PreTriageIntakeResolution.Resolved
+            ? Results.Json(response, statusCode: StatusCodes.Status201Created)
+            : Results.Ok(response);
     }
 
     private static async Task<IResult> InterpretIntakeAsync(
@@ -551,6 +602,15 @@ internal sealed record PreTriageIntakeInterpretationResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IReadOnlyList<string>? CandidatePathways,
     PreTriageAcceptedValuesResponse CandidateValues);
+
+internal sealed record StartPreTriageFromIntakeResponse(
+    string Resolution,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<string>? CandidatePathways,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    PreTriageSessionStartResponse? Session,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    PreTriageAnswerResponse? InitialAnswers);
 
 internal sealed record ClinicalDefinitionReferenceResponse(
     string Code,

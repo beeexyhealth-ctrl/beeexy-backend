@@ -2,14 +2,14 @@
 
 ## 1. Purpose
 
-This document is the frontend integration contract for **Phase 4 — Anonymous and Authenticated Pre-Triage**. It describes the five implemented `/api/v1/pre-triage` operations, their security modes, the deterministic intake flow, neutral completion/result behavior, and optional anonymous claim after Beeexy authentication.
+This document is the frontend integration contract for **Phase 4 — Anonymous and Authenticated Pre-Triage**. It describes the seven implemented `/api/v1/pre-triage` operations, their security modes, the deterministic intake flow, neutral completion/result behavior, and optional anonymous claim after Beeexy authentication.
 
 The current endpoint mappings, DTOs, application behavior, OpenAPI document, and integration tests are authoritative. This guide does not define backend architecture, Phase 1–3 APIs, Phase 5 Clinical History APIs, frontend styling, or future clinical behavior.
 
 The Phase 4 journey is:
 
 ```text
-Start Pre-Triage
+Interpret and start from the first natural-language message, or select a pathway and start
 → submit structured or natural-language answers
 → follow backend progression
 → complete
@@ -25,6 +25,8 @@ The public Phase 4 endpoint inventory is exactly:
 
 | Method | Route | Anonymous | Authenticated primary | Authorized managed patient |
 |---|---|---:|---:|---:|
+| `POST` | `/api/v1/pre-triage/intake` | Yes | Yes, Bearer | No patient selector |
+| `POST` | `/api/v1/pre-triage/intake/interpret` | Yes | Yes, Bearer | Stateless; no patient selector |
 | `POST` | `/api/v1/pre-triage/sessions` | Yes | Yes | Yes |
 | `POST` | `/api/v1/pre-triage/sessions/{id}/answers` | Yes, capability | Yes, Bearer | Yes, Bearer |
 | `POST` | `/api/v1/pre-triage/sessions/{id}/complete` | Yes, capability | Yes, Bearer | Yes, Bearer |
@@ -33,7 +35,7 @@ The public Phase 4 endpoint inventory is exactly:
 
 ### Local-development setup
 
-When the API runs with `ASPNETCORE_ENVIRONMENT=Development`, startup applies the EF Core migrations and idempotently imports and activates the three non-clinical demo packages: `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`, all at `2026.08.22-demo.1`. Therefore a fresh local database needs only the normal API launch command:
+When the API runs with `ASPNETCORE_ENVIRONMENT=Development`, startup applies the EF Core migrations and idempotently imports and activates the five non-clinical demo packages: `HEADACHE`, `ABDOMINAL_PAIN`, `CHEST_PAIN`, `FEVER`, and `OTHER_SYMPTOMS`. Therefore a fresh local database needs only the normal API launch command:
 
 ```bash
 dotnet run --project src/Beeexy.Api
@@ -59,7 +61,7 @@ Authorization: Bearer <accessToken>
 
 See [`frontend-api-integration.md`](frontend-api-integration.md) for access-token refresh, logout, and session bootstrap. See [`frontend-api-phase-3.md`](frontend-api-phase-3.md) for the primary/managed `activePatient` model. Do not create Phase 4-specific Bearer or refresh-token storage.
 
-Start, answer, complete, and result are dual-mode operations:
+Intake, interpretation, start, answer, complete, and result are dual-mode operations:
 
 - no `Authorization` header means anonymous mode;
 - a valid Bearer token means authenticated mode;
@@ -76,11 +78,13 @@ Supported primary pathways are exactly:
 |---|---|
 | `HEADACHE` | Headache |
 | `ABDOMINAL_PAIN` | Stomach pain |
+| `CHEST_PAIN` | Chest pain |
 | `FEVER` | Fever |
+| `OTHER_SYMPTOMS` | Other symptoms |
 
 Send pathway codes exactly as shown. The matching is ordinal/case-sensitive after surrounding whitespace is trimmed.
 
-Recognized but unsupported codes include `CHEST_PAIN`, `RESPIRATORY_SYMPTOMS`, `BACK_PAIN`, and `OTHER_SYMPTOMS`. They return `422` with `pre_triage.pathway_unsupported`. An unknown value returns `422` with `pre_triage.pathway_unknown`; it is never remapped to abdominal pain or another supported pathway.
+Recognized but unsupported codes include `RESPIRATORY_SYMPTOMS` and `BACK_PAIN`. They return `422` with `pre_triage.pathway_unsupported`. An unknown value returns `422` with `pre_triage.pathway_unknown`; it is never remapped to abdominal pain or another supported pathway.
 
 The required intake fields after pathway selection are exactly:
 
@@ -96,11 +100,11 @@ DIARRHEA
 FEVER
 ```
 
-For a primary `FEVER` session, the allowed additional symptoms are exactly `NAUSEA` and `DIARRHEA`. The frontend must hide `FEVER` in that case, and the backend rejects it if submitted. For `HEADACHE` and `ABDOMINAL_PAIN`, all three additional symptoms are available.
+For a primary `FEVER` session, the allowed additional symptoms are exactly `NAUSEA` and `DIARRHEA`. The frontend must hide `FEVER` in that case, and the backend rejects it if submitted. For the other four primary pathways, all three additional symptoms are available.
 
 An empty additional-symptom selection is valid, but it must be submitted as `additionalSymptoms: []` so the field counts as answered.
 
-The current simplified package version is `2026.08.22-demo.1`. Treat the version returned by session start as authoritative instead of hard-coding it for future versions.
+The current `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER` simplified packages use `2026.08.22-demo.1`; `CHEST_PAIN` and `OTHER_SYMPTOMS` use `2026.08.26-demo.1`. Treat the version returned by session start as authoritative instead of hard-coding it.
 
 ## 5. Anonymous Capability
 
@@ -238,6 +242,129 @@ Important statuses:
 Idempotency: **not idempotent**. Every successful call creates a distinct session; every anonymous success returns a distinct capability.
 
 Session start does not return questionnaire progression. A frontend may submit all three structured fields together. For a step-by-step flow, the first fixed Phase 4 field is duration; after the first answer response, use only the backend's returned progression metadata to choose subsequent fields.
+
+### Start from a natural-language intake message
+
+#### `POST /api/v1/pre-triage/intake`
+
+Purpose: interpret the visitor's first message and, only when the pathway is unambiguous, atomically create a normal session and apply any initial answer values that are valid for the newly pinned package. This is the preferred single-call entry point for a conversational frontend. It does not complete the session.
+
+The request body contains exactly one field:
+
+```json
+{
+  "text": "My stomach has hurt for two days and it is 6 out of 10"
+}
+```
+
+`text` is required, is trimmed by the backend, must not be blank, and has a maximum length of 4,000 characters. `pathway`, `patientId`, and every other extra field are rejected with `422`; the frontend cannot override the interpreted pathway or select a managed patient through this operation.
+
+Authentication and ownership:
+
+- omit `Authorization` to create an anonymous session when resolution succeeds;
+- send a valid Bearer token to create a session for the caller's server-derived primary patient;
+- an invalid supplied Bearer returns `401` and is never downgraded to anonymous;
+- the request does not accept `X-Pre-Triage-Capability`; a successful anonymous response creates and returns a new capability inside `session`.
+
+A resolved request returns `201 Created`. The response combines the canonical session-start contract with the canonical answer/progression contract:
+
+```json
+{
+  "resolution": "RESOLVED",
+  "session": {
+    "sessionId": "40000000-0000-0000-0000-000000000004",
+    "pathway": "ABDOMINAL_PAIN",
+    "status": "Active",
+    "expiresAt": "2026-08-27T12:00:00Z",
+    "questionnaire": {
+      "code": "abdominal-pain-demo-questionnaire",
+      "version": "2026.08.22-demo.1"
+    },
+    "ruleSet": {
+      "code": "abdominal-pain-demo-neutral-rules",
+      "version": "2026.08.22-demo.1"
+    },
+    "clinicalContent": {
+      "source": "PRODUCT_DEMO_DEFINED",
+      "reviewStatus": "NOT_APPLICABLE",
+      "clinicalApproval": "NOT_CLINICALLY_APPROVED"
+    },
+    "anonymousCapability": "<one-time-secret>"
+  },
+  "initialAnswers": {
+    "sessionId": "40000000-0000-0000-0000-000000000004",
+    "pathway": "ABDOMINAL_PAIN",
+    "questionnaireVersion": "2026.08.22-demo.1",
+    "outcome": "ACCEPTED",
+    "acceptedAnswers": ["DURATION", "INTENSITY"],
+    "acceptedValues": {
+      "duration": {
+        "value": 2,
+        "unit": "DAYS"
+      },
+      "intensity": 6
+    },
+    "progression": {
+      "state": "IN_PROGRESS",
+      "answeredRequiredFields": ["DURATION", "INTENSITY"],
+      "missingRequiredFields": ["ADDITIONAL_SYMPTOMS"],
+      "nextQuestion": {
+        "code": "ADDITIONAL_SYMPTOMS",
+        "prompt": "Do you have any of these additional symptoms?",
+        "answerType": "MULTIPLE_CHOICE",
+        "allowedValues": ["NAUSEA", "DIARRHEA", "FEVER"],
+        "allowedUnits": [],
+        "minimum": null,
+        "maximum": null
+      },
+      "readyToComplete": false
+    }
+  }
+}
+```
+
+An authenticated `201` uses the same shape, except `session.patientId` is present and `session.anonymousCapability` is omitted.
+
+The backend interprets the message once. Exact aliases such as `"Chest pain"` resolve deterministically without an AI-provider call. For other safe input, at most one provider call is made. After starting the session, every candidate value is revalidated against the exact questionnaire package pinned by `session.questionnaire`. Only values that still pass are persisted through the normal answer mutation path and returned in `initialAnswers.acceptedAnswers` and `initialAnswers.acceptedValues`.
+
+Candidate rejection is field-by-field. For example, a valid duration and invalid intensity create the session, persist only duration, and return progression asking for intensity. If no candidate value survives revalidation, `acceptedAnswers` is empty, `acceptedValues` is `{}`, and progression begins at `DURATION`. The frontend must use only `initialAnswers`, never the original text or a local extraction, as the accepted state.
+
+An ambiguous interpretation returns `200 OK`, creates no session or answers, and may provide supported candidate pathways:
+
+```json
+{
+  "resolution": "AMBIGUOUS",
+  "candidatePathways": ["HEADACHE", "CHEST_PAIN"]
+}
+```
+
+An unresolved interpretation also returns `200 OK` and creates no state:
+
+```json
+{
+  "resolution": "UNRESOLVED"
+}
+```
+
+`candidatePathways`, `session`, and `initialAnswers` are omitted when they do not apply. A provider timeout, provider failure, or invalid provider structure returns safe Problem Details instead of an interpretation response and creates no state.
+
+Important statuses:
+
+| Status | Meaning and frontend action |
+|---|---|
+| `201` | `RESOLVED`; store the session and, for anonymous flow, its one-time capability. Continue from `initialAnswers.progression`. |
+| `200` | `AMBIGUOUS` or `UNRESOLVED`; no session exists. Clarify or offer explicit pathway selection. |
+| `400` | Malformed JSON/HTTP request. Fix client serialization. |
+| `401` | Supplied Bearer is invalid or the authenticated account is unavailable. Apply the existing authentication recovery flow. |
+| `404` | The authenticated caller's primary patient is unavailable. Do not fall back to anonymous implicitly. |
+| `409` | Safe orchestration/session state conflict. Do not assume a session was created. |
+| `422` | Blank/overlong text or an unknown request field. Correct the request. |
+| `503` | Interpretation provider is unavailable, timed out, misconfigured, or returned invalid structure. Offer explicit structured/pathway intake. |
+| `500` | Safe unexpected failure. Session creation and initial answer persistence are rolled back together. |
+
+This start operation is not idempotent: the backend has no request idempotency key or durable start-deduplication convention. A repeated successful request can create another session. Do not automatically retry after an uncertain network outcome, and suppress duplicate submits in the UI. Never use raw intake text as a deduplication key.
+
+Even when `initialAnswers.progression.readyToComplete` is `true`, the session remains `Active`. The frontend must still show Review and call the existing explicit `/complete` operation. Clinical History projection and FHIR export do not occur during intake; they remain downstream of explicit completion and the existing authenticated workflows.
 
 ## 7. Submit Answers
 
@@ -587,15 +714,15 @@ Idempotency: **yes for the same primary patient**. A repeat returns the original
 
 Phase 4 uses the existing Phase 3 `activePatient` selection. Do not infer access locally; the backend reauthorizes every request.
 
-For a primary `activePatient`, omit `patientId` from start. For a managed `activePatient`, send its technical `profileId` as `patientId`. Supplying the primary profile ID explicitly is accepted but unnecessary.
+For a primary `activePatient`, either use `/intake` with natural language or omit `patientId` from explicit start. For a managed `activePatient`, use explicit `/sessions` start and send its technical `profileId` as `patientId`; `/intake` intentionally has no managed-patient selector. Supplying the primary profile ID explicitly to `/sessions` is accepted but unnecessary.
 
 Recommended flow:
 
 1. Restore the centralized Beeexy session and current Phase 3 `activePatient`.
-2. Let the user select Headache, Stomach pain, or Fever.
-3. Call `POST /api/v1/pre-triage/sessions` with Bearer, pathway, and `patientId` only for a managed selection.
-4. Store the returned `sessionId`, pathway, expiry, and questionnaire version.
-5. Submit all structured fields together, or start with duration and then render subsequent fields from returned progression.
+2. For the primary patient, either send the first natural-language message to `POST /api/v1/pre-triage/intake` or let the user select one of the five pathways. For a managed patient, use explicit selection.
+3. Call `/intake` with Bearer for the primary conversational path, or call `POST /api/v1/pre-triage/sessions` with Bearer, pathway, and `patientId` only for a managed selection.
+4. On intake `201` or session-start `201`, store the returned `sessionId`, pathway, expiry, and questionnaire version. On intake `200`, clarify/select a pathway without creating local session state.
+5. Continue from `initialAnswers.progression` after intake; after explicit start, submit all structured fields together or begin with duration.
 6. After every answer response, replace local progression with the backend response.
 7. When the backend returns `READY_TO_COMPLETE` and `readyToComplete: true`, call `/complete` with no body.
 8. Render the neutral result returned by completion.
@@ -608,10 +735,10 @@ If managed access is revoked during the flow, later answer/complete/result calls
 Recommended flow:
 
 1. Start Pre-Triage without an `Authorization` header.
-2. Let the user select a supported pathway.
-3. Call `POST /api/v1/pre-triage/sessions`.
-4. Store `sessionId`, `pathway`, `expiresAt`, questionnaire version, and `anonymousCapability`.
-5. Submit answers with `X-Pre-Triage-Capability` and no Bearer.
+2. Either send the first natural-language message to `POST /api/v1/pre-triage/intake` or let the user select one of the five supported pathways and call `POST /api/v1/pre-triage/sessions`.
+3. On intake `200`, clarify/select without storing session state. On either `201`, store `sessionId`, `pathway`, `expiresAt`, questionnaire version, and `anonymousCapability`.
+4. Continue from `initialAnswers.progression` after intake, or submit the first answers after explicit start.
+5. Submit later answers with `X-Pre-Triage-Capability` and no Bearer.
 6. Drive the remaining UI from each backend progression response.
 7. Complete with the capability and no request body.
 8. Render the completion response or retrieve it with capability-based GET.
@@ -687,6 +814,8 @@ Stable frontend-useful Phase 4 validation codes include:
 | `pre_triage.pathway_unsupported` | Recognized but unsupported pathway |
 | `pre_triage.definition_unavailable` | No usable active simplified package |
 | `pre_triage.unsupported_field` | Unknown session-start field |
+| `pre_triage.intake_interpretation_invalid` | Intake text is blank/too long or contains an unknown field |
+| `pre_triage.interpretation_unavailable` | Provider unavailable/timeout/configuration/invalid structured response |
 | `pre_triage.answer_input_invalid` | Both/neither answer modes or unknown structured field |
 | `pre_triage.answer_required` | Structured object contains no answer |
 | `pre_triage.natural_language_invalid` | Natural-language input invalid/too long |
@@ -705,14 +834,16 @@ General Phase 4 status handling:
 | `404` | Absent, expired/cleaned, revoked, or authorization-concealed resource. Show “This Pre-Triage is no longer available,” without implying another patient's resource exists. |
 | `409` | Operation-specific state conflict: changed existing answer, completed/expired answer flow, result before completion, incomplete claim, or competing claim owner. Reconcile state; do not blindly retry. |
 | `422` | Correctable request/package validation. Keep the user in the flow and render safe field feedback when `errorCode` allows. |
+| `503` | Pre-session interpretation unavailable. Offer deterministic pathway/structured intake and do not assume a session exists. |
 | `500` | Safe generic failure. Do not display internal details or assume a mutation committed; use correlation ID and reconcile before retry. |
 
-None of the five Phase 4 endpoints currently declares `429`; do not build Phase 4-specific rate-limit behavior beyond the centralized client's general policy.
+None of the seven Phase 4 endpoints currently declares `429`; do not build Phase 4-specific rate-limit behavior beyond the centralized client's general policy.
 
 ## 16. Retry and Idempotency Rules
 
 | Operation | Retry semantics |
 |---|---|
+| Start from intake | Not idempotent after a `201`. A retry that reached the server can create another session/capability. `200` non-resolved and failure responses create no state. |
 | Start | Not idempotent. A retry that reached the server can create another session/capability. |
 | Submit exact same answer | Idempotent: `200`, no duplicate answer. |
 | Submit different value for answered field | Not an overwrite: `409`, original remains. |
@@ -755,9 +886,9 @@ Current runtime status:
 
 - natural-language request transport and safety/validation behavior are implemented;
 - AI is optional and never controls the questionnaire, progression, completeness, urgency, diagnosis, or treatment;
-- the default registered runtime provider is `UnavailableClinicalAiProvider` and deliberately returns configuration-unavailable behavior;
-- no production OpenAI, Gemini, NVIDIA, or other concrete clinical-intake provider is configured by the current code;
-- therefore, a safe symptom-like natural-language request normally returns `outcome: "PROVIDER_UNAVAILABLE"` with `clarification.code: "INTERPRETATION_UNAVAILABLE"` in the default runtime;
+- NVIDIA-backed interpretation is registered only when valid NVIDIA provider configuration is present; otherwise `UnavailableClinicalAiProvider` is registered and deliberately reports configuration-unavailable behavior;
+- exact supported pathway aliases resolve without invoking the provider;
+- without provider configuration, other safe symptom-like `/answers` requests return `outcome: "PROVIDER_UNAVAILABLE"`, while `/intake` and `/intake/interpret` return `503` Problem Details with `errorCode: "pre_triage.interpretation_unavailable"`;
 - application safety can return `SAFETY_RESTRICTED` or `CLARIFICATION_REQUIRED` before any provider call;
 - structured intake works without AI and is the dependable fallback.
 
@@ -774,7 +905,7 @@ The frontend must not invent UI, fields, or claims for:
 - treatment advice;
 - numeric disease probability/confidence;
 - clinical red-flag execution/escalation;
-- supported pathways beyond `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`;
+- supported pathways beyond `HEADACHE`, `ABDOMINAL_PAIN`, `CHEST_PAIN`, `FEVER`, and `OTHER_SYMPTOMS`;
 - a fourth additional symptom;
 - detailed abdominal clinical rules;
 - managed-patient anonymous claim;
@@ -796,7 +927,9 @@ export type IsoTimestamp = string;
 export type PreTriagePathway =
   | "HEADACHE"
   | "ABDOMINAL_PAIN"
-  | "FEVER";
+  | "CHEST_PAIN"
+  | "FEVER"
+  | "OTHER_SYMPTOMS";
 
 export type AdditionalSymptom =
   | "NAUSEA"
@@ -856,6 +989,15 @@ export type PreTriageSessionStartResponse =
       patientId: Uuid;
       anonymousCapability?: never;
     });
+
+export interface StartPreTriageFromIntakeRequest {
+  text: string;
+}
+
+export type PreTriageIntakeResolution =
+  | "RESOLVED"
+  | "AMBIGUOUS"
+  | "UNRESOLVED";
 
 export interface DurationAnswer {
   value: number;
@@ -937,16 +1079,37 @@ export interface PreTriageAnswerResponse {
   questionnaireVersion: string;
   outcome: TriageIntakeOutcome;
   acceptedAnswers: RequiredAnswerCode[];
+  acceptedValues: PreTriageAcceptedValues;
   progression: QuestionnaireProgress;
   clarification?: IntakeClarification;
 }
+
+export interface PreTriageAcceptedValues {
+  duration?: DurationAnswer;
+  intensity?: number;
+  additionalSymptoms?: AdditionalSymptom[];
+}
+
+export type StartPreTriageFromIntakeResponse =
+  | {
+      resolution: "RESOLVED";
+      candidatePathways?: never;
+      session: PreTriageSessionStartResponse;
+      initialAnswers: PreTriageAnswerResponse;
+    }
+  | {
+      resolution: "AMBIGUOUS" | "UNRESOLVED";
+      candidatePathways?: PreTriagePathway[];
+      session?: never;
+      initialAnswers?: never;
+    };
 
 export interface NeutralPreTriageResult {
   sessionId: Uuid;
   episodeId: Uuid;
   primarySymptom: {
     code: PreTriagePathway;
-    display: "Headache" | "Stomach pain" | "Fever";
+    display: "Headache" | "Stomach pain" | "Chest pain" | "Fever" | "Other symptoms";
   };
   duration: DurationAnswer;
   intensity: number;
@@ -985,6 +1148,8 @@ Runtime checks must still enforce that `StructuredPreTriageAnswers` contains at 
 A later frontend implementation can expose a small Phase 4 service surface through the centralized API client:
 
 ```ts
+startPreTriageFromIntake(request)
+interpretPreTriageIntake(request)
 startPreTriage(request, activePatient?)
 submitPreTriageAnswers(sessionId, request, access)
 completePreTriage(sessionId, access)
@@ -1005,7 +1170,7 @@ Service behavior should:
 - send no body for complete, result, or claim;
 - return both HTTP status and parsed response for completion so callers can distinguish first `201` from repeat `200` if needed;
 - normalize Problem Details through the existing client;
-- avoid automatically retrying non-idempotent start or changed answer submissions.
+- avoid automatically retrying non-idempotent intake/start or changed answer submissions.
 
 ## 23. Frontend Security Checklist
 
@@ -1025,7 +1190,7 @@ Service behavior should:
 
 ## 24. Frontend Integration Checklist
 
-- [ ] Render exactly Headache, Stomach pain, and Fever.
+- [ ] Render exactly Headache, Stomach pain, Chest pain, Fever, and Other symptoms.
 - [ ] Map Stomach pain to `ABDOMINAL_PAIN`.
 - [ ] Offer exactly `NAUSEA`, `DIARRHEA`, and `FEVER` as the global additional catalog.
 - [ ] Hide and reject additional `FEVER` when primary is `FEVER`.
@@ -1033,6 +1198,10 @@ Service behavior should:
 - [ ] Start primary sessions with omitted `patientId`.
 - [ ] Start managed sessions with the selected authorized profile UUID.
 - [ ] Never allow an invalid Bearer request to fall back to anonymous handling.
+- [ ] Send only `text` to `/pre-triage/intake`; never send a locally selected pathway or patient.
+- [ ] On intake `201`, store the returned session/capability and continue from `initialAnswers.progression`.
+- [ ] On intake `200`, create no local session and handle `AMBIGUOUS`/`UNRESOLVED` explicitly.
+- [ ] Suppress duplicate intake submits and do not automatically retry an uncertain `201` request.
 - [ ] Store the one-time anonymous capability safely.
 - [ ] Attach `X-Pre-Triage-Capability` only to the correct anonymous session calls.
 - [ ] Support structured intake without AI.
@@ -1049,4 +1218,4 @@ Service behavior should:
 - [ ] Send no body, query, or patient selector on claim.
 - [ ] Clear anonymous claim state after claim success.
 - [ ] Treat server `expiresAt` as authoritative and clear stale state on expiry/cleanup.
-- [ ] Do not assume a Phase 4 Clinical History or FHIR API exists.
+- [ ] Do not trigger completion, Clinical History, or FHIR work from intake; explicit Review/completion remains required.

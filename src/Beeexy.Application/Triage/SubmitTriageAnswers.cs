@@ -104,6 +104,98 @@ public sealed class SubmitTriageAnswers(
             clarificationCode);
     }
 
+    public async Task<SubmitTriageAnswersResult> ApplyInitialCandidatesAsync(
+        ApplyInitialTriageCandidatesCommand command,
+        CancellationToken cancellationToken = default) =>
+        await ApplyInitialCandidatesCoreAsync(
+            command,
+            auditAfterMutation: true,
+            cancellationToken);
+
+    internal async Task<SubmitTriageAnswersResult>
+        ApplyInitialCandidatesForOrchestrationAsync(
+            ApplyInitialTriageCandidatesCommand command,
+            CancellationToken cancellationToken = default) =>
+        await ApplyInitialCandidatesCoreAsync(
+            command,
+            auditAfterMutation: false,
+            cancellationToken);
+
+    private async Task<SubmitTriageAnswersResult> ApplyInitialCandidatesCoreAsync(
+        ApplyInitialTriageCandidatesCommand command,
+        bool auditAfterMutation,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        var initial = await repository.GetAsync(command.SessionId, cancellationToken) ??
+            throw new PreTriageSessionNotFoundException();
+        await AuthorizeAsync(
+            initial,
+            command.CallerMode,
+            command.AnonymousCapability,
+            cancellationToken);
+        EnsureMutable(initial, clock.UtcNow);
+        var package = await definitionProvider.GetDefinitionByQuestionnaireIdAsync(
+            initial.QuestionnaireVersionId,
+            cancellationToken) ?? throw new InvalidOperationException(
+                "The session's pinned questionnaire package is unavailable.");
+        EnsureUsablePackage(initial, package, requestedVersion: null);
+        var acceptedCandidates = RevalidateInitialCandidates(
+            command.CandidateValues,
+            package);
+
+        var mutation = await repository.MutateLockedAsync(
+            command.SessionId,
+            async session =>
+            {
+                await AuthorizeAsync(
+                    session,
+                    command.CallerMode,
+                    command.AnonymousCapability,
+                    cancellationToken);
+                EnsureMutable(session, clock.UtcNow);
+                if (session.QuestionnaireVersionId != package.Questionnaire.Id)
+                {
+                    throw new PreTriageSessionStateConflictException(
+                        "The session questionnaire changed after it was read.");
+                }
+
+                var acceptedAnswers = ApplyCandidates(
+                    session,
+                    package,
+                    acceptedCandidates,
+                    clock.UtcNow);
+                return new IntakeMutationResult(
+                    acceptedAnswers,
+                    ResolveProgression(session, package));
+            },
+            cancellationToken) ?? throw new PreTriageSessionNotFoundException();
+
+        var result = new SubmitTriageAnswersResult(
+            command.SessionId,
+            package.Pathway,
+            package.Version,
+            TriageIntakeSubmissionOutcome.Accepted,
+            mutation.AcceptedAnswers.Select(value => value.Code).ToArray(),
+            mutation.AcceptedAnswers,
+            mutation.Progression,
+            null,
+            null);
+        if (auditAfterMutation)
+        {
+            AuditInitialAnswers(result);
+        }
+
+        return result;
+    }
+
+    internal void AuditInitialAnswers(SubmitTriageAnswersResult result) =>
+        auditLogger.AnswersProcessed(
+            result.SessionId,
+            result.Outcome,
+            result.AcceptedValues.Count,
+            result.Progression.ReadyToComplete);
+
     private static void ValidateInputMode(SubmitTriageAnswersCommand command)
     {
         var hasStructured = command.Structured is not null;
@@ -124,13 +216,23 @@ public sealed class SubmitTriageAnswers(
     private async Task AuthorizeAsync(
         PreTriageSession session,
         SubmitTriageAnswersCommand command,
+        CancellationToken cancellationToken) => await AuthorizeAsync(
+            session,
+            command.CallerMode,
+            command.AnonymousCapability,
+            cancellationToken);
+
+    private async Task AuthorizeAsync(
+        PreTriageSession session,
+        PreTriageCallerMode callerMode,
+        string? anonymousCapability,
         CancellationToken cancellationToken)
     {
-        if (command.CallerMode == PreTriageCallerMode.Anonymous)
+        if (callerMode == PreTriageCallerMode.Anonymous)
         {
             if (!session.IsAnonymous || session.AnonymousCapabilityHash is null ||
                 !capabilityService.Verify(
-                    command.AnonymousCapability,
+                    anonymousCapability,
                     session.AnonymousCapabilityHash))
             {
                 throw new SessionAuthenticationException();
@@ -256,6 +358,32 @@ public sealed class SubmitTriageAnswers(
             value.Code,
             value.Value,
             ClinicalAiCandidateStatus.AcceptedCandidate)).ToArray();
+    }
+
+    private static IReadOnlyList<ClinicalAiValidatedFactCandidate>
+        RevalidateInitialCandidates(
+            IReadOnlyList<AcceptedTriageAnswerValue> candidates,
+            ClinicalDefinitionPackage package)
+    {
+        ArgumentNullException.ThrowIfNull(candidates);
+        var demo = package.RuleDefinitions.DemoIntake!;
+        var allowedCodes = demo.ProgressionQuestionCodes.ToHashSet();
+        var questions = package.Questions.ToDictionary(value => value.Code);
+        return candidates
+            .Where(value =>
+                allowedCodes.Contains(value.Code) &&
+                questions.TryGetValue(value.Code, out var question) &&
+                ClinicalAnswerValueValidator.Validate(
+                    value.Value,
+                    question,
+                    package) is null)
+            .GroupBy(value => value.Code)
+            .Select(value => value.First())
+            .Select(value => new ClinicalAiValidatedFactCandidate(
+                value.Code,
+                value.Value,
+                ClinicalAiCandidateStatus.AcceptedCandidate))
+            .ToArray();
     }
 
     private static string StructuredIssueCode(
@@ -582,6 +710,12 @@ public sealed record SubmitTriageAnswersCommand(
     StructuredTriageAnswerInput? Structured,
     string? NaturalLanguage,
     IReadOnlyCollection<string> UnsupportedFields);
+
+public sealed record ApplyInitialTriageCandidatesCommand(
+    EntityId SessionId,
+    PreTriageCallerMode CallerMode,
+    string? AnonymousCapability,
+    IReadOnlyList<AcceptedTriageAnswerValue> CandidateValues);
 
 public sealed record StructuredTriageAnswerInput(
     DurationTriageAnswerInput? Duration,
