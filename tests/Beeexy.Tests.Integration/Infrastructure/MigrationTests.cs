@@ -9,7 +9,7 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
-    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase61()
+    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPart31Idempotency()
     {
         var options = new DbContextOptionsBuilder<BeeexyDbContext>()
             .UseNpgsql(postgres.ConnectionString)
@@ -37,7 +37,8 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                     "20260822182341_Phase410ClinicalHistoryProjectionBoundary",
                     "20260823192326_Phase51ClinicalHistoryFoundation",
                     "20260824035248_Phase55TraceablePreTriageAmendments",
-                    "20260824202650_Phase61FhirExportPersistenceFoundation"
+                    "20260824202650_Phase61FhirExportPersistenceFoundation",
+                    "20260826171318_Part31DurableIntakeIdempotency"
                 ],
                 appliedMigrations);
             Assert.Empty(pendingMigrations);
@@ -80,6 +81,7 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                 "triage.clinical_findings",
                 "triage.clinical_rule_set_versions",
                 "triage.pre_triage_episodes",
+                "triage.pre_triage_intake_idempotency",
                 "triage.pre_triage_sessions",
                 "triage.questionnaire_versions",
                 "triage.questions",

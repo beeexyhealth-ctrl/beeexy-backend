@@ -27,6 +27,9 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
 
     public DbSet<PreTriageSession> PreTriageSessions => Set<PreTriageSession>();
 
+    public DbSet<PreTriageIntakeIdempotencyRecord> PreTriageIntakeIdempotencyRecords =>
+        Set<PreTriageIntakeIdempotencyRecord>();
+
     public DbSet<PreTriageEpisode> PreTriageEpisodes => Set<PreTriageEpisode>();
 
     public DbSet<QuestionnaireDefinitionVersion> QuestionnaireVersions =>

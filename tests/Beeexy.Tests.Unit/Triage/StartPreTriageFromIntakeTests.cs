@@ -54,7 +54,7 @@ public sealed class StartPreTriageFromIntakeTests
     }
 
     [Fact]
-    public async Task AmbiguousText_DoesNotOpenTransactionOrCreateSession()
+    public async Task AmbiguousText_UsesReservationTransactionButCreatesNoSession()
     {
         var fixture = new Fixture(new FixedAiProvider(Output(
             "HEADACHE",
@@ -77,7 +77,7 @@ public sealed class StartPreTriageFromIntakeTests
         Assert.Null(result.Session);
         Assert.Null(result.InitialAnswers);
         Assert.Empty(fixture.Store.Sessions);
-        Assert.Equal(0, fixture.Transaction.CallCount);
+        Assert.Equal(1, fixture.Transaction.CallCount);
     }
 
     [Fact]
@@ -95,11 +95,11 @@ public sealed class StartPreTriageFromIntakeTests
         Assert.Equal(PreTriageIntakeResolution.Unresolved, result.Resolution);
         Assert.Null(result.Session);
         Assert.Empty(fixture.Store.Sessions);
-        Assert.Equal(0, fixture.Transaction.CallCount);
+        Assert.Equal(1, fixture.Transaction.CallCount);
     }
 
     [Fact]
-    public async Task ProviderFailure_HappensBeforeTransactionAndSessionCreation()
+    public async Task ProviderFailure_RollsBackReservationAndSessionCreation()
     {
         var fixture = new Fixture(new FixedAiProvider(
             Output("HEADACHE"),
@@ -109,14 +109,60 @@ public sealed class StartPreTriageFromIntakeTests
             fixture.UseCase.ExecuteAsync(Command("My head has hurt all morning")));
 
         Assert.Empty(fixture.Store.Sessions);
-        Assert.Equal(0, fixture.Transaction.CallCount);
+        Assert.Equal(1, fixture.Transaction.CallCount);
+        Assert.Equal(1, fixture.AiProvider.CallCount);
+    }
+
+    [Fact]
+    public async Task MatchingReplay_ReturnsOriginalSessionWithoutAiOrDuplicateAnswers()
+    {
+        var fixture = new Fixture(new FixedAiProvider(Output(
+            "HEADACHE",
+            [Fact("DURATION", new ClinicalAiDurationValue(2, ClinicalDurationUnit.Hours))])));
+        var command = Command("My head has hurt for two hours");
+
+        var first = await fixture.UseCase.ExecuteAsync(command);
+        var replay = await fixture.UseCase.ExecuteAsync(command with
+        {
+            AnonymousCapability = first.Session!.AnonymousCapability
+        });
+
+        Assert.Equal(first.Session.SessionId, replay.Session!.SessionId);
+        Assert.Equal(first.Session.AnonymousCapability, replay.Session.AnonymousCapability);
+        Assert.Equal(first.InitialAnswers!.AcceptedAnswerCodes,
+            replay.InitialAnswers!.AcceptedAnswerCodes);
+        Assert.Single(fixture.Store.Sessions);
+        Assert.Single(fixture.Store.Sessions[0].Answers);
+        Assert.Equal(1, fixture.AiProvider.CallCount);
+        Assert.Equal(2, fixture.Transaction.CallCount);
+    }
+
+    [Fact]
+    public async Task SameScopedKeyWithDifferentText_ConflictsBeforeAi()
+    {
+        var fixture = new Fixture(new FixedAiProvider(Output("HEADACHE")));
+        var command = Command("My head hurts");
+
+        var first = await fixture.UseCase.ExecuteAsync(command);
+        await Assert.ThrowsAsync<PreTriageIntakeIdempotencyConflictException>(() =>
+            fixture.UseCase.ExecuteAsync(command with
+            {
+                Text = "My stomach hurts",
+                AnonymousCapability = first.Session!.AnonymousCapability
+            }));
+
+        Assert.Single(fixture.Store.Sessions);
         Assert.Equal(1, fixture.AiProvider.CallCount);
     }
 
     private static StartPreTriageFromIntakeCommand Command(string text) => new(
         text,
         PreTriageCallerMode.Anonymous,
-        []);
+        [],
+        Guid.NewGuid().ToString("D"),
+        "anonymous:unit-test-scope",
+        null,
+        false);
 
     private static ClinicalAiFactCandidate Fact(
         string code,
@@ -191,10 +237,17 @@ public sealed class StartPreTriageFromIntakeTests
                 definitions,
                 inSessionInterpreter,
                 new NullIntakeAuditLogger());
+            var replay = new ReplayPreTriageIntake(
+                authorization,
+                capabilities,
+                Store,
+                definitions);
             UseCase = new StartPreTriageFromIntake(
+                clock,
                 interpreter,
                 start,
                 submit,
+                replay,
                 Transaction);
         }
 
@@ -268,7 +321,10 @@ public sealed class StartPreTriageFromIntakeTests
         }
     }
 
-    private sealed class SessionStore : IPreTriageSessionRepository, IPreTriageAnswerRepository
+    private sealed class SessionStore :
+        IPreTriageSessionRepository,
+        IPreTriageAnswerRepository,
+        IPreTriageIntakeReplayRepository
     {
         public List<PreTriageSession> Sessions { get; } = [];
 
@@ -291,18 +347,64 @@ public sealed class StartPreTriageFromIntakeTests
             var session = Sessions.SingleOrDefault(value => value.Id == sessionId);
             return session is null ? null : await mutation(session);
         }
+
+        public Task<PreTriageIntakeReplayState?> LoadAsync(
+            EntityId sessionId,
+            CancellationToken cancellationToken = default)
+        {
+            var session = Sessions.SingleOrDefault(value => value.Id == sessionId);
+            return Task.FromResult(session is null
+                ? null
+                : new PreTriageIntakeReplayState(session, session.Answers));
+        }
     }
 
     private sealed class InlineTransaction : IPreTriageIntakeOrchestrationTransaction
     {
+        private readonly Dictionary<string, (
+            string Fingerprint,
+            EntityId SessionId,
+            IReadOnlyList<string> Codes)> mappings = new(StringComparer.Ordinal);
+
         public int CallCount { get; private set; }
 
-        public async Task<TResult> ExecuteAsync<TResult>(
-            Func<CancellationToken, Task<TResult>> operation,
+        public async Task<PreTriageIntakeTransactionResult<TResult>> ExecuteAsync<TResult>(
+            string operationKeyHash,
+            string? reservationAliasHash,
+            string requestFingerprint,
+            Func<CancellationToken, Task<PreTriageIntakeTransactionCommit<TResult>>> operation,
             CancellationToken cancellationToken = default)
         {
             CallCount++;
-            return await operation(cancellationToken);
+            if (mappings.TryGetValue(operationKeyHash, out var existing))
+            {
+                if (!string.Equals(
+                        existing.Fingerprint,
+                        requestFingerprint,
+                        StringComparison.Ordinal))
+                {
+                    throw new PreTriageIntakeIdempotencyConflictException();
+                }
+
+                return new PreTriageIntakeTransactionResult<TResult>(
+                    default,
+                    new PreTriageIntakeReplayReference(
+                        existing.SessionId,
+                        existing.Codes));
+            }
+
+            var result = await operation(cancellationToken);
+            if (result.SessionId.HasValue)
+            {
+                mappings.Add(
+                    operationKeyHash,
+                    (
+                        requestFingerprint,
+                        result.SessionId.Value,
+                        result.InitialAnswerCodes.Select(value => value.Value).ToArray()));
+            }
+
+            return new PreTriageIntakeTransactionResult<TResult>(result.Result, null);
         }
     }
 

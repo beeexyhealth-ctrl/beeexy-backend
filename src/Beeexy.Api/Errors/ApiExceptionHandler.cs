@@ -278,6 +278,32 @@ internal sealed class ApiExceptionHandler(
             return problem;
         }
 
+        if (exception is PreTriageIntakeIdempotencyConflictException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Pre-triage intake conflict.",
+                Detail = "The idempotency key was already used for a different request."
+            };
+            problem.Extensions["errorCode"] =
+                "pre_triage.idempotency_key_reused";
+            return problem;
+        }
+
+        if (exception is PreTriageAnonymousReplayCapabilityRequiredException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Anonymous pre-triage replay unavailable.",
+                Detail = "The original anonymous capability is required to replay this intake."
+            };
+            problem.Extensions["errorCode"] =
+                "pre_triage.anonymous_replay_capability_required";
+            return problem;
+        }
+
         if (exception is PreTriageSessionStateConflictException)
         {
             return new ProblemDetails

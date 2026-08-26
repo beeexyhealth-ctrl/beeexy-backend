@@ -1,7 +1,9 @@
 using System.ComponentModel.DataAnnotations;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Beeexy.Api.Identity;
+using Beeexy.Application.Common;
 using Beeexy.Application.Identity;
 using Beeexy.Application.Patients;
 using Beeexy.Application.Triage;
@@ -15,6 +17,11 @@ namespace Beeexy.Api.Triage;
 internal static class PreTriageEndpointExtensions
 {
     internal const string AnonymousCapabilityHeader = "X-Pre-Triage-Capability";
+    internal const string IdempotencyKeyHeader = "Idempotency-Key";
+    private const string AnonymousIntakeScopeCookie = "Beeexy.PreTriage.IntakeScope";
+    private const string AnonymousIntakeScopePrefix = "pti1.";
+    private const int AnonymousIntakeScopeEncodedLength = 43;
+    private const int MaximumIdempotencyKeyLength = 128;
 
     public static IEndpointRouteBuilder MapBeeexyPreTriageEndpoints(
         this IEndpointRouteBuilder endpoints)
@@ -32,7 +39,13 @@ internal static class PreTriageEndpointExtensions
                 "AMBIGUOUS and UNRESOLVED return 200 and create no clinical state. Only the " +
                 "five authoritative demo pathways are supported. Anonymous and authenticated " +
                 "callers preserve normal Pre-Triage ownership semantics, and invalid supplied " +
-                "Bearer credentials are never downgraded to anonymous.")
+                "Bearer credentials are never downgraded to anonymous. A required bounded " +
+                "Idempotency-Key header durably identifies one logical submission within the " +
+                "authenticated account or anonymous browser scope. Repeating the same key and " +
+                "text replays the committed session without interpretation; reusing the key " +
+                "with different text returns 409. Anonymous replay also requires the original " +
+                $"{AnonymousCapabilityHeader} because that one-time secret is stored only as a " +
+                "hash.")
             .WithMetadata(new OptionalBearerAuthorizationMetadata())
             .Accepts<InterpretPreTriageIntakeRequest>("application/json")
             .Produces<StartPreTriageFromIntakeResponse>(StatusCodes.Status200OK)
@@ -180,14 +193,28 @@ internal static class PreTriageEndpointExtensions
         InterpretPreTriageIntakeRequest request,
         HttpContext httpContext,
         StartPreTriageFromIntake useCase,
+        CurrentAccountProfileResolver currentAccountProfileResolver,
+        [FromHeader(Name = IdempotencyKeyHeader)] string? idempotencyKey,
+        [FromHeader(Name = AnonymousCapabilityHeader)] string? anonymousCapability,
         CancellationToken cancellationToken)
     {
         var callerMode = ResolveCallerMode(httpContext);
+        idempotencyKey = GetRequiredIdempotencyKey(httpContext);
+        var anonymousScope = callerMode == PreTriageCallerMode.Anonymous
+            ? ResolveAnonymousIntakeScope(httpContext)
+            : default;
+        var callerScope = callerMode == PreTriageCallerMode.Authenticated
+            ? $"account:{(await currentAccountProfileResolver.ResolveAsync(cancellationToken)).Account.Id.Value:D}"
+            : $"anonymous:{anonymousScope.Value}";
         var result = await useCase.ExecuteAsync(
             new StartPreTriageFromIntakeCommand(
                 request.Text,
                 callerMode,
-                request.UnsupportedFields?.Keys.ToArray() ?? []),
+                request.UnsupportedFields?.Keys.ToArray() ?? [],
+                idempotencyKey,
+                callerScope,
+                anonymousCapability,
+                anonymousScope.WasCreated),
             cancellationToken);
         var response = new StartPreTriageFromIntakeResponse(
             ToApiEnum(result.Resolution),
@@ -383,6 +410,72 @@ internal static class PreTriageEndpointExtensions
             ? PreTriageCallerMode.Authenticated
             : PreTriageCallerMode.Anonymous;
     }
+
+    private static string GetRequiredIdempotencyKey(HttpContext httpContext)
+    {
+        var values = httpContext.Request.Headers[IdempotencyKeyHeader];
+        if (values.Count != 1)
+        {
+            throw InvalidIdempotencyKey();
+        }
+
+        var value = values[0];
+        if (string.IsNullOrWhiteSpace(value) ||
+            value.Length > MaximumIdempotencyKeyLength ||
+            value.Any(character =>
+                !char.IsAsciiLetterOrDigit(character) &&
+                character is not '-' and not '_' and not '.' and not '~'))
+        {
+            throw InvalidIdempotencyKey();
+        }
+
+        return value;
+    }
+
+    private static RequestValidationException InvalidIdempotencyKey() => new(
+        "pre_triage.idempotency_key_invalid",
+        "A single non-empty Idempotency-Key of at most 128 URL-safe characters is required.");
+
+    private static (string Value, bool WasCreated) ResolveAnonymousIntakeScope(
+        HttpContext httpContext)
+    {
+        if (httpContext.Request.Cookies.TryGetValue(
+                AnonymousIntakeScopeCookie,
+                out var existing) &&
+            HasValidAnonymousIntakeScope(existing))
+        {
+            return (existing, false);
+        }
+
+        var generated = AnonymousIntakeScopePrefix + Base64UrlEncode(
+            RandomNumberGenerator.GetBytes(32));
+        httpContext.Response.Cookies.Append(
+            AnonymousIntakeScopeCookie,
+            generated,
+            new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
+                IsEssential = true,
+                Path = "/api/v1/pre-triage/intake",
+                MaxAge = TimeSpan.FromDays(30)
+            });
+        return (generated, true);
+    }
+
+    private static bool HasValidAnonymousIntakeScope(string value) =>
+        value.Length == AnonymousIntakeScopePrefix.Length +
+            AnonymousIntakeScopeEncodedLength &&
+        value.StartsWith(AnonymousIntakeScopePrefix, StringComparison.Ordinal) &&
+        value.AsSpan(AnonymousIntakeScopePrefix.Length).IndexOfAnyExcept(
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".AsSpan()) < 0;
+
+    private static string Base64UrlEncode(byte[] bytes) =>
+        Convert.ToBase64String(bytes)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
 
     private static PreTriageSessionStartResponse ToResponse(StartPreTriageResult result) =>
         new(

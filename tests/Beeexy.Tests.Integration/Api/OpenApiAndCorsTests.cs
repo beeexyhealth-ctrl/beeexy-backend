@@ -466,6 +466,19 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             StringComparison.OrdinalIgnoreCase);
         Assert.Contains("AMBIGUOUS and UNRESOLVED return 200", intakeDescription,
             StringComparison.Ordinal);
+        var intakeIdempotencyParameter = preTriageIntakeOperation
+            .GetProperty("parameters")
+            .EnumerateArray()
+            .Single(parameter => string.Equals(
+                parameter.GetProperty("name").GetString(),
+                "Idempotency-Key",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("header", intakeIdempotencyParameter.GetProperty("in").GetString());
+        Assert.True(intakeIdempotencyParameter.GetProperty("required").GetBoolean());
+        Assert.Contains(
+            "same scoped key with different text returns 409",
+            intakeIdempotencyParameter.GetProperty("description").GetString(),
+            StringComparison.OrdinalIgnoreCase);
         var preTriageInterpretSecurity = preTriageInterpretOperation.GetProperty("security");
         Assert.Equal(2, preTriageInterpretSecurity.GetArrayLength());
         Assert.Empty(preTriageInterpretSecurity[0].EnumerateObject());

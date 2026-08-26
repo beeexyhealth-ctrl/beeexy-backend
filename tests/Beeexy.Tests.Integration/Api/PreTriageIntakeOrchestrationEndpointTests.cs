@@ -18,6 +18,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
+using Npgsql;
 
 namespace Beeexy.Tests.Integration.Api;
 
@@ -43,6 +44,7 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
             ]));
         using var factory = Factory(provider);
         using var client = factory.CreateApiClient();
+        AddIdempotencyKey(client);
         var before = await CountsAsync();
 
         using var response = await client.PostAsJsonAsync(Endpoint, new
@@ -100,6 +102,7 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
             "Exact aliases must not invoke AI."));
         using var factory = Factory(provider);
         using var client = factory.CreateApiClient();
+        AddIdempotencyKey(client);
 
         using var response = await client.PostAsJsonAsync(
             Endpoint,
@@ -124,6 +127,7 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
             ]));
         using var factory = Factory(provider);
         using var client = factory.CreateApiClient();
+        AddIdempotencyKey(client);
 
         using var response = await client.PostAsJsonAsync(
             Endpoint,
@@ -165,6 +169,7 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
                 requiresClarification: true);
         using var factory = Factory(new FixedProvider(output));
         using var client = factory.CreateApiClient();
+        AddIdempotencyKey(client);
         var before = await CountsAsync();
 
         using var response = await client.PostAsJsonAsync(
@@ -189,6 +194,7 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
         using var factory = Factory(new ThrowingProvider(
             new ClinicalAiProviderException(ClinicalAiProviderFailureCategory.Timeout)));
         using var client = factory.CreateApiClient();
+        AddIdempotencyKey(client);
         var before = await CountsAsync();
 
         using var response = await client.PostAsJsonAsync(
@@ -203,10 +209,265 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
     }
 
     [Fact]
+    public async Task SequentialAnonymousReplay_ReturnsCanonicalResultWithoutAiOrWrites()
+    {
+        var provider = new FixedProvider(Output(
+            "HEADACHE",
+            [Fact("DURATION", new ClinicalAiDurationValue(3, ClinicalDurationUnit.Hours))]));
+        using var factory = Factory(provider);
+        using var client = factory.CreateApiClient();
+        var key = Guid.NewGuid().ToString("D");
+        var before = await CountsAsync();
+
+        using var first = await SendIntakeAsync(
+            client,
+            key,
+            "My head has hurt for three hours");
+        var created = await first.Content.ReadFromJsonAsync<OrchestrationResponse>();
+        using var replay = await SendIntakeAsync(
+            client,
+            key,
+            "My head has hurt for three hours",
+            created!.Session!.AnonymousCapability);
+        var repeated = await replay.Content.ReadFromJsonAsync<OrchestrationResponse>();
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, replay.StatusCode);
+        Assert.Equal(created.Session.SessionId, repeated!.Session!.SessionId);
+        Assert.Equal(created.Session.AnonymousCapability,
+            repeated.Session.AnonymousCapability);
+        Assert.Equal(created.InitialAnswers!.AcceptedAnswers,
+            repeated.InitialAnswers!.AcceptedAnswers);
+        Assert.Equal(1, provider.CallCount);
+        var after = await CountsAsync();
+        Assert.Equal(1, after.Sessions - before.Sessions);
+        Assert.Equal(1, after.Answers - before.Answers);
+        Assert.Equal(1, after.IdempotencyRecords - before.IdempotencyRecords);
+
+        await using var freshContext = CreateDbContext();
+        var mapping = await freshContext.PreTriageIntakeIdempotencyRecords
+            .AsNoTracking()
+            .SingleAsync(value => value.SessionId ==
+                EntityId.From(created.Session.SessionId));
+        Assert.StartsWith("sha256:", mapping.OperationKeyHash, StringComparison.Ordinal);
+        Assert.StartsWith("sha256:", mapping.RequestFingerprint, StringComparison.Ordinal);
+        Assert.DoesNotContain("head", mapping.RequestFingerprint,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SameScopedKeyWithDifferentText_ReturnsSafeConflictWithoutSecondOperation()
+    {
+        var provider = new FixedProvider(Output("HEADACHE"));
+        using var factory = Factory(provider);
+        using var client = factory.CreateApiClient();
+        var key = Guid.NewGuid().ToString("D");
+        var before = await CountsAsync();
+
+        using var first = await SendIntakeAsync(client, key, "My head hurts");
+        var created = await first.Content.ReadFromJsonAsync<OrchestrationResponse>();
+        using var conflict = await SendIntakeAsync(
+            client,
+            key,
+            "My stomach hurts",
+            created!.Session!.AnonymousCapability);
+        using var problem = JsonDocument.Parse(await conflict.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
+        Assert.Equal("pre_triage.idempotency_key_reused",
+            problem.RootElement.GetProperty("errorCode").GetString());
+        Assert.DoesNotContain("head", problem.RootElement.ToString(),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, provider.CallCount);
+        Assert.Equal(1, (await CountsAsync()).Sessions - before.Sessions);
+    }
+
+    [Fact]
+    public async Task DifferentKeysWithSameText_CreateDistinctLegitimateOperations()
+    {
+        var provider = new FixedProvider(Output("HEADACHE"));
+        using var factory = Factory(provider);
+        using var client = factory.CreateApiClient();
+        var before = await CountsAsync();
+
+        using var first = await SendIntakeAsync(
+            client,
+            Guid.NewGuid().ToString("D"),
+            "My head hurts");
+        using var second = await SendIntakeAsync(
+            client,
+            Guid.NewGuid().ToString("D"),
+            "My head hurts");
+        var firstResult = await first.Content.ReadFromJsonAsync<OrchestrationResponse>();
+        var secondResult = await second.Content.ReadFromJsonAsync<OrchestrationResponse>();
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, second.StatusCode);
+        Assert.NotEqual(firstResult!.Session!.SessionId, secondResult!.Session!.SessionId);
+        Assert.Equal(2, provider.CallCount);
+        Assert.Equal(2, (await CountsAsync()).Sessions - before.Sessions);
+    }
+
+    [Fact]
+    public async Task ConcurrentAnonymousDuplicates_CommitOneOperationAndOneAiCall()
+    {
+        var provider = new DelayedProvider(Output("HEADACHE"));
+        using var factory = Factory(provider);
+        using var firstClient = factory.CreateApiClient();
+        using var secondClient = factory.CreateApiClient();
+        var key = Guid.NewGuid().ToString("D");
+        var before = await CountsAsync();
+
+        var firstTask = SendIntakeAsync(
+            firstClient,
+            key,
+            "My head hurts");
+        var secondTask = SendIntakeAsync(
+            secondClient,
+            key,
+            "My head hurts");
+        var responses = await Task.WhenAll(firstTask, secondTask);
+        using var first = responses[0];
+        using var second = responses[1];
+
+        Assert.Equal(
+            [HttpStatusCode.Created, HttpStatusCode.Conflict],
+            responses.Select(value => value.StatusCode).Order().ToArray());
+        Assert.Equal(1, provider.CallCount);
+        var after = await CountsAsync();
+        Assert.Equal(1, after.Sessions - before.Sessions);
+        Assert.Equal(1, after.IdempotencyRecords - before.IdempotencyRecords);
+    }
+
+    [Fact]
+    public async Task AnonymousScopes_IsolateTheSameKeyAcrossUnrelatedClients()
+    {
+        var provider = new FixedProvider(Output("HEADACHE"));
+        using var factory = Factory(provider);
+        using var firstClient = factory.CreateApiClient();
+        using var unrelatedClient = factory.CreateApiClient();
+        var key = Guid.NewGuid().ToString("D");
+
+        using var first = await SendIntakeAsync(
+            firstClient,
+            key,
+            "My head hurts",
+            cookie: "pti1." + new string('A', 43));
+        using var unrelated = await SendIntakeAsync(
+            unrelatedClient,
+            key,
+            "My head hurts",
+            cookie: "pti1." + new string('B', 43));
+        var firstResult = await first.Content.ReadFromJsonAsync<OrchestrationResponse>();
+        var unrelatedResult = await unrelated.Content.ReadFromJsonAsync<OrchestrationResponse>();
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, unrelated.StatusCode);
+        Assert.NotEqual(firstResult!.Session!.SessionId,
+            unrelatedResult!.Session!.SessionId);
+        Assert.NotEqual(firstResult.Session.AnonymousCapability,
+            unrelatedResult.Session.AnonymousCapability);
+    }
+
+    [Fact]
+    public async Task ProviderFailure_DoesNotPoisonKeyForLaterHealthyRetry()
+    {
+        var provider = new FailOnceProvider(Output("HEADACHE"));
+        using var factory = Factory(provider);
+        using var client = factory.CreateApiClient();
+        var key = Guid.NewGuid().ToString("D");
+        var before = await CountsAsync();
+
+        using var unavailable = await SendIntakeAsync(
+            client,
+            key,
+            "My head hurts this morning");
+        using var recovered = await SendIntakeAsync(
+            client,
+            key,
+            "My head hurts this morning");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, unavailable.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, recovered.StatusCode);
+        Assert.Equal(2, provider.CallCount);
+        Assert.Equal(1, (await CountsAsync()).Sessions - before.Sessions);
+    }
+
+    [Fact]
+    public async Task AuthenticatedScope_ReplaysPerAccountAndDoesNotCrossAccounts()
+    {
+        var provider = new FixedProvider(Output("HEADACHE"));
+        using var factory = Factory(provider);
+        using var firstClient = factory.CreateApiClient();
+        using var unrelatedClient = factory.CreateApiClient();
+        var firstIdentity = await CreateIdentityAsync();
+        var unrelatedIdentity = await CreateIdentityAsync();
+        firstClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            CreateJwt(firstIdentity.AccountId));
+        unrelatedClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            CreateJwt(unrelatedIdentity.AccountId));
+        var key = Guid.NewGuid().ToString("D");
+
+        using var first = await SendIntakeAsync(firstClient, key, "My head hurts");
+        using var replay = await SendIntakeAsync(firstClient, key, "My head hurts");
+        using var unrelated = await SendIntakeAsync(
+            unrelatedClient,
+            key,
+            "My head hurts");
+        var firstResult = await first.Content.ReadFromJsonAsync<OrchestrationResponse>();
+        var replayResult = await replay.Content.ReadFromJsonAsync<OrchestrationResponse>();
+        var unrelatedResult = await unrelated.Content.ReadFromJsonAsync<OrchestrationResponse>();
+
+        Assert.Equal(firstResult!.Session!.SessionId, replayResult!.Session!.SessionId);
+        Assert.NotEqual(firstResult.Session.SessionId,
+            unrelatedResult!.Session!.SessionId);
+        Assert.Equal(firstIdentity.ProfileId.Value, firstResult.Session.PatientId);
+        Assert.Equal(unrelatedIdentity.ProfileId.Value, unrelatedResult.Session.PatientId);
+        Assert.Equal(2, provider.CallCount);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("contains whitespace")]
+    public async Task InvalidOrMissingIdempotencyKey_IsRejectedWithoutProviderCall(string? key)
+    {
+        var provider = new FixedProvider(Output("HEADACHE"));
+        using var factory = Factory(provider);
+        using var client = factory.CreateApiClient();
+
+        using var response = await SendIntakeAsync(client, key, "My head hurts");
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("pre_triage.idempotency_key_invalid",
+            problem.RootElement.GetProperty("errorCode").GetString());
+        Assert.Equal(0, provider.CallCount);
+    }
+
+    [Fact]
+    public async Task OversizedIdempotencyKey_IsRejected()
+    {
+        using var factory = Factory(new FixedProvider(Output("HEADACHE")));
+        using var client = factory.CreateApiClient();
+
+        using var response = await SendIntakeAsync(
+            client,
+            new string('a', 129),
+            "My head hurts");
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+    }
+
+    [Fact]
     public async Task RequestAndOptionalAuthenticationBoundariesAreEnforcedBeforeCreation()
     {
         using var factory = new BeeexyApiFactory(postgres.ConnectionString);
         using var client = factory.CreateApiClient();
+        AddIdempotencyKey(client);
         var sessionsBefore = (await CountsAsync()).Sessions;
 
         using var blank = await client.PostAsJsonAsync(Endpoint, new { text = "   " });
@@ -240,7 +501,9 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
                 services.AddScoped<IPreTriageAnswerRepository, FailingAnswerRepository>();
             });
         using var client = factory.CreateApiClient();
+        AddIdempotencyKey(client);
         var sessionsBefore = (await CountsAsync()).Sessions;
+        var mappingsBefore = (await CountsAsync()).IdempotencyRecords;
 
         using var response = await client.PostAsJsonAsync(
             Endpoint,
@@ -248,10 +511,54 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
 
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
         Assert.Equal(sessionsBefore, (await CountsAsync()).Sessions);
+        Assert.Equal(mappingsBefore, (await CountsAsync()).IdempotencyRecords);
         Assert.DoesNotContain(
             logger.Messages,
             message => message.Contains("Pre-triage session", StringComparison.Ordinal) &&
                 message.Contains("created in", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task IdempotencyCompletionFailure_RollsBackSessionAnswersAndMapping()
+    {
+        using var factory = Factory(new FixedProvider(Output("HEADACHE")));
+        using var client = factory.CreateApiClient();
+        AddIdempotencyKey(client);
+        var before = await CountsAsync();
+        await ExecuteSqlAsync(
+            """
+            CREATE OR REPLACE FUNCTION triage.reject_intake_idempotency_for_test()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                RAISE EXCEPTION 'controlled intake idempotency failure';
+            END;
+            $$;
+            CREATE TRIGGER reject_intake_idempotency_for_test
+            BEFORE INSERT ON triage.pre_triage_intake_idempotency
+            FOR EACH ROW
+            EXECUTE FUNCTION triage.reject_intake_idempotency_for_test();
+            """);
+
+        try
+        {
+            using var response = await client.PostAsJsonAsync(
+                Endpoint,
+                new { text = "Headache" });
+
+            Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+            Assert.Equal(before, await CountsAsync());
+        }
+        finally
+        {
+            await ExecuteSqlAsync(
+                """
+                DROP TRIGGER IF EXISTS reject_intake_idempotency_for_test
+                    ON triage.pre_triage_intake_idempotency;
+                DROP FUNCTION IF EXISTS triage.reject_intake_idempotency_for_test();
+                """);
+        }
     }
 
     [Fact]
@@ -272,6 +579,7 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
             services.AddSingleton<IFhirArtifactStore>(store);
         });
         using var client = factory.CreateApiClient();
+        AddIdempotencyKey(client);
         var identity = await CreateIdentityAsync();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
@@ -365,13 +673,22 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
             await db.TriageAnswers.CountAsync(),
             await db.PreTriageEpisodes.CountAsync(),
             await db.ClinicalHistoryEvents.CountAsync(),
-            await db.FhirExports.CountAsync());
+            await db.FhirExports.CountAsync(),
+            await db.PreTriageIntakeIdempotencyRecords.CountAsync());
     }
 
     private BeeexyDbContext CreateDbContext() => new(
         new DbContextOptionsBuilder<BeeexyDbContext>()
             .UseNpgsql(postgres.ConnectionString)
             .Options);
+
+    private async Task ExecuteSqlAsync(string sql)
+    {
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync();
+    }
 
     private static string CreateJwt(EntityId accountId)
     {
@@ -425,16 +742,87 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
     private static string CompleteEndpoint(Guid id) =>
         $"/api/v1/pre-triage/sessions/{id:D}/complete";
 
+    private static void AddIdempotencyKey(HttpClient client) =>
+        client.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString("D"));
+
+    private static async Task<HttpResponseMessage> SendIntakeAsync(
+        HttpClient client,
+        string? idempotencyKey,
+        string text,
+        string? anonymousCapability = null,
+        string? cookie = null)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint)
+        {
+            Content = JsonContent.Create(new { text })
+        };
+        if (idempotencyKey is not null)
+        {
+            request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey);
+        }
+
+        if (anonymousCapability is not null)
+        {
+            request.Headers.Add(CapabilityHeader, anonymousCapability);
+        }
+
+        if (cookie is not null)
+        {
+            request.Headers.Add(
+                "Cookie",
+                $"Beeexy.PreTriage.IntakeScope={cookie}");
+        }
+
+        return await client.SendAsync(request);
+    }
+
     private sealed class FixedProvider(ClinicalAiProviderOutput output) : IClinicalAiProvider
     {
-        public int CallCount { get; private set; }
+        private int callCount;
+
+        public int CallCount => callCount;
 
         public Task<ClinicalAiProviderOutput> InterpretAsync(
             ClinicalAiInterpretationRequest request,
             CancellationToken cancellationToken = default)
         {
-            CallCount++;
+            Interlocked.Increment(ref callCount);
             return Task.FromResult(output);
+        }
+    }
+
+    private sealed class DelayedProvider(ClinicalAiProviderOutput output) : IClinicalAiProvider
+    {
+        private int callCount;
+
+        public int CallCount => callCount;
+
+        public async Task<ClinicalAiProviderOutput> InterpretAsync(
+            ClinicalAiInterpretationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref callCount);
+            await Task.Delay(100, cancellationToken);
+            return output;
+        }
+    }
+
+    private sealed class FailOnceProvider(ClinicalAiProviderOutput output) : IClinicalAiProvider
+    {
+        private int callCount;
+
+        public int CallCount => callCount;
+
+        public Task<ClinicalAiProviderOutput> InterpretAsync(
+            ClinicalAiInterpretationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            var invocation = Interlocked.Increment(ref callCount);
+            return invocation == 1
+                ? Task.FromException<ClinicalAiProviderOutput>(
+                    new ClinicalAiProviderException(
+                        ClinicalAiProviderFailureCategory.Timeout))
+                : Task.FromResult(output);
         }
     }
 
@@ -504,7 +892,8 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
         int Answers,
         int Episodes,
         int History,
-        int FhirExports);
+        int FhirExports,
+        int IdempotencyRecords);
 
     private sealed class OrchestrationResponse
     {

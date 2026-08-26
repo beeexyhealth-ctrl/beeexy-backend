@@ -58,6 +58,7 @@ public sealed class ForeignKeySchemaTests(PostgreSqlContainerFixture postgres)
                 "fk_pre_triage_episodes_questionnaire_versions_version_id",
                 "fk_pre_triage_episodes_rule_set_versions_version_id",
                 "fk_pre_triage_episodes_sessions_source_session_version",
+                "fk_pre_triage_intake_idempotency_pre_triage_sessions_session_id",
                 "fk_pre_triage_sessions_patient_profiles_patient_profile_id",
                 "fk_pre_triage_sessions_questionnaire_versions_version_id",
                 "fk_questions_questionnaire_versions_questionnaire_version_id",
@@ -70,6 +71,7 @@ public sealed class ForeignKeySchemaTests(PostgreSqlContainerFixture postgres)
         Assert.Equal(
             [
                 "fk_answers_pre_triage_sessions_session_version",
+                "fk_pre_triage_intake_idempotency_pre_triage_sessions_session_id",
                 "fk_reported_symptoms_pre_triage_sessions_session_id"
             ],
             foreignKeys

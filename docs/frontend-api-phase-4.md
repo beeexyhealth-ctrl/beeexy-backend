@@ -249,6 +249,19 @@ Session start does not return questionnaire progression. A frontend may submit a
 
 Purpose: interpret the visitor's first message and, only when the pathway is unambiguous, atomically create a normal session and apply any initial answer values that are valid for the newly pinned package. This is the preferred single-call entry point for a conversational frontend. It does not complete the session.
 
+Every request requires a client-generated idempotency header in addition to the body:
+
+```http
+Idempotency-Key: 7a0a7680-0ac3-4df0-9959-d7137d514d68
+Content-Type: application/json
+```
+
+The key is an opaque, URL-safe value of 1–128 characters. A random UUID is recommended.
+Generate a new random idempotency key for each new logical intake submission. Reuse that same
+key when retrying that same submission. Generate a new key only for a genuinely new intake.
+Never derive the key from symptom text. Disable duplicate submit while a request is in flight,
+but rely on backend idempotency for correctness.
+
 The request body contains exactly one field:
 
 ```json
@@ -264,7 +277,16 @@ Authentication and ownership:
 - omit `Authorization` to create an anonymous session when resolution succeeds;
 - send a valid Bearer token to create a session for the caller's server-derived primary patient;
 - an invalid supplied Bearer returns `401` and is never downgraded to anonymous;
-- the request does not accept `X-Pre-Triage-Capability`; a successful anonymous response creates and returns a new capability inside `session`.
+- omit `X-Pre-Triage-Capability` on the first attempt; a successful anonymous response creates
+  and returns a new capability inside `session`, and matching retries send that capability.
+
+The backend scopes authenticated keys to the stable Beeexy Account. For anonymous callers it
+sets a secure, HTTP-only `Beeexy.PreTriage.IntakeScope` cookie and scopes the key to that browser
+secret. Browser requests must include credentials/cookies normally. An unrelated anonymous
+browser can use the same random key for its own intake without accessing the first browser's
+session or capability. For the first cookie-less request only, the backend also stores a hashed
+bootstrap alias so simultaneous first submits or a lost first response cannot create a second
+session; that alias never grants replay access without the original capability.
 
 A resolved request returns `201 Created`. The response combines the canonical session-start contract with the canonical answer/progression contract:
 
@@ -362,7 +384,36 @@ Important statuses:
 | `503` | Interpretation provider is unavailable, timed out, misconfigured, or returned invalid structure. Offer explicit structured/pathway intake. |
 | `500` | Safe unexpected failure. Session creation and initial answer persistence are rolled back together. |
 
-This start operation is not idempotent: the backend has no request idempotency key or durable start-deduplication convention. A repeated successful request can create another session. Do not automatically retry after an uncertain network outcome, and suppress duplicate submits in the UI. Never use raw intake text as a deduplication key.
+Idempotency behavior is durable across requests, restarts, and app instances:
+
+- same caller scope + same key + same trimmed `text` replays the committed `201` session and
+  initial-answer result without another provider call, session, answer, or success audit;
+- same caller scope + same key + different `text` returns `409` with
+  `pre_triage.idempotency_key_reused` and never reveals the previous text;
+- different keys with identical text are distinct legitimate intake operations;
+- `AMBIGUOUS`, `UNRESOLVED`, validation/auth failures, `503`, and unexpected `500` outcomes are
+  not committed as completed idempotency results, so a provider-failure retry may use the same
+  key after recovery.
+
+Completed mappings are retained for exactly as long as their canonical session. Existing
+Pre-Triage cleanup cascades the mapping when it removes an expired/abandoned session; permanent
+completed patient-owned sessions retain their mappings. The normal 24-hour active-session window
+therefore remains available for network retries without adding a separate cleanup worker.
+
+For an anonymous replay, also send the original capability:
+
+```http
+X-Pre-Triage-Capability: <anonymousCapability>
+```
+
+The backend stores only its one-way hash and echoes the caller-held capability in a successful
+replay. A concurrent duplicate or later anonymous retry that does not yet possess the capability
+returns `409` with `pre_triage.anonymous_replay_capability_required`; it does not create another
+session or disclose the first result. A wrong capability returns the normal safe authentication
+failure. Therefore the frontend must retain both the idempotency key and the returned anonymous
+capability after the first response. If the first response is lost before the capability arrives,
+the original anonymous result cannot be recovered; start a genuinely new intake with a new key
+only after informing the user.
 
 Even when `initialAnswers.progression.readyToComplete` is `true`, the session remains `Active`. The frontend must still show Review and call the existing explicit `/complete` operation. Clinical History projection and FHIR export do not occur during intake; they remain downstream of explicit completion and the existing authenticated workflows.
 

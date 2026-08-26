@@ -521,17 +521,25 @@ public sealed class SubmitTriageAnswers(
     private static bool JsonAnswersEqual(string existing, string submitted) =>
         JsonNode.DeepEquals(JsonNode.Parse(existing), JsonNode.Parse(submitted));
 
-    private static DemoQuestionnaireProgress ResolveProgression(
+    internal static DemoQuestionnaireProgress ResolveProgression(
         PreTriageSession session,
         ClinicalDefinitionPackage package)
     {
-        var demo = package.RuleDefinitions.DemoIntake!;
         var entityCodeById = package.Questionnaire.Questions.ToDictionary(
             value => value.Id,
             value => value.Code);
         var answered = session.Answers
             .Select(value => entityCodeById[value.QuestionId])
             .ToHashSet();
+        return ResolveProgression(answered, package);
+    }
+
+    internal static DemoQuestionnaireProgress ResolveProgression(
+        IReadOnlyCollection<QuestionCode> answeredCodes,
+        ClinicalDefinitionPackage package)
+    {
+        var demo = package.RuleDefinitions.DemoIntake!;
+        var answered = answeredCodes.ToHashSet();
         var answeredRequired = demo.ProgressionQuestionCodes
             .Where(answered.Contains)
             .ToArray();
