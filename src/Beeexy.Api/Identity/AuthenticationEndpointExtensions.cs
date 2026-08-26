@@ -168,7 +168,7 @@ internal static class AuthenticationEndpointExtensions
         return Results.NoContent();
     }
 
-    private static AuthenticationTokenResponse ToResponse(
+    internal static AuthenticationTokenResponse ToResponse(
         AuthenticationTokenPair tokens,
         Guid accountId,
         Guid profileId,

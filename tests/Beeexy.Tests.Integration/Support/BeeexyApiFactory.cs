@@ -32,6 +32,8 @@ internal sealed class BeeexyApiFactory : WebApplicationFactory<Program>
         _loggerProvider = loggerProvider;
         var overrides = new Dictionary<string, string?>
         {
+            ["PrivateAccess:Enabled"] = "false",
+            ["PrivateAccess:DemoGuest:Enabled"] = "false",
             ["Authentication:EmailChallenge:OtpHashingKey"] =
                 "integration-test-only-hmac-key-with-at-least-32-bytes",
             ["Authentication:Tokens:SigningKey"] =

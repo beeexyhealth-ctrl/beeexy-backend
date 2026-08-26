@@ -81,6 +81,16 @@ internal sealed class ApiExceptionHandler(
             };
         }
 
+        if (exception is DemoGuestUnavailableException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status503ServiceUnavailable,
+                Title = "Demo Guest unavailable.",
+                Detail = "The Demo Guest authentication session is not available."
+            };
+        }
+
         if (exception is EmailChallengeAttemptLimitException)
         {
             return new ProblemDetails

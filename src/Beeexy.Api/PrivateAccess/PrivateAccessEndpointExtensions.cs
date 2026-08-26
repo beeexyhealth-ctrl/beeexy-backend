@@ -1,4 +1,6 @@
 using Beeexy.Application.Common;
+using Beeexy.Api.Identity;
+using Beeexy.Application.Identity;
 
 namespace Beeexy.Api.PrivateAccess;
 
@@ -28,6 +30,19 @@ internal static class PrivateAccessEndpointExtensions
             .WithName("LogoutPrivateAccess")
             .WithSummary("Remove the private demo access session")
             .Produces(StatusCodes.Status204NoContent);
+
+        group.MapPost("/guest-session", CreateGuestSessionAsync)
+            .WithName("CreatePrivateAccessGuestSession")
+            .WithSummary("Create a normal Beeexy session for the configured Demo Guest")
+            .WithDescription(
+                "Requires the valid Private Access cookie. Accepts no body, query, or caller " +
+                "identity selector. Returns the standard Beeexy access/refresh session for " +
+                "the single server-configured Demo Guest account.")
+            .Produces<AuthenticationTokenResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         return endpoints;
     }
@@ -81,6 +96,39 @@ internal static class PrivateAccessEndpointExtensions
         httpContext.Response.Headers.CacheControl = "no-store";
         logger.LogInformation("Private access login succeeded.");
         return Results.NoContent();
+    }
+
+    private static async Task<IResult> CreateGuestSessionAsync(
+        HttpContext httpContext,
+        PrivateAccessSettings settings,
+        IssueDemoGuestSession useCase,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        if (httpContext.Request.Query.Count != 0 ||
+            httpContext.Request.ContentLength is > 0 ||
+            httpContext.Request.Headers.TransferEncoding.Count != 0)
+        {
+            throw new BadHttpRequestException(
+                "Private Demo Guest session creation does not accept a body or query parameters.");
+        }
+
+        if (!settings.DemoGuest.Enabled || settings.DemoGuest.Definition is null)
+        {
+            throw new DemoGuestUnavailableException();
+        }
+
+        var result = await useCase.ExecuteAsync(
+            settings.DemoGuest.Definition,
+            cancellationToken);
+        httpContext.Response.Headers.CacheControl = "no-store";
+        loggerFactory.CreateLogger("Beeexy.PrivateAccess.DemoGuest.Audit")
+            .LogInformation("Demo Guest authentication session issued.");
+        return Results.Ok(AuthenticationEndpointExtensions.ToResponse(
+            result.Tokens,
+            result.AccountId.Value,
+            result.ProfileId.Value,
+            result.BeeexyId));
     }
 
     private static IResult GetSession(

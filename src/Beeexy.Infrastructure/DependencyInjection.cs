@@ -50,6 +50,7 @@ public static class DependencyInjection
             IEmailAuthenticationChallengeRepository,
             EmailAuthenticationChallengeRepository>();
         services.AddScoped<IAccountProvisioningRepository, AccountProvisioningRepository>();
+        services.AddScoped<IDemoGuestAccountRepository, DemoGuestAccountRepository>();
         services.AddScoped<IIdentityVerificationTransaction, IdentityVerificationTransaction>();
         services.AddSingleton<IRefreshTokenService, CryptographicRefreshTokenService>();
         services.AddSingleton<IAccessTokenIssuer, JwtAccessTokenIssuer>();

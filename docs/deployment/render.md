@@ -32,6 +32,14 @@ For a private/demo deployment, also configure the private access gate described 
 | `PrivateAccess__PasswordHash` | Configuration-ready hash produced by the local setup command. |
 | `PrivateAccess__KeywordHash` | Configuration-ready hash produced by the local setup command. |
 | `PrivateAccess__SessionSigningKey` | Independent base64-encoded random session signing key. |
+| `PrivateAccess__DemoGuest__Enabled` | Set to `true` only after the persistent Demo Guest has been provisioned. |
+| `PrivateAccess__DemoGuest__Email` | Dedicated internal normalized-email identity for the shared Demo Account. |
+| `PrivateAccess__DemoGuest__FirstName` | Complete primary-profile first name. |
+| `PrivateAccess__DemoGuest__LastName` | Complete primary-profile last name. |
+| `PrivateAccess__DemoGuest__DateOfBirth` | Complete primary-profile non-future date in `YYYY-MM-DD` format. |
+| `PrivateAccess__DemoGuest__SexAssignedAtBirth` | Existing approved value `Male` or `Female`. |
+| `PrivateAccess__DemoGuest__State` | Valid two-letter U.S. state code. |
+| `PrivateAccess__DemoGuest__Timezone` | Recognized IANA timezone identifier. |
 
 The checked-in private-access lifetime and rate-limit policies have non-secret defaults. Override their double-underscore environment names only when intentionally changing those policies.
 
@@ -76,6 +84,16 @@ ASPNETCORE_ENVIRONMENT=Production dotnet ef database update \
 ```
 
 After the migration succeeds, keep the Render runtime variable set to the intended Neon runtime connection string. Do not add migration execution to the Docker command or application startup. The runtime image intentionally contains neither the SDK nor `dotnet-ef`.
+
+For a Demo Guest deployment, run the idempotent provisioning CLI from the same trusted SDK workstation after migrations and before enabling frontend traffic. Use the direct database connection string and the complete production configuration:
+
+```bash
+ASPNETCORE_ENVIRONMENT=Production \
+dotnet run --project src/Beeexy.Api --configuration Release -- \
+  private-access provision-demo-guest
+```
+
+The runtime container does not provision the guest automatically.
 
 ## CORS
 

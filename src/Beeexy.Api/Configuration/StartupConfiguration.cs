@@ -1,8 +1,11 @@
+using System.Globalization;
+using Beeexy.Api.PrivateAccess;
 using Beeexy.Application.Identity;
+using Beeexy.Domain.Identity;
+using Beeexy.Domain.Patients;
 using Beeexy.Infrastructure.Identity;
 using Beeexy.Infrastructure.Persistence;
 using Beeexy.Infrastructure.Triage;
-using Beeexy.Api.PrivateAccess;
 using Microsoft.Extensions.Hosting;
 
 namespace Beeexy.Api.Configuration;
@@ -29,10 +32,13 @@ internal static class StartupConfiguration
         ArgumentNullException.ThrowIfNull(environment);
 
         var section = configuration.GetSection(PrivateAccessSectionKey);
+        var demoGuestSection = section.GetSection("DemoGuest");
         bool enabled;
+        bool demoGuestEnabled;
         try
         {
             enabled = section.GetValue("Enabled", false);
+            demoGuestEnabled = demoGuestSection.GetValue("Enabled", false);
         }
         catch (InvalidOperationException exception)
         {
@@ -43,6 +49,13 @@ internal static class StartupConfiguration
 
         if (!enabled)
         {
+            if (demoGuestEnabled)
+            {
+                throw new InvalidOperationException(
+                    $"Configuration section '{PrivateAccessSectionKey}:DemoGuest' requires " +
+                    $"'{PrivateAccessSectionKey}:Enabled'.");
+            }
+
             return PrivateAccessSettings.Disabled;
         }
 
@@ -90,7 +103,7 @@ internal static class StartupConfiguration
                 $"Configuration section '{PrivateAccessSectionKey}' is invalid.");
         }
 
-        return new PrivateAccessSettings(
+        var settings = new PrivateAccessSettings(
             true,
             username,
             passwordHash,
@@ -100,6 +113,56 @@ internal static class StartupConfiguration
             loginPermitLimit,
             TimeSpan.FromMinutes(loginRateLimitWindowMinutes),
             environment.IsProduction());
+        return settings with
+        {
+            DemoGuest = demoGuestEnabled
+                ? new DemoGuestSettings(true, GetRequiredDemoGuestDefinition(demoGuestSection))
+                : DemoGuestSettings.Disabled
+        };
+    }
+
+    private static DemoGuestDefinition GetRequiredDemoGuestDefinition(
+        IConfigurationSection section)
+    {
+        const string sectionName = $"{PrivateAccessSectionKey}:DemoGuest";
+        try
+        {
+            var dateOfBirthValue = section["DateOfBirth"];
+            if (!DateOnly.TryParseExact(
+                    dateOfBirthValue,
+                    "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out var dateOfBirth) ||
+                dateOfBirth > DateOnly.FromDateTime(DateTime.UtcNow))
+            {
+                throw new ArgumentException("Invalid date of birth.");
+            }
+
+            if (!Enum.TryParse<SexAssignedAtBirth>(
+                    section["SexAssignedAtBirth"],
+                    ignoreCase: false,
+                    out var sexAssignedAtBirth) ||
+                !Enum.IsDefined(sexAssignedAtBirth))
+            {
+                throw new ArgumentException("Invalid sex assigned at birth.");
+            }
+
+            return new DemoGuestDefinition(
+                NormalizedEmail.Create(section["Email"] ?? string.Empty),
+                PatientName.Create(section["FirstName"] ?? string.Empty),
+                PatientName.Create(section["LastName"] ?? string.Empty),
+                dateOfBirth,
+                sexAssignedAtBirth,
+                UsState.Create(section["State"] ?? string.Empty),
+                UserTimeZone.Create(section["Timezone"] ?? string.Empty));
+        }
+        catch (ArgumentException exception)
+        {
+            throw new InvalidOperationException(
+                $"Configuration section '{sectionName}' is incomplete or invalid.",
+                exception);
+        }
     }
 
     public static string GetRequiredDatabaseConnectionString(IConfiguration configuration)

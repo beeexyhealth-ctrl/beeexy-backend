@@ -21,12 +21,13 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using System.Text;
 
+var provisionDemoGuestCommand = PrivateAccessCli.IsProvisionDemoGuestCommand(args);
 if (PrivateAccessCli.TryRun(args))
 {
     return;
 }
 
-var builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(provisionDemoGuestCommand ? [] : args);
 
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole(options =>
@@ -72,9 +73,11 @@ if (builder.Environment.IsDevelopment())
 }
 builder.Services.AddScoped<RequestEmailChallenge>();
 builder.Services.AddScoped<ProvisionAccountAndPrimaryProfile>();
+builder.Services.AddScoped<ProvisionDemoGuest>();
 builder.Services.AddScoped<VerifyEmailChallenge>();
 builder.Services.AddScoped<AuthenticateWithGoogle>();
 builder.Services.AddScoped<IssueAuthenticationTokens>();
+builder.Services.AddScoped<IssueDemoGuestSession>();
 builder.Services.AddScoped<RotateRefreshSession>();
 builder.Services.AddScoped<LogoutSession>();
 builder.Services.AddScoped<CurrentAccountProfileResolver>();
@@ -193,6 +196,15 @@ builder.Services.AddSwaggerGen(options =>
 
 
 var app = builder.Build();
+
+if (provisionDemoGuestCommand)
+{
+    await PrivateAccessCli.ProvisionDemoGuestAsync(
+        app.Services,
+        privateAccessSettings,
+        CancellationToken.None);
+    return;
+}
 
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseExceptionHandler();

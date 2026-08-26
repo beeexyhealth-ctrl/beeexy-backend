@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(27, paths.EnumerateObject().Count());
+        Assert.Equal(28, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
@@ -32,6 +32,11 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.True(paths
             .GetProperty("/api/v1/private-access/logout")
             .TryGetProperty("post", out _));
+        var guestSessionOperation = paths
+            .GetProperty("/api/v1/private-access/guest-session")
+            .GetProperty("post");
+        Assert.False(guestSessionOperation.TryGetProperty("requestBody", out _));
+        AssertResponseCodes(guestSessionOperation, "200", "400", "401", "500", "503");
         Assert.DoesNotContain(
             paths.EnumerateObject(),
             path => path.Name.Contains("generator", StringComparison.OrdinalIgnoreCase));

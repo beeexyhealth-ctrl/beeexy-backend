@@ -1,4 +1,6 @@
 using System.Security.Cryptography;
+using Beeexy.Application.Identity;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Beeexy.Api.PrivateAccess;
 
@@ -8,6 +10,15 @@ internal static class PrivateAccessCli
     {
         if (args.Length == 0 ||
             !string.Equals(args[0], "private-access", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (args.Length == 2 &&
+            string.Equals(
+                args[1],
+                "provision-demo-guest",
+                StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -53,7 +64,38 @@ internal static class PrivateAccessCli
         Console.WriteLine("Usage:");
         Console.WriteLine("  private-access generate [count]");
         Console.WriteLine("  private-access hash");
+        Console.WriteLine("  private-access provision-demo-guest");
         return true;
+    }
+
+    public static bool IsProvisionDemoGuestCommand(string[] args) =>
+        args.Length == 2 &&
+        string.Equals(args[0], "private-access", StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(args[1], "provision-demo-guest", StringComparison.OrdinalIgnoreCase);
+
+    public static async Task ProvisionDemoGuestAsync(
+        IServiceProvider services,
+        PrivateAccessSettings settings,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(settings);
+        if (!settings.Enabled ||
+            !settings.DemoGuest.Enabled ||
+            settings.DemoGuest.Definition is null)
+        {
+            throw new InvalidOperationException(
+                "Private Access Demo Guest configuration is not enabled and complete.");
+        }
+
+        await using var scope = services.CreateAsyncScope();
+        var result = await scope.ServiceProvider
+            .GetRequiredService<ProvisionDemoGuest>()
+            .ExecuteAsync(settings.DemoGuest.Definition, cancellationToken);
+
+        Console.WriteLine(result.WasProvisioned
+            ? "Demo Guest account and primary profile provisioned."
+            : "Existing Demo Guest account and primary profile verified.");
     }
 
     private static string ReadSecret()
