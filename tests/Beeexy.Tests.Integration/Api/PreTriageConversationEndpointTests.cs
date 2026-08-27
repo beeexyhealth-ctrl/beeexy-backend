@@ -257,11 +257,12 @@ public sealed class PreTriageConversationEndpointTests(
     [Fact]
     public async Task OldSessionProjection_RemainsPinnedAfterNewVersionActivation()
     {
+        var provider = new FailIfInvokedClinicalAiProvider();
         var versionOne = await ImportVersionAsync(
             "part4-v1",
             "How many days has the pinned v1 pain lasted?",
             1);
-        using var factory = Factory(new FailIfInvokedClinicalAiProvider());
+        using var factory = Factory(provider);
         using var client = factory.CreateApiClient();
         var session = await StartAnonymousAsync(client, "ABDOMINAL_PAIN");
         Assert.Equal(versionOne.Version.Value, session.Conversation!.Questionnaire.Version);
@@ -283,6 +284,35 @@ public sealed class PreTriageConversationEndpointTests(
             ["MINUTES", "HOURS", "DAYS", "WEEKS", "MONTHS"],
             projection.NextInteraction.Constraints.AllowedUnits);
         Assert.Equal(new ProgressResponse(0, 3, 0), projection.Progress);
+
+        var afterDuration = await SubmitAsync(client, session, new
+        {
+            questionnaireVersion = "part4-v1",
+            structured = new { duration = new { value = 2, unit = "DAYS" } }
+        });
+        Assert.Equal("intensity", afterDuration.NextInteraction!.Field);
+        Assert.Equal(10, afterDuration.NextInteraction.Constraints.Maximum);
+
+        var acceptedUnderPinnedV1 = await SubmitAsync(client, session, new
+        {
+            questionnaireVersion = "part4-v1",
+            structured = new { intensity = 6 }
+        });
+        Assert.Equal(6, acceptedUnderPinnedV1.AcceptedValues.Intensity);
+        Assert.Equal("additionalSymptoms",
+            acceptedUnderPinnedV1.NextInteraction!.Field);
+        Assert.Equal("part4-v1", acceptedUnderPinnedV1.Questionnaire.Version);
+
+        using var v2VersionAttempt = await SubmitWithCapabilityAsync(
+            client,
+            session,
+            new
+            {
+                questionnaireVersion = "part4-v2",
+                structured = new { additionalSymptoms = Array.Empty<string>() }
+            });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, v2VersionAttempt.StatusCode);
+        Assert.Equal(0, provider.CallCount);
     }
 
     public async Task InitializeAsync()

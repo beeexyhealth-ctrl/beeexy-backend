@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-This document is the frontend integration contract for **Phase 4 — Anonymous and Authenticated Pre-Triage**. It describes the seven implemented `/api/v1/pre-triage` operations, their security modes, the deterministic intake flow, neutral completion/result behavior, and optional anonymous claim after Beeexy authentication.
+This document is the frontend integration contract for **Phase 4 — Anonymous and Authenticated Pre-Triage**. It describes the eight implemented `/api/v1/pre-triage` operations, their security modes, the deterministic intake flow, canonical conversation projection, neutral completion/result behavior, and optional anonymous claim after Beeexy authentication. The additive Chat Pre-Triage projection contract is documented in [`frontend-api-chat-pretriage.md`](frontend-api-chat-pretriage.md).
 
 The current endpoint mappings, DTOs, application behavior, OpenAPI document, and integration tests are authoritative. This guide does not define backend architecture, Phase 1–3 APIs, Phase 5 Clinical History APIs, frontend styling, or future clinical behavior.
 
@@ -29,6 +29,7 @@ The public Phase 4 endpoint inventory is exactly:
 | `POST` | `/api/v1/pre-triage/intake/interpret` | Yes | Yes, Bearer | Stateless; no patient selector |
 | `POST` | `/api/v1/pre-triage/sessions` | Yes | Yes | Yes |
 | `POST` | `/api/v1/pre-triage/sessions/{id}/answers` | Yes, capability | Yes, Bearer | Yes, Bearer |
+| `GET` | `/api/v1/pre-triage/sessions/{id}/conversation` | Yes, capability | Yes, Bearer | Yes, Bearer |
 | `POST` | `/api/v1/pre-triage/sessions/{id}/complete` | Yes, capability | Yes, Bearer | Yes, Bearer |
 | `GET` | `/api/v1/pre-triage/sessions/{id}/result` | Yes, capability | Yes, Bearer | Yes, Bearer |
 | `POST` | `/api/v1/pre-triage/sessions/{id}/claim` | Bearer + capability | Claims only into the caller's primary patient | No managed-patient selector |
@@ -124,7 +125,7 @@ Send it on later anonymous requests in this exact header:
 X-Pre-Triage-Capability: <anonymousCapability>
 ```
 
-The capability is required for anonymous answer submission, completion, and result retrieval. Claim requires both this header and Bearer authentication.
+The capability is required for anonymous conversation retrieval, answer submission, completion, and result retrieval. Claim requires both this header and Bearer authentication.
 
 Frontend handling rules:
 
@@ -226,7 +227,7 @@ For authenticated creation, the same response includes `patientId` and omits `an
 }
 ```
 
-Store `sessionId`, `pathway`, `expiresAt`, the returned questionnaire version, and—only for anonymous sessions—the capability.
+Every supported simplified-package start also additively returns the canonical `conversation` projection. Store `sessionId`, `pathway`, `expiresAt`, the returned questionnaire version, the projection, and—only for anonymous sessions—the capability. See [`frontend-api-chat-pretriage.md`](frontend-api-chat-pretriage.md#conversation-projection) for the exact projection DTO.
 
 Important statuses:
 
@@ -241,7 +242,7 @@ Important statuses:
 
 Idempotency: **not idempotent**. Every successful call creates a distinct session; every anonymous success returns a distinct capability.
 
-Session start does not return questionnaire progression. A frontend may submit all three structured fields together. For a step-by-step flow, the first fixed Phase 4 field is duration; after the first answer response, use only the backend's returned progression metadata to choose subsequent fields.
+Session start does not return the legacy `progression` DTO, but it does return canonical `conversation` state with the exact first `nextInteraction`. A frontend may submit all three structured fields together. Conversational clients must use `conversation.nextInteraction` rather than locally selecting a field.
 
 ### Start from a natural-language intake message
 
@@ -368,13 +369,13 @@ An unresolved interpretation also returns `200 OK` and creates no state:
 }
 ```
 
-`candidatePathways`, `session`, and `initialAnswers` are omitted when they do not apply. A provider timeout, provider failure, or invalid provider structure returns safe Problem Details instead of an interpretation response and creates no state.
+Resolved responses also additively contain one top-level canonical `conversation` projection, matching all accepted initial values. `candidatePathways`, `session`, `initialAnswers`, and `conversation` are omitted when they do not apply. A provider timeout, provider failure, or invalid provider structure returns safe Problem Details instead of an interpretation response and creates no state.
 
 Important statuses:
 
 | Status | Meaning and frontend action |
 |---|---|
-| `201` | `RESOLVED`; store the session and, for anonymous flow, its one-time capability. Continue from `initialAnswers.progression`. |
+| `201` | `RESOLVED`; store the session and, for anonymous flow, its one-time capability. Conversational clients continue from top-level `conversation`; legacy clients may inspect `initialAnswers.progression`. |
 | `200` | `AMBIGUOUS` or `UNRESOLVED`; no session exists. Clarify or offer explicit pathway selection. |
 | `400` | Malformed JSON/HTTP request. Fix client serialization. |
 | `401` | Supplied Bearer is invalid or the authenticated account is unavailable. Apply the existing authentication recovery flow. |
@@ -544,6 +545,8 @@ When all required fields are valid:
 
 `nextQuestion` is omitted when there is no next question. `clarification` is omitted for a normal accepted response.
 
+Every successful answer response additively includes canonical `conversation`. Its `acceptedValues` contains all accepted session values, while the mutation-local `acceptedValues` above contains values accepted by that request. Chat clients must render from `conversation`.
+
 Natural-language outcome values are:
 
 | `outcome` | Meaning | Frontend action |
@@ -580,7 +583,7 @@ Idempotency: an exact repeat of an already stored answer is retry-safe and retur
 
 ## 8. Questionnaire Progression and Rendering
 
-Do not independently compute progression, skip order, valid options, or readiness in the frontend. After every answer response, replace local progression with `response.progression`.
+Do not independently compute progression, skip order, valid options, or readiness in the frontend. Chat clients replace local state with `response.conversation`; older Phase 4 clients may continue replacing legacy progression with `response.progression`.
 
 The backend is authoritative over:
 
@@ -772,10 +775,10 @@ Recommended flow:
 1. Restore the centralized Beeexy session and current Phase 3 `activePatient`.
 2. For the primary patient, either send the first natural-language message to `POST /api/v1/pre-triage/intake` or let the user select one of the five pathways. For a managed patient, use explicit selection.
 3. Call `/intake` with Bearer for the primary conversational path, or call `POST /api/v1/pre-triage/sessions` with Bearer, pathway, and `patientId` only for a managed selection.
-4. On intake `201` or session-start `201`, store the returned `sessionId`, pathway, expiry, and questionnaire version. On intake `200`, clarify/select a pathway without creating local session state.
-5. Continue from `initialAnswers.progression` after intake; after explicit start, submit all structured fields together or begin with duration.
-6. After every answer response, replace local progression with the backend response.
-7. When the backend returns `READY_TO_COMPLETE` and `readyToComplete: true`, call `/complete` with no body.
+4. On intake `201` or session-start `201`, store the returned `sessionId`, pathway, expiry, questionnaire version, and `conversation`. On intake `200`, clarify/select a pathway without creating local session state.
+5. Continue from `conversation.nextInteraction`; after explicit start, a non-conversational client may still submit all structured fields together.
+6. After every answer response, replace local conversation state with `response.conversation`.
+7. When the backend returns `conversation.state === "READY_FOR_REVIEW"`, show Review and call `/complete` with no body only after explicit confirmation.
 8. Render the neutral result returned by completion.
 9. Use `GET /result` for reload/recovery or later display.
 
@@ -787,8 +790,8 @@ Recommended flow:
 
 1. Start Pre-Triage without an `Authorization` header.
 2. Either send the first natural-language message to `POST /api/v1/pre-triage/intake` or let the user select one of the five supported pathways and call `POST /api/v1/pre-triage/sessions`.
-3. On intake `200`, clarify/select without storing session state. On either `201`, store `sessionId`, `pathway`, `expiresAt`, questionnaire version, and `anonymousCapability`.
-4. Continue from `initialAnswers.progression` after intake, or submit the first answers after explicit start.
+3. On intake `200`, clarify/select without storing session state. On either `201`, store `sessionId`, `pathway`, `expiresAt`, questionnaire version, `conversation`, and `anonymousCapability`.
+4. Continue from `conversation.nextInteraction`, or submit all structured fields together in a non-conversational flow.
 5. Submit later answers with `X-Pre-Triage-Capability` and no Bearer.
 6. Drive the remaining UI from each backend progression response.
 7. Complete with the capability and no request body.
@@ -888,13 +891,13 @@ General Phase 4 status handling:
 | `503` | Pre-session interpretation unavailable. Offer deterministic pathway/structured intake and do not assume a session exists. |
 | `500` | Safe generic failure. Do not display internal details or assume a mutation committed; use correlation ID and reconcile before retry. |
 
-None of the seven Phase 4 endpoints currently declares `429`; do not build Phase 4-specific rate-limit behavior beyond the centralized client's general policy.
+None of the eight Phase 4 endpoints currently declares `429`; do not build Phase 4-specific rate-limit behavior beyond the centralized client's general policy.
 
 ## 16. Retry and Idempotency Rules
 
 | Operation | Retry semantics |
 |---|---|
-| Start from intake | Not idempotent after a `201`. A retry that reached the server can create another session/capability. `200` non-resolved and failure responses create no state. |
+| Start from intake | Durably idempotent by caller scope + `Idempotency-Key` + trimmed request text. A matching retry replays the canonical `201`; a changed fingerprint returns `409`. Non-resolved and failed outcomes do not commit a successful mapping. |
 | Start | Not idempotent. A retry that reached the server can create another session/capability. |
 | Submit exact same answer | Idempotent: `200`, no duplicate answer. |
 | Submit different value for answered field | Not an overwrite: `409`, original remains. |
@@ -927,7 +930,7 @@ On an expired/cleaned `404`, clear the stale local Pre-Triage state and return t
 
 Completed authenticated episodes and successfully claimed anonymous episodes are internally prepared for future Clinical History projection.
 
-There is currently **no Phase 4 frontend API for listing or reading Clinical History**. Do not invent a history route, timeline, event DTO, amendment flow, polling behavior, or FHIR read model. Rendering the immediate neutral result uses only `/pre-triage/sessions/{id}/result`.
+Clinical History and FHIR APIs are now implemented downstream of explicit completion. They remain separate from the immediate Phase 4 result flow: use `/pre-triage/sessions/{id}/result` for the completion result, [`frontend-api-phase-5.md`](frontend-api-phase-5.md) for History, and [`frontend-api-phase-6.md`](frontend-api-phase-6.md) for FHIR. Intake, answer, Review, and conversation reads never create or export FHIR automatically.
 
 ## 19. AI Integration Status
 
@@ -1015,6 +1018,47 @@ export interface ClinicalContentStatus {
   clinicalApproval: "NOT_CLINICALLY_APPROVED";
 }
 
+export type PreTriageConversationState =
+  | "IN_PROGRESS"
+  | "READY_FOR_REVIEW"
+  | "COMPLETED";
+
+export type PreTriageConversationInputType =
+  | "DURATION"
+  | "SCALE"
+  | "MULTI_SELECT";
+
+export interface PreTriageConversation {
+  sessionId: Uuid;
+  sessionStatus: "ACTIVE" | "COMPLETED";
+  state: PreTriageConversationState;
+  expiresAt: IsoTimestamp;
+  pathway: { code: PreTriagePathway; label: string };
+  questionnaire: ClinicalDefinitionReference;
+  ruleSet: ClinicalDefinitionReference;
+  progress: { completed: number; total: number; percentage: number };
+  acceptedValues: PreTriageAcceptedValues;
+  /** Present exactly once while IN_PROGRESS; omitted otherwise. */
+  nextInteraction?: {
+    field: "duration" | "intensity" | "additionalSymptoms";
+    questionCode: RequiredAnswerCode;
+    prompt: string;
+    inputType: PreTriageConversationInputType;
+    required: boolean;
+    constraints: {
+      minimum?: number;
+      maximum?: number;
+      step?: number;
+      exclusiveMinimum?: boolean;
+      allowedUnits?: DurationUnit[];
+      minimumSelections?: number;
+      maximumSelections?: number;
+      allowsEmptySelection?: boolean;
+    };
+    options: Array<{ value: string; label: string }>;
+  };
+}
+
 export interface StartPreTriageRequest {
   pathway: PreTriagePathway;
   /** Omit for anonymous and authenticated-primary flows. */
@@ -1029,6 +1073,7 @@ interface PreTriageSessionStartCommon {
   questionnaire: ClinicalDefinitionReference;
   ruleSet: ClinicalDefinitionReference;
   clinicalContent: ClinicalContentStatus;
+  conversation: PreTriageConversation;
 }
 
 export type PreTriageSessionStartResponse =
@@ -1133,6 +1178,7 @@ export interface PreTriageAnswerResponse {
   acceptedValues: PreTriageAcceptedValues;
   progression: QuestionnaireProgress;
   clarification?: IntakeClarification;
+  conversation: PreTriageConversation;
 }
 
 export interface PreTriageAcceptedValues {
@@ -1147,12 +1193,14 @@ export type StartPreTriageFromIntakeResponse =
       candidatePathways?: never;
       session: PreTriageSessionStartResponse;
       initialAnswers: PreTriageAnswerResponse;
+      conversation: PreTriageConversation;
     }
   | {
       resolution: "AMBIGUOUS" | "UNRESOLVED";
       candidatePathways?: PreTriagePathway[];
       session?: never;
       initialAnswers?: never;
+      conversation?: never;
     };
 
 export interface NeutralPreTriageResult {
@@ -1202,6 +1250,7 @@ A later frontend implementation can expose a small Phase 4 service surface throu
 startPreTriageFromIntake(request)
 interpretPreTriageIntake(request)
 startPreTriage(request, activePatient?)
+getPreTriageConversation(sessionId, access)
 submitPreTriageAnswers(sessionId, request, access)
 completePreTriage(sessionId, access)
 getPreTriageResult(sessionId, access)
@@ -1221,7 +1270,7 @@ Service behavior should:
 - send no body for complete, result, or claim;
 - return both HTTP status and parsed response for completion so callers can distinguish first `201` from repeat `200` if needed;
 - normalize Problem Details through the existing client;
-- avoid automatically retrying non-idempotent intake/start or changed answer submissions.
+- retry intake only with the same logical request and `Idempotency-Key`; avoid automatically retrying non-idempotent explicit start or changed answer submissions.
 
 ## 23. Frontend Security Checklist
 
@@ -1250,9 +1299,10 @@ Service behavior should:
 - [ ] Start managed sessions with the selected authorized profile UUID.
 - [ ] Never allow an invalid Bearer request to fall back to anonymous handling.
 - [ ] Send only `text` to `/pre-triage/intake`; never send a locally selected pathway or patient.
-- [ ] On intake `201`, store the returned session/capability and continue from `initialAnswers.progression`.
+- [ ] On intake `201`, store the returned session/capability and continue from top-level `conversation` (`initialAnswers.progression` remains available to legacy clients).
+- [ ] For Chat Pre-Triage, render the top-level `conversation` returned by start/intake/answers and refresh it with `GET /sessions/{id}/conversation`.
 - [ ] On intake `200`, create no local session and handle `AMBIGUOUS`/`UNRESOLVED` explicitly.
-- [ ] Suppress duplicate intake submits and do not automatically retry an uncertain `201` request.
+- [ ] Suppress duplicate intake submits; recover uncertain intake delivery by reusing the same key and request (plus the original anonymous capability once known).
 - [ ] Store the one-time anonymous capability safely.
 - [ ] Attach `X-Pre-Triage-Capability` only to the correct anonymous session calls.
 - [ ] Support structured intake without AI.

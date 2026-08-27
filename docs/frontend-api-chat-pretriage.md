@@ -273,6 +273,8 @@ Only persisted, backend-validated values appear:
 
 Absent values are omitted. AI candidates that were rejected or require clarification never appear as accepted values.
 
+The authoritative intensity range is projected on the active `SCALE` interaction (`minimum: 1`, `maximum: 10`, `step: 1`). Once the session reaches `READY_FOR_REVIEW` or `COMPLETED`, there is deliberately no next interaction, and Review/result contracts expose only the accepted canonical number. Although the pinned questionnaire remains authoritative internally, no separate scale maximum is exposed in those terminal projections. Display `6`, not an invented `6/10`.
+
 ### Input types
 
 `DURATION`:

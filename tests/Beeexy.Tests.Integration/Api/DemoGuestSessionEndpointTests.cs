@@ -225,6 +225,10 @@ public sealed class DemoGuestSessionEndpointTests(PostgreSqlContainerFixture pos
         var started = await start.Content.ReadFromJsonAsync<StartedSession>();
         Assert.Equal(HttpStatusCode.Created, start.StatusCode);
         Assert.Equal(provisioned.ProfileId.Value, started!.PatientId);
+        Assert.Equal("IN_PROGRESS", started.Conversation.State);
+        Assert.Equal("ACTIVE", started.Conversation.SessionStatus);
+        Assert.Equal(new ConversationProgress(0, 3, 0), started.Conversation.Progress);
+        Assert.Equal("duration", started.Conversation.NextInteraction!.Field);
 
         using var answer = await client.PostAsJsonAsync(
             $"/api/v1/pre-triage/sessions/{started.SessionId:D}/answers",
@@ -237,12 +241,69 @@ public sealed class DemoGuestSessionEndpointTests(PostgreSqlContainerFixture pos
                     additionalSymptoms = new[] { "FEVER" }
                 }
             });
+        var answered = await answer.Content.ReadFromJsonAsync<AnswerWithConversation>();
         Assert.Equal(HttpStatusCode.OK, answer.StatusCode);
+        Assert.Equal("READY_FOR_REVIEW", answered!.Conversation.State);
+        Assert.Equal("ACTIVE", answered.Conversation.SessionStatus);
+        Assert.Equal(new ConversationProgress(3, 3, 100),
+            answered.Conversation.Progress);
+        Assert.Null(answered.Conversation.NextInteraction);
+        Assert.Equal(["FEVER"],
+            answered.Conversation.AcceptedValues.AdditionalSymptoms);
+
+        var conversationEndpoint =
+            $"/api/v1/pre-triage/sessions/{started.SessionId:D}/conversation";
+        using var readyRead = await client.GetAsync(conversationEndpoint);
+        using var repeatedReadyRead = await client.GetAsync(conversationEndpoint);
+        var ready = await readyRead.Content.ReadFromJsonAsync<ConversationResponse>();
+        var repeatedReady = await repeatedReadyRead.Content
+            .ReadFromJsonAsync<ConversationResponse>();
+        Assert.Equal(HttpStatusCode.OK, readyRead.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, repeatedReadyRead.StatusCode);
+        Assert.Equal("READY_FOR_REVIEW", ready!.State);
+        Assert.Equal(ready.State, repeatedReady!.State);
+        Assert.Equal(ready.SessionStatus, repeatedReady.SessionStatus);
+        Assert.Equal(ready.Progress, repeatedReady.Progress);
+        Assert.Equal(ready.AcceptedValues.Duration,
+            repeatedReady.AcceptedValues.Duration);
+        Assert.Equal(ready.AcceptedValues.Intensity,
+            repeatedReady.AcceptedValues.Intensity);
+        Assert.Equal(ready.AcceptedValues.AdditionalSymptoms,
+            repeatedReady.AcceptedValues.AdditionalSymptoms);
+        Assert.Null(repeatedReady.NextInteraction);
+        await using (var active = CreateDbContext())
+        {
+            Assert.Equal(0, await active.ClinicalHistoryEvents.CountAsync(value =>
+                value.PatientProfileId == provisioned.ProfileId));
+            Assert.Equal(0, await active.FhirExports.CountAsync(value =>
+                value.PatientProfileId == provisioned.ProfileId));
+        }
+
         using var complete = await client.PostAsync(
             $"/api/v1/pre-triage/sessions/{started.SessionId:D}/complete",
             null);
         var completed = await complete.Content.ReadFromJsonAsync<CompletedSession>();
         Assert.Equal(HttpStatusCode.Created, complete.StatusCode);
+        using var completedRead = await client.GetAsync(conversationEndpoint);
+        var completedConversation = await completedRead.Content
+            .ReadFromJsonAsync<ConversationResponse>();
+        using var repeatedComplete = await client.PostAsync(
+            $"/api/v1/pre-triage/sessions/{started.SessionId:D}/complete",
+            null);
+        var repeatedCompletion = await repeatedComplete.Content
+            .ReadFromJsonAsync<CompletedSession>();
+        using var canonicalResult = await client.GetAsync(
+            $"/api/v1/pre-triage/sessions/{started.SessionId:D}/result");
+        var retrieved = await canonicalResult.Content
+            .ReadFromJsonAsync<CompletedSession>();
+        Assert.Equal(HttpStatusCode.OK, completedRead.StatusCode);
+        Assert.Equal("COMPLETED", completedConversation!.State);
+        Assert.Equal("COMPLETED", completedConversation.SessionStatus);
+        Assert.Null(completedConversation.NextInteraction);
+        Assert.Equal(HttpStatusCode.OK, repeatedComplete.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, canonicalResult.StatusCode);
+        Assert.Equal(completed!.EpisodeId, repeatedCompletion!.EpisodeId);
+        Assert.Equal(completed.EpisodeId, retrieved!.EpisodeId);
 
         var historyEndpoint =
             $"/api/v1/patients/{provisioned.ProfileId.Value:D}/clinical-history";
@@ -254,7 +315,12 @@ public sealed class DemoGuestSessionEndpointTests(PostgreSqlContainerFixture pos
         Assert.Equal(HttpStatusCode.OK, historyResponse.StatusCode);
         using var detail = await client.GetAsync(
             $"{historyEndpoint}/{historyItem.EventId:D}");
+        var historyDetail = await detail.Content.ReadFromJsonAsync<HistoryDetail>();
         Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+        Assert.Equal("HEADACHE", historyDetail!.PrimarySymptom.Code);
+        Assert.Equal(new DurationValue(2, "DAYS"), historyDetail.Duration);
+        Assert.Equal(7, historyDetail.Intensity);
+        Assert.Equal(["FEVER"], historyDetail.AdditionalSymptoms);
 
         using var createExport = await client.PostAsJsonAsync(
             $"/api/v1/patients/{provisioned.ProfileId.Value:D}/fhir-exports",
@@ -460,7 +526,28 @@ public sealed class DemoGuestSessionEndpointTests(PostgreSqlContainerFixture pos
 
     private sealed record PrimaryProfilePreferences(string Timezone);
 
-    private sealed record StartedSession(Guid SessionId, Guid? PatientId);
+    private sealed record StartedSession(
+        Guid SessionId,
+        Guid? PatientId,
+        ConversationResponse Conversation);
+
+    private sealed record AnswerWithConversation(ConversationResponse Conversation);
+
+    private sealed record ConversationResponse(
+        string SessionStatus,
+        string State,
+        ConversationProgress Progress,
+        ConversationAcceptedValues AcceptedValues,
+        ConversationInteraction? NextInteraction);
+
+    private sealed record ConversationProgress(int Completed, int Total, int Percentage);
+
+    private sealed record ConversationAcceptedValues(
+        DurationValue? Duration,
+        int? Intensity,
+        IReadOnlyList<string>? AdditionalSymptoms);
+
+    private sealed record ConversationInteraction(string Field);
 
     private sealed record CompletedSession(Guid EpisodeId);
 
@@ -469,6 +556,16 @@ public sealed class DemoGuestSessionEndpointTests(PostgreSqlContainerFixture pos
     private sealed record HistoryItem(Guid EventId, HistorySource Source);
 
     private sealed record HistorySource(Guid Id);
+
+    private sealed record HistoryDetail(
+        PrimarySymptom PrimarySymptom,
+        DurationValue Duration,
+        int Intensity,
+        IReadOnlyList<string> AdditionalSymptoms);
+
+    private sealed record PrimarySymptom(string Code);
+
+    private sealed record DurationValue(decimal Value, string Unit);
 
     private sealed record FhirExportResponse(Guid Id, string Status);
 }

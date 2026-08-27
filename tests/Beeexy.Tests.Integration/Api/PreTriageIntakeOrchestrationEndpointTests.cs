@@ -135,7 +135,10 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
             "HEADACHE",
             [
                 Fact("DURATION", new ClinicalAiDurationValue(1, ClinicalDurationUnit.Days)),
-                Fact("INTENSITY", new ClinicalAiIntegerValue(15))
+                Fact("INTENSITY", new ClinicalAiIntegerValue(15)),
+                Fact(
+                    "ADDITIONAL_SYMPTOMS",
+                    new ClinicalAiMultipleChoiceValue(["NAUSEA", "COUGH"]))
             ]));
         using var factory = Factory(provider);
         using var client = factory.CreateApiClient();
@@ -184,24 +187,32 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
                 [new ClinicalAiAmbiguity(ClinicalAiAmbiguityKind.InsufficientContext)],
                 intent: ClinicalIntentClassification.Ambiguous,
                 requiresClarification: true);
-        using var factory = Factory(new FixedProvider(output));
+        var provider = new FixedProvider(output);
+        using var factory = Factory(provider);
         using var client = factory.CreateApiClient();
-        AddIdempotencyKey(client);
+        var key = Guid.NewGuid().ToString("D");
+        var text = ambiguous ? "My chest and head hurt" : "I do not know";
         var before = await CountsAsync();
 
-        using var response = await client.PostAsJsonAsync(
-            Endpoint,
-            new { text = ambiguous ? "My chest and head hurt" : "I do not know" });
+        using var response = await SendIntakeAsync(client, key, text);
         var result = await response.Content.ReadFromJsonAsync<OrchestrationResponse>();
+        using var retry = await SendIntakeAsync(client, key, text);
+        var retried = await retry.Content.ReadFromJsonAsync<OrchestrationResponse>();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
         Assert.Equal(expectedResolution, result!.Resolution);
+        Assert.Equal(expectedResolution, retried!.Resolution);
         Assert.Null(result.Session);
         Assert.Null(result.InitialAnswers);
+        Assert.Null(retried.Session);
+        Assert.Null(retried.InitialAnswers);
         Assert.Equal(before, await CountsAsync());
+        Assert.Equal(2, provider.CallCount);
         if (ambiguous)
         {
             Assert.Equal(["HEADACHE", "CHEST_PAIN"], result.CandidatePathways);
+            Assert.Equal(result.CandidatePathways, retried.CandidatePathways);
         }
     }
 
@@ -611,6 +622,27 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
         Assert.Equal(identity.ProfileId.Value, result!.Session!.PatientId);
         Assert.Null(result.Session.AnonymousCapability);
         Assert.True(result.InitialAnswers!.Progression.ReadyToComplete);
+        Assert.Equal("READY_FOR_REVIEW", result.Conversation!.State);
+        Assert.Equal(new ConversationProgressResponse(3, 3, 100),
+            result.Conversation.Progress);
+        Assert.Null(result.Conversation.NextInteraction);
+        Assert.Equal(1, provider.CallCount);
+
+        using var readyRead = await client.GetAsync(
+            ConversationEndpoint(result.Session.SessionId));
+        using var repeatedReadyRead = await client.GetAsync(
+            ConversationEndpoint(result.Session.SessionId));
+        var readyProjection = await readyRead.Content
+            .ReadFromJsonAsync<ConversationResponse>();
+        var repeatedReadyProjection = await repeatedReadyRead.Content
+            .ReadFromJsonAsync<ConversationResponse>();
+        Assert.Equal(HttpStatusCode.OK, readyRead.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, repeatedReadyRead.StatusCode);
+        Assert.Equal("READY_FOR_REVIEW", readyProjection!.State);
+        Assert.Equal(readyProjection.State, repeatedReadyProjection!.State);
+        Assert.Equal(readyProjection.Progress, repeatedReadyProjection.Progress);
+        Assert.Null(readyProjection.NextInteraction);
+        Assert.Equal(1, provider.CallCount);
         await using (var active = CreateDbContext())
         {
             var session = await active.PreTriageSessions.AsNoTracking().SingleAsync(
@@ -627,6 +659,28 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
         var episodeId = completed.RootElement.GetProperty("episodeId").GetGuid();
         Assert.Equal(HttpStatusCode.Created, completion.StatusCode);
 
+        using var completedRead = await client.GetAsync(
+            ConversationEndpoint(result.Session.SessionId));
+        var completedProjection = await completedRead.Content
+            .ReadFromJsonAsync<ConversationResponse>();
+        using var repeatedCompletion = await client.PostAsync(
+            CompleteEndpoint(result.Session.SessionId),
+            null);
+        using var repeatedCompleted = JsonDocument.Parse(
+            await repeatedCompletion.Content.ReadAsStringAsync());
+        using var answerAfterCompletion = await client.PostAsJsonAsync(
+            AnswersEndpoint(result.Session.SessionId),
+            new { structured = new { intensity = 8 } });
+        Assert.Equal(HttpStatusCode.OK, completedRead.StatusCode);
+        Assert.Equal("COMPLETED", completedProjection!.State);
+        Assert.Null(completedProjection.NextInteraction);
+        Assert.Equal(HttpStatusCode.OK, repeatedCompletion.StatusCode);
+        Assert.Equal(
+            episodeId,
+            repeatedCompleted.RootElement.GetProperty("episodeId").GetGuid());
+        Assert.Equal(HttpStatusCode.Conflict, answerAfterCompletion.StatusCode);
+        Assert.Equal(1, provider.CallCount);
+
         EntityId eventId;
         await using (var history = CreateDbContext())
         {
@@ -635,6 +689,30 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
             eventId = historyEvent.Id;
         }
 
+        var historyEndpoint =
+            $"/api/v1/patients/{identity.ProfileId.Value:D}/clinical-history";
+        using var historyList = await client.GetAsync(historyEndpoint);
+        using var historyJson = JsonDocument.Parse(
+            await historyList.Content.ReadAsStringAsync());
+        var historyItem = Assert.Single(
+            historyJson.RootElement.GetProperty("items").EnumerateArray());
+        Assert.Equal(HttpStatusCode.OK, historyList.StatusCode);
+        Assert.Equal(episodeId,
+            historyItem.GetProperty("source").GetProperty("id").GetGuid());
+        using var historyDetail = await client.GetAsync(
+            $"{historyEndpoint}/{eventId.Value:D}");
+        using var detailJson = JsonDocument.Parse(
+            await historyDetail.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.OK, historyDetail.StatusCode);
+        Assert.Equal("HEADACHE", detailJson.RootElement
+            .GetProperty("primarySymptom").GetProperty("code").GetString());
+        Assert.Equal(2, detailJson.RootElement
+            .GetProperty("duration").GetProperty("value").GetDecimal());
+        Assert.Equal(7, detailJson.RootElement.GetProperty("intensity").GetInt32());
+        Assert.Equal(["NAUSEA"], detailJson.RootElement
+            .GetProperty("additionalSymptoms").EnumerateArray()
+            .Select(value => value.GetString()));
+
         using var export = await client.PostAsJsonAsync(
             $"/api/v1/patients/{identity.ProfileId.Value:D}/fhir-exports",
             new
@@ -642,8 +720,18 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
                 sourceClinicalHistoryEventId = eventId.Value,
                 idempotencyKey = Guid.NewGuid()
             });
+        using var exportJson = JsonDocument.Parse(await export.Content.ReadAsStringAsync());
+        var exportId = exportJson.RootElement.GetProperty("id").GetGuid();
 
         Assert.Equal(HttpStatusCode.Created, export.StatusCode);
+        Assert.Equal("Validated",
+            exportJson.RootElement.GetProperty("status").GetString());
+        using var download = await client.GetAsync(
+            $"/api/v1/fhir-exports/{exportId:D}/content");
+        Assert.Equal(HttpStatusCode.OK, download.StatusCode);
+        Assert.Equal("application/fhir+json",
+            download.Content.Headers.ContentType!.MediaType);
+        Assert.NotEmpty(await download.Content.ReadAsByteArrayAsync());
         Assert.Equal(1, provider.CallCount);
         Assert.Equal(1, store.Count);
         await using var verification = CreateDbContext();
@@ -758,6 +846,9 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
 
     private static string CompleteEndpoint(Guid id) =>
         $"/api/v1/pre-triage/sessions/{id:D}/complete";
+
+    private static string ConversationEndpoint(Guid id) =>
+        $"/api/v1/pre-triage/sessions/{id:D}/conversation";
 
     private static void AddIdempotencyKey(HttpClient client) =>
         client.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString("D"));
