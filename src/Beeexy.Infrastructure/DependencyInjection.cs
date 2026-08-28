@@ -53,6 +53,10 @@ public static class DependencyInjection
             EmailAuthenticationChallengeRepository>();
         services.AddScoped<IAccountProvisioningRepository, AccountProvisioningRepository>();
         services.AddScoped<IDemoGuestAccountRepository, DemoGuestAccountRepository>();
+        services.AddSingleton<IPrivateAccessSecretHasher, Pbkdf2PrivateAccessSecretHasher>();
+        services.AddSingleton<IPrivateAccessTokenService, CryptographicPrivateAccessTokenService>();
+        services.AddSingleton<IPrivateAccessAuditLogger, PrivateAccessAuditLogger>();
+        services.AddScoped<IPrivateAccessRepository, PrivateAccessRepository>();
         services.AddScoped<IIdentityVerificationTransaction, IdentityVerificationTransaction>();
         services.AddSingleton<IRefreshTokenService, CryptographicRefreshTokenService>();
         services.AddSingleton<IAccessTokenIssuer, JwtAccessTokenIssuer>();

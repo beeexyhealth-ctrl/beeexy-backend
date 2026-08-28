@@ -517,7 +517,7 @@ X-Pre-Triage-Capability: <anonymousCapability>
 
 The session UUID is not authority. Missing, wrong, or another session's capability returns `401`. Never put the capability in URLs, logs, analytics, telemetry, screenshots, or error reports.
 
-Authenticated sessions use the existing Bearer token. The current primary patient or a currently authorized managed-patient relationship may access the session. Another account, a revoked manager, an anonymous caller attempting to read an authenticated session, or an authenticated caller attempting to read an unclaimed anonymous session receives a concealed `404` where applicable. Demo Guest has no special rules; it is a normal authenticated Beeexy patient.
+Authenticated sessions use the existing Bearer token. The current primary patient or a currently authorized managed-patient relationship may access the session. Another account, a revoked manager, an anonymous caller attempting to read an authenticated session, or an authenticated caller attempting to read an unclaimed anonymous session receives a concealed `404` where applicable. Private demo testers have no special clinical rules; each is a normal authenticated Beeexy patient.
 
 If an invalid `Authorization` header is supplied, the backend returns `401` and never downgrades the request to anonymous mode.
 

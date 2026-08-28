@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Beeexy.Application.Identity;
 
 namespace Beeexy.Api.PrivateAccess;
 
@@ -12,6 +13,7 @@ internal sealed class PrivateAccessGateMiddleware(
         HttpContext context,
         PrivateAccessSettings settings,
         PrivateAccessSessionTokenService sessionTokenService,
+        ResolvePrivateAccessSession databaseSessionResolver,
         IProblemDetailsService problemDetailsService)
     {
         if (!settings.Enabled || IsExempt(context.Request))
@@ -21,7 +23,10 @@ internal sealed class PrivateAccessGateMiddleware(
         }
 
         var token = context.Request.Cookies[PrivateAccessSettings.CookieName];
-        if (sessionTokenService.TryValidate(token, DateTimeOffset.UtcNow, out _))
+        var valid = settings.AuthenticationMode == PrivateAccessAuthenticationMode.Database
+            ? await databaseSessionResolver.ExecuteAsync(token, context.RequestAborted) is not null
+            : sessionTokenService.TryValidate(token, DateTimeOffset.UtcNow, out _);
+        if (valid)
         {
             await next(context);
             return;

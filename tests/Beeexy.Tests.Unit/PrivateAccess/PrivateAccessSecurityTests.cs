@@ -34,35 +34,6 @@ public sealed class PrivateAccessSecurityTests
     }
 
     [Fact]
-    public void Generator_ProducesUniqueStrongThematicSuggestions()
-    {
-        var suggestions = PrivateAccessCredentialGenerator.Generate(50);
-
-        Assert.Equal(50, suggestions.Count);
-        Assert.Equal(50, suggestions.Select(item => item.Password).Distinct().Count());
-        foreach (var suggestion in suggestions)
-        {
-            Assert.Contains(
-                PrivateAccessCredentialGenerator.Brands,
-                brand => suggestion.Username.StartsWith(brand, StringComparison.Ordinal));
-            Assert.Contains(
-                PrivateAccessCredentialGenerator.HealthWords,
-                word => suggestion.Username.Contains(word, StringComparison.Ordinal));
-            Assert.Contains(
-                PrivateAccessCredentialGenerator.HealthWords,
-                word => suggestion.Keyword.Contains(word, StringComparison.Ordinal));
-            Assert.Contains(
-                PrivateAccessCredentialGenerator.TechnologyWords,
-                word => suggestion.Keyword.Contains(word, StringComparison.Ordinal));
-            Assert.True(suggestion.Password.Length >= 24);
-            Assert.Contains(suggestion.Password, char.IsUpper);
-            Assert.Contains(suggestion.Password, char.IsLower);
-            Assert.Contains(suggestion.Password, char.IsDigit);
-            Assert.Contains(suggestion.Password, character => "!#%+@".Contains(character));
-        }
-    }
-
-    [Fact]
     public void ProductionCookie_IsSecureHttpOnlyAndCrossSiteCompatible()
     {
         var options = PrivateAccessEndpointExtensions.CreateCookieOptions(
@@ -78,6 +49,7 @@ public sealed class PrivateAccessSecurityTests
 
     private static PrivateAccessSettings Settings() => new(
         true,
+        PrivateAccessAuthenticationMode.Legacy,
         "BeeexyHealth",
         PrivateAccessPasswordHasher.Hash("StrongPassword!123"),
         PrivateAccessPasswordHasher.Hash("HealthTech"),

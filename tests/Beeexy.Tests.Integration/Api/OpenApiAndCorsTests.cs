@@ -25,7 +25,8 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
             .GetProperty("/api/v1/private-access/login")
-            .TryGetProperty("post", out _));
+            .TryGetProperty("post", out var privateLoginOperation));
+        AssertResponseCodes(privateLoginOperation, "200", "204", "400", "401", "429");
         Assert.True(paths
             .GetProperty("/api/v1/private-access/session")
             .TryGetProperty("get", out _));

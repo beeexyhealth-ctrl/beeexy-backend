@@ -61,23 +61,36 @@ internal static class StartupConfiguration
             return PrivateAccessSettings.Disabled;
         }
 
+        var modeValue = section["AuthenticationMode"] ?? "Legacy";
+        if (!Enum.TryParse<PrivateAccessAuthenticationMode>(modeValue, true, out var mode) ||
+            !Enum.IsDefined(mode))
+        {
+            throw new InvalidOperationException(
+                $"Configuration section '{PrivateAccessSectionKey}:AuthenticationMode' is invalid.");
+        }
+
         var username = section["Username"]?.Trim();
         var passwordHash = section["PasswordHash"];
         var keywordHash = section["KeywordHash"];
         var signingKeyValue = section["SessionSigningKey"];
-        if (string.IsNullOrWhiteSpace(username) || username.Length > 128 ||
+        if (mode == PrivateAccessAuthenticationMode.Legacy &&
+            (string.IsNullOrWhiteSpace(username) || username.Length > 128 ||
             !PrivateAccessPasswordHasher.IsValidEncodedHash(passwordHash) ||
             !PrivateAccessPasswordHasher.IsValidEncodedHash(keywordHash) ||
-            string.IsNullOrWhiteSpace(signingKeyValue))
+            string.IsNullOrWhiteSpace(signingKeyValue)))
         {
             throw new InvalidOperationException(
                 $"Configuration section '{PrivateAccessSectionKey}' is incomplete or invalid.");
         }
 
-        byte[] signingKey;
+        byte[]? signingKey = null;
         try
         {
-            signingKey = Convert.FromBase64String(signingKeyValue);
+            if (mode == PrivateAccessAuthenticationMode.Legacy &&
+                !string.IsNullOrWhiteSpace(signingKeyValue))
+            {
+                signingKey = Convert.FromBase64String(signingKeyValue);
+            }
         }
         catch (FormatException exception)
         {
@@ -86,7 +99,7 @@ internal static class StartupConfiguration
                 exception);
         }
 
-        if (signingKey.Length < 32)
+        if (mode == PrivateAccessAuthenticationMode.Legacy && signingKey?.Length < 32)
         {
             throw new InvalidOperationException(
                 $"Configuration section '{PrivateAccessSectionKey}' is incomplete or invalid.");
@@ -107,6 +120,7 @@ internal static class StartupConfiguration
 
         var settings = new PrivateAccessSettings(
             true,
+            mode,
             username,
             passwordHash,
             keywordHash,
@@ -117,7 +131,7 @@ internal static class StartupConfiguration
             environment.IsProduction());
         return settings with
         {
-            DemoGuest = demoGuestEnabled
+            DemoGuest = mode == PrivateAccessAuthenticationMode.Legacy && demoGuestEnabled
                 ? new DemoGuestSettings(true, GetRequiredDemoGuestDefinition(demoGuestSection))
                 : DemoGuestSettings.Disabled
         };

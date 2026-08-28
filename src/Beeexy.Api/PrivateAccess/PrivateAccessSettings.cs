@@ -4,6 +4,7 @@ namespace Beeexy.Api.PrivateAccess;
 
 internal sealed record PrivateAccessSettings(
     bool Enabled,
+    PrivateAccessAuthenticationMode AuthenticationMode,
     string? Username,
     string? PasswordHash,
     string? KeywordHash,
@@ -19,6 +20,7 @@ internal sealed record PrivateAccessSettings(
 
     public static PrivateAccessSettings Disabled { get; } = new(
         false,
+        PrivateAccessAuthenticationMode.Legacy,
         null,
         null,
         null,
@@ -27,6 +29,12 @@ internal sealed record PrivateAccessSettings(
         0,
         TimeSpan.Zero,
         false);
+}
+
+internal enum PrivateAccessAuthenticationMode
+{
+    Legacy = 1,
+    Database = 2
 }
 
 internal sealed record DemoGuestSettings(bool Enabled, DemoGuestDefinition? Definition)

@@ -15,19 +15,44 @@ using Beeexy.Application.Patients;
 using Beeexy.Application.Triage;
 using Beeexy.Infrastructure;
 using Beeexy.Infrastructure.Identity;
+using Beeexy.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using System.Text;
 
+var databasePrivateAccessCommand = PrivateAccessCli.IsDatabaseCommand(args);
 var provisionDemoGuestCommand = PrivateAccessCli.IsProvisionDemoGuestCommand(args);
 if (PrivateAccessCli.TryRun(args))
 {
     return;
 }
 
-var builder = WebApplication.CreateBuilder(provisionDemoGuestCommand ? [] : args);
+var builder = WebApplication.CreateBuilder(
+    databasePrivateAccessCommand || provisionDemoGuestCommand ? [] : args);
+
+if (databasePrivateAccessCommand)
+{
+    var commandConnectionString = StartupConfiguration.GetRequiredDatabaseConnectionString(
+        builder.Configuration);
+    builder.Services.AddDbContext<BeeexyDbContext>(options => options.UseNpgsql(
+        commandConnectionString,
+        npgsql => npgsql.MigrationsAssembly(typeof(BeeexyDbContext).Assembly.FullName)));
+    builder.Services.AddSingleton<IPrivateAccessSecretHasher, Pbkdf2PrivateAccessSecretHasher>();
+    builder.Services.AddSingleton<IPrivateAccessAuditLogger, PrivateAccessAuditLogger>();
+    await using var commandApp = builder.Build();
+    PrivateAccessSettings? legacySettings = args[1] == "migrate-demo-guest"
+        ? StartupConfiguration.GetPrivateAccessSettings(builder.Configuration, builder.Environment)
+        : null;
+    await PrivateAccessCli.RunDatabaseCommandAsync(
+        args,
+        commandApp.Services,
+        legacySettings,
+        CancellationToken.None);
+    return;
+}
 
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole(options =>
@@ -81,6 +106,9 @@ builder.Services.AddScoped<VerifyEmailChallenge>();
 builder.Services.AddScoped<AuthenticateWithGoogle>();
 builder.Services.AddScoped<IssueAuthenticationTokens>();
 builder.Services.AddScoped<IssueDemoGuestSession>();
+builder.Services.AddScoped<AuthenticatePrivateAccess>();
+builder.Services.AddScoped<ResolvePrivateAccessSession>();
+builder.Services.AddScoped<LogoutPrivateAccessSession>();
 builder.Services.AddScoped<RotateRefreshSession>();
 builder.Services.AddScoped<LogoutSession>();
 builder.Services.AddScoped<CurrentAccountProfileResolver>();
@@ -123,6 +151,10 @@ builder.Services.AddSingleton(privateAccessSettings);
 builder.Services.AddSingleton<PrivateAccessCredentialValidator>();
 builder.Services.AddSingleton<PrivateAccessSessionTokenService>();
 builder.Services.AddSingleton<InMemoryPrivateAccessRateLimiter>();
+builder.Services.AddSingleton(new PrivateAccessRateLimitPolicy(
+    privateAccessSettings.LoginPermitLimit,
+    privateAccessSettings.LoginRateLimitWindow));
+builder.Services.AddScoped<IPrivateAccessRateLimiter, PostgreSqlPrivateAccessRateLimiter>();
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

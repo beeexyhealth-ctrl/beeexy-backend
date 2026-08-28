@@ -17,6 +17,7 @@ internal static class PrivateAccessEndpointExtensions
             .WithSummary("Establish a private demo access session")
             .Accepts<PrivateAccessLoginRequest>("application/json")
             .Produces(StatusCodes.Status204NoContent)
+            .Produces<AuthenticationTokenResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status429TooManyRequests);
@@ -47,13 +48,15 @@ internal static class PrivateAccessEndpointExtensions
         return endpoints;
     }
 
-    private static IResult Login(
+    private static async Task<IResult> Login(
         PrivateAccessLoginRequest request,
         HttpContext httpContext,
         PrivateAccessSettings settings,
         PrivateAccessCredentialValidator credentialValidator,
         PrivateAccessSessionTokenService sessionTokenService,
         InMemoryPrivateAccessRateLimiter rateLimiter,
+        IPrivateAccessRateLimiter databaseRateLimiter,
+        AuthenticatePrivateAccess authenticatePrivateAccess,
         ILoggerFactory loggerFactory)
     {
         var logger = loggerFactory.CreateLogger("Beeexy.PrivateAccess.Audit");
@@ -63,7 +66,10 @@ internal static class PrivateAccessEndpointExtensions
         }
 
         var requesterIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        var rateLimit = rateLimiter.TryAcquire(requesterIp, DateTimeOffset.UtcNow);
+        var now = DateTimeOffset.UtcNow;
+        var rateLimit = settings.AuthenticationMode == PrivateAccessAuthenticationMode.Database
+            ? await databaseRateLimiter.TryAcquireAsync(requesterIp, now, httpContext.RequestAborted)
+            : ToApplicationDecision(rateLimiter.TryAcquire(requesterIp, now));
         if (!rateLimit.IsAllowed)
         {
             logger.LogWarning("Private access login was rate limited.");
@@ -77,6 +83,35 @@ internal static class PrivateAccessEndpointExtensions
                 statusCode: StatusCodes.Status400BadRequest,
                 title: "Invalid request.",
                 detail: "The private access request is invalid.");
+        }
+
+        if (settings.AuthenticationMode == PrivateAccessAuthenticationMode.Database)
+        {
+            var result = await authenticatePrivateAccess.ExecuteAsync(
+                new AuthenticatePrivateAccessCommand(
+                    request.Username!,
+                    request.Password!,
+                    request.Keyword!),
+                settings.SessionLifetime,
+                httpContext.RequestAborted);
+            if (result is null)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status401Unauthorized,
+                    title: "Private access denied.",
+                    detail: "The private access credentials are invalid.");
+            }
+
+            httpContext.Response.Cookies.Append(
+                PrivateAccessSettings.CookieName,
+                result.PrivateToken,
+                CreateCookieOptions(settings, result.PrivateTokenExpiresAt));
+            httpContext.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(AuthenticationEndpointExtensions.ToResponse(
+                result.Tokens,
+                result.AccountId.Value,
+                result.ProfileId.Value,
+                result.BeeexyId));
         }
 
         if (!credentialValidator.Validate(request.Username!, request.Password!, request.Keyword!))
@@ -97,6 +132,11 @@ internal static class PrivateAccessEndpointExtensions
         logger.LogInformation("Private access login succeeded.");
         return Results.NoContent();
     }
+
+    private static PrivateAccessRateLimitDecision ToApplicationDecision(
+        PrivateAccessRateLimitResult result) => result.IsAllowed
+            ? PrivateAccessRateLimitDecision.Allowed
+            : PrivateAccessRateLimitDecision.Rejected(result.RetryAfter);
 
     private static async Task<IResult> CreateGuestSessionAsync(
         HttpContext httpContext,
@@ -131,10 +171,11 @@ internal static class PrivateAccessEndpointExtensions
             result.BeeexyId));
     }
 
-    private static IResult GetSession(
+    private static async Task<IResult> GetSession(
         HttpContext httpContext,
         PrivateAccessSettings settings,
-        PrivateAccessSessionTokenService sessionTokenService)
+        PrivateAccessSessionTokenService sessionTokenService,
+        ResolvePrivateAccessSession databaseSessionResolver)
     {
         httpContext.Response.Headers.CacheControl = "no-store";
         if (!settings.Enabled)
@@ -143,10 +184,23 @@ internal static class PrivateAccessEndpointExtensions
         }
 
         var token = httpContext.Request.Cookies[PrivateAccessSettings.CookieName];
-        var authenticated = sessionTokenService.TryValidate(
-            token,
-            DateTimeOffset.UtcNow,
-            out var expiresAt);
+        DateTimeOffset expiresAt;
+        bool authenticated;
+        if (settings.AuthenticationMode == PrivateAccessAuthenticationMode.Database)
+        {
+            var resolved = await databaseSessionResolver.ExecuteAsync(
+                token,
+                httpContext.RequestAborted);
+            authenticated = resolved is not null;
+            expiresAt = resolved?.ExpiresAt ?? default;
+        }
+        else
+        {
+            authenticated = sessionTokenService.TryValidate(
+                token,
+                DateTimeOffset.UtcNow,
+                out expiresAt);
+        }
         if (!authenticated && token is not null)
         {
             DeleteCookie(httpContext, settings);
@@ -157,11 +211,20 @@ internal static class PrivateAccessEndpointExtensions
             authenticated ? expiresAt : null));
     }
 
-    private static IResult Logout(
+    private static async Task<IResult> Logout(
         HttpContext httpContext,
         PrivateAccessSettings settings,
+        LogoutPrivateAccessSession databaseLogout,
         ILoggerFactory loggerFactory)
     {
+        if (settings.Enabled &&
+            settings.AuthenticationMode == PrivateAccessAuthenticationMode.Database)
+        {
+            await databaseLogout.ExecuteAsync(
+                httpContext.Request.Cookies[PrivateAccessSettings.CookieName],
+                httpContext.RequestAborted);
+        }
+
         DeleteCookie(httpContext, settings);
         httpContext.Response.Headers.CacheControl = "no-store";
         loggerFactory.CreateLogger("Beeexy.PrivateAccess.Audit")

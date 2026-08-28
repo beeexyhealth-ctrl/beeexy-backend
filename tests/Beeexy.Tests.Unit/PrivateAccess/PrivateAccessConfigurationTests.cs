@@ -34,6 +34,25 @@ public sealed class PrivateAccessConfigurationTests
         Assert.False(settings.DemoGuest.Enabled);
     }
 
+    [Fact]
+    public void DatabaseMode_DoesNotRequireIndividualSecretsOrSigningKey()
+    {
+        var values = ValidValues();
+        values["PrivateAccess:AuthenticationMode"] = "Database";
+        values["PrivateAccess:Username"] = "";
+        values["PrivateAccess:PasswordHash"] = "";
+        values["PrivateAccess:KeywordHash"] = "";
+        values["PrivateAccess:SessionSigningKey"] = "";
+
+        var settings = StartupConfiguration.GetPrivateAccessSettings(
+            BuildConfiguration(values.Select(value => (value.Key, value.Value)).ToArray()),
+            new StubEnvironment(Environments.Production));
+
+        Assert.True(settings.Enabled);
+        Assert.Equal(PrivateAccessAuthenticationMode.Database, settings.AuthenticationMode);
+        Assert.Null(settings.SessionSigningKey);
+    }
+
     [Theory]
     [InlineData("PrivateAccess:Username")]
     [InlineData("PrivateAccess:PasswordHash")]

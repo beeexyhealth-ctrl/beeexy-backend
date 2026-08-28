@@ -16,6 +16,35 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
+    public async Task DatabasePrivateAccessMigration_IsAdditiveAndCanRollbackAndReapply()
+    {
+        await EnsureMigratedAsync();
+        var options = CreateOptions();
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            await dbContext.GetService<IMigrator>()
+                .MigrateAsync("20260828040441_EducationalVideoOfferWorkflow");
+        }
+
+        await using (var connection = new NpgsqlConnection(postgres.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText =
+                "SELECT count(*) FROM information_schema.tables " +
+                "WHERE table_schema = 'identity' AND table_name LIKE 'private_access_%';";
+            Assert.Equal(0L, (long)(await command.ExecuteScalarAsync())!);
+        }
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            await dbContext.Database.MigrateAsync();
+            Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+        }
+    }
+
+    [Fact]
     public async Task Part31IdempotencyMigration_IsAdditiveAndCanRollbackAndReapply()
     {
         await EnsureMigratedAsync();

@@ -19,6 +19,11 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
 
     public DbSet<RefreshSession> RefreshSessions => Set<RefreshSession>();
 
+    public DbSet<PrivateAccessCredential> PrivateAccessCredentials =>
+        Set<PrivateAccessCredential>();
+
+    public DbSet<PrivateAccessSession> PrivateAccessSessions => Set<PrivateAccessSession>();
+
     public DbSet<PatientProfile> PatientProfiles => Set<PatientProfile>();
 
     public DbSet<CareRelationship> CareRelationships => Set<CareRelationship>();

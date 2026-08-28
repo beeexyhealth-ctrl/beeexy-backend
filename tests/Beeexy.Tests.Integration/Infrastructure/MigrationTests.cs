@@ -9,7 +9,7 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
-    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPart31Idempotency()
+    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughDatabaseBackedPrivateAccess()
     {
         var options = new DbContextOptionsBuilder<BeeexyDbContext>()
             .UseNpgsql(postgres.ConnectionString)
@@ -39,7 +39,8 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                     "20260824035248_Phase55TraceablePreTriageAmendments",
                     "20260824202650_Phase61FhirExportPersistenceFoundation",
                     "20260826171318_Part31DurableIntakeIdempotency",
-                    "20260828040441_EducationalVideoOfferWorkflow"
+                    "20260828040441_EducationalVideoOfferWorkflow",
+                    "20260828203109_DatabaseBackedPrivateAccess"
                 ],
                 appliedMigrations);
             Assert.Empty(pendingMigrations);
@@ -70,6 +71,9 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                 "identity.accounts",
                 "identity.email_authentication_challenges",
                 "identity.external_identities",
+                "identity.private_access_credentials",
+                "identity.private_access_login_windows",
+                "identity.private_access_sessions",
                 "identity.refresh_sessions",
                 "interoperability.fhir_exports",
                 "interoperability.fhir_validation_results",
