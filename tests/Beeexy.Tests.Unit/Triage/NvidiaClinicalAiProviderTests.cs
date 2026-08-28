@@ -74,7 +74,7 @@ public sealed class NvidiaClinicalAiProviderTests
     {
         string? requestBody = null;
         var provider = CreateProvider(
-            SuccessfulResponse("""
+            _ => SuccessfulResponse("""
             {
               "schemaVersion":"clinical-interpretation-v1",
               "intent":"PRE_TRIAGE_INPUT",
@@ -98,6 +98,37 @@ public sealed class NvidiaClinicalAiProviderTests
         Assert.Contains("OTHER_SYMPTOMS", requestBody, StringComparison.Ordinal);
         Assert.Contains("ADDITIONAL_SYMPTOMS", requestBody, StringComparison.Ordinal);
         Assert.Contains("untrusted patient data", requestBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task InterpretAsync_OmitsJsonObjectResponseFormatWhenDisabledByConfiguration()
+    {
+        string? requestBody = null;
+        var provider = CreateProvider(
+            _ => SuccessfulResponse("""
+            {
+              "schemaVersion":"clinical-interpretation-v1",
+              "intent":"PRE_TRIAGE_INPUT",
+              "pathwayCandidate":"HEADACHE",
+              "facts":[],
+              "symptoms":[],
+              "ambiguities":[],
+              "requiresClarification":false
+            }
+            """),
+            async request => requestBody = await request.Content!.ReadAsStringAsync(),
+            useJsonObjectResponseFormat: false);
+
+        await provider.InterpretAsync(Request());
+
+        Assert.NotNull(requestBody);
+        using var requestJson = JsonDocument.Parse(requestBody);
+        Assert.False(requestJson.RootElement.TryGetProperty("response_format", out _));
+        Assert.False(requestJson.RootElement
+            .GetProperty("chat_template_kwargs").GetProperty("enable_thinking").GetBoolean());
+        Assert.Equal(0, requestJson.RootElement.GetProperty("temperature").GetDouble());
+        Assert.Equal(512, requestJson.RootElement.GetProperty("max_tokens").GetInt32());
+        Assert.False(requestJson.RootElement.GetProperty("stream").GetBoolean());
     }
 
     [Theory]
@@ -191,6 +222,13 @@ public sealed class NvidiaClinicalAiProviderTests
         Assert.NotNull(options);
         Assert.Equal(ClinicalAiProviderOptions.DefaultNvidiaModel, options.Model);
         Assert.Equal(new Uri("https://integrate.api.nvidia.com/v1/"), options.BaseUri);
+        Assert.True(options.UseJsonObjectResponseFormat);
+
+        Assert.True(new ClinicalAiProviderOptions(
+            "NVIDIA", ApiKey, "google/diffusiongemma-26b-a4b-it", null, null, false)
+            .TryCreateNvidia(out var diffusionGemmaOptions));
+        Assert.NotNull(diffusionGemmaOptions);
+        Assert.False(diffusionGemmaOptions.UseJsonObjectResponseFormat);
     }
 
     private static NvidiaClinicalAiProvider CreateProvider(
@@ -206,7 +244,8 @@ public sealed class NvidiaClinicalAiProviderTests
     private static NvidiaClinicalAiProvider CreateProvider(
         Func<HttpRequestMessage, HttpResponseMessage> response,
         Func<HttpRequestMessage, Task>? inspect = null,
-        TimeSpan? timeout = null) =>
+        TimeSpan? timeout = null,
+        bool useJsonObjectResponseFormat = true) =>
         new(
             new HttpClient(new StubHandler(async request =>
             {
@@ -224,7 +263,8 @@ public sealed class NvidiaClinicalAiProviderTests
                 ApiKey,
                 ClinicalAiProviderOptions.DefaultNvidiaModel,
                 new Uri("https://integrate.api.nvidia.com/v1/"),
-                timeout ?? TimeSpan.FromSeconds(1)));
+                timeout ?? TimeSpan.FromSeconds(1),
+                useJsonObjectResponseFormat));
 
     private static HttpResponseMessage SuccessfulResponse(string content) =>
         new(HttpStatusCode.OK)

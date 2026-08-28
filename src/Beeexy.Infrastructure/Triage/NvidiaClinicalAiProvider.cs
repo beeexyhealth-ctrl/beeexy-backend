@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Triage;
 
@@ -13,6 +14,10 @@ public sealed class NvidiaClinicalAiProvider(
 {
     public const string HttpClientName = "NvidiaClinicalAi";
     private const int MaximumCompletionTokens = 512;
+    private static readonly JsonSerializerOptions OmitNullProperties = new()
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
 
     public async Task<ClinicalAiProviderOutput> InterpretAsync(
         ClinicalAiInterpretationRequest request,
@@ -36,9 +41,11 @@ public sealed class NvidiaClinicalAiProvider(
                     temperature = 0.0,
                     max_tokens = MaximumCompletionTokens,
                     stream = false,
-                    response_format = new { type = "json_object" },
+                    response_format = options.UseJsonObjectResponseFormat
+                        ? new { type = "json_object" }
+                        : null,
                     chat_template_kwargs = new { enable_thinking = false }
-                }),
+                }, OmitNullProperties),
                 Encoding.UTF8,
                 "application/json")
         };

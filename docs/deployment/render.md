@@ -56,6 +56,7 @@ These variables are conditional:
 | `ClinicalAi__Model` | Override only when selecting a different deployed model. |
 | `ClinicalAi__BaseUrl` | Override only when the provider endpoint differs from the configured default. |
 | `ClinicalAi__TimeoutSeconds` | Override only when changing the provider timeout. |
+| `ClinicalAi__UseJsonObjectResponseFormat` | Set to `false` only for an NVIDIA model that returns valid structured JSON but rejects `response_format: {"type":"json_object"}`. |
 
 The checked-in policy and lifetime settings have non-secret defaults. Override their corresponding double-underscore environment names only if the production policy is intentionally changed.
 

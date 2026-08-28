@@ -5,7 +5,8 @@ public sealed record ClinicalAiProviderOptions(
     string? ApiKey,
     string? Model,
     string? BaseUrl,
-    int? TimeoutSeconds)
+    int? TimeoutSeconds,
+    bool? UseJsonObjectResponseFormat = null)
 {
     public const string NvidiaProviderName = "NVIDIA";
     public const string DefaultNvidiaModel = "nvidia/nemotron-3.5-lightning-30b-a3b";
@@ -42,7 +43,8 @@ public sealed record ClinicalAiProviderOptions(
             ApiKey.Trim(),
             model,
             EnsureTrailingSlash(uri),
-            TimeSpan.FromSeconds(timeoutSeconds));
+            TimeSpan.FromSeconds(timeoutSeconds),
+            UseJsonObjectResponseFormat ?? true);
         return true;
     }
 
@@ -56,4 +58,5 @@ public sealed record NvidiaClinicalAiOptions(
     string ApiKey,
     string Model,
     Uri BaseUri,
-    TimeSpan Timeout);
+    TimeSpan Timeout,
+    bool UseJsonObjectResponseFormat = true);

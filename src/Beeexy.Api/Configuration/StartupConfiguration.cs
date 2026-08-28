@@ -399,7 +399,8 @@ internal static class StartupConfiguration
             section["ApiKey"],
             section["Model"],
             section["BaseUrl"],
-            section.GetValue<int?>("TimeoutSeconds"));
+            section.GetValue<int?>("TimeoutSeconds"),
+            section.GetValue<bool?>("UseJsonObjectResponseFormat"));
     }
 
     private static bool IsValidOrigin(string origin)
