@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(31, paths.EnumerateObject().Count());
+        Assert.Equal(32, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         Assert.True(paths
@@ -145,6 +145,10 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var preTriageConversationOperation = paths
             .GetProperty("/api/v1/pre-triage/sessions/{id}/conversation")
             .GetProperty("get");
+        var educationalVideoOfferOperation = paths
+            .GetProperty(
+                "/api/v1/pre-triage/sessions/{id}/educational-video-offer")
+            .GetProperty("post");
         var preTriageCompleteOperation = paths
             .GetProperty("/api/v1/pre-triage/sessions/{id}/complete")
             .GetProperty("post");
@@ -255,6 +259,15 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             "200",
             "401",
             "404",
+            "500");
+        AssertResponseCodes(
+            educationalVideoOfferOperation,
+            "200",
+            "400",
+            "401",
+            "404",
+            "409",
+            "422",
             "500");
         AssertResponseCodes(
             preTriageCompleteOperation,
@@ -525,6 +538,15 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
                 StringComparison.Ordinal);
             Assert.False(operation.TryGetProperty("requestBody", out _));
         }
+        var educationalVideoOfferSecurity = educationalVideoOfferOperation
+            .GetProperty("security");
+        Assert.Equal(2, educationalVideoOfferSecurity.GetArrayLength());
+        Assert.Empty(educationalVideoOfferSecurity[0].EnumerateObject());
+        Assert.True(educationalVideoOfferSecurity[1].TryGetProperty("Bearer", out _));
+        Assert.True(educationalVideoOfferOperation.TryGetProperty("requestBody", out _));
+        Assert.Contains("X-Pre-Triage-Capability",
+            educationalVideoOfferOperation.GetProperty("description").GetString(),
+            StringComparison.Ordinal);
 
         var claimSecurity = preTriageClaimOperation.GetProperty("security");
         Assert.Single(claimSecurity.EnumerateArray());
@@ -610,8 +632,30 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
                 .EnumerateObject()
                 .Select(value => value.Name));
         Assert.Equal(
-            ["field", "questionCode", "prompt", "inputType", "required", "constraints", "options"],
+            [
+                "type",
+                "field",
+                "questionCode",
+                "prompt",
+                "inputType",
+                "required",
+                "constraints",
+                "options",
+                "video"
+            ],
             schemas.GetProperty("ConversationInteractionResponse")
+                .GetProperty("properties")
+                .EnumerateObject()
+                .Select(value => value.Name));
+        Assert.Equal(
+            ["decision"],
+            schemas.GetProperty("ResolveEducationalVideoOfferRequest")
+                .GetProperty("properties")
+                .EnumerateObject()
+                .Select(value => value.Name));
+        Assert.Equal(
+            ["sessionId", "decision", "resolvedAt", "newlyResolved", "conversation"],
+            schemas.GetProperty("ResolveEducationalVideoOfferResponse")
                 .GetProperty("properties")
                 .EnumerateObject()
                 .Select(value => value.Name));
@@ -662,7 +706,17 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.Contains("DURATION", conversationDescription, StringComparison.Ordinal);
         Assert.Contains("SCALE", conversationDescription, StringComparison.Ordinal);
         Assert.Contains("MULTI_SELECT", conversationDescription, StringComparison.Ordinal);
+        Assert.Contains("EDUCATIONAL_VIDEO_OFFER", conversationDescription,
+            StringComparison.Ordinal);
         Assert.Contains("never invokes AI", conversationDescription,
+            StringComparison.OrdinalIgnoreCase);
+        var educationalDescription = educationalVideoOfferOperation
+            .GetProperty("description")
+            .GetString();
+        Assert.Contains("WATCH or SKIP", educationalDescription, StringComparison.Ordinal);
+        Assert.Contains("does not mean playback completed", educationalDescription,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("separately from clinical answers", educationalDescription,
             StringComparison.OrdinalIgnoreCase);
 
         var securitySchemes = document.RootElement

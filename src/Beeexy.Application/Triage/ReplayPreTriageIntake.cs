@@ -9,7 +9,8 @@ public sealed class ReplayPreTriageIntake(
     AuthorizePatientAccess authorizePatientAccess,
     IAnonymousPreTriageCapabilityService capabilityService,
     IPreTriageIntakeReplayRepository repository,
-    IClinicalDefinitionProvider definitionProvider)
+    IClinicalDefinitionProvider definitionProvider,
+    IPreTriageEducationalVideoCatalog? educationalVideos = null)
 {
     public async Task<StartPreTriageFromIntakeResult> ExecuteAsync(
         ReplayPreTriageIntakeQuery query,
@@ -48,7 +49,8 @@ public sealed class ReplayPreTriageIntake(
         var conversation = PreTriageConversationProjectionBuilder.Build(
             state.Session,
             state.Answers,
-            package);
+            package,
+            educationalVideos);
         var session = new StartPreTriageResult(
             state.Session.Id,
             query.CallerMode == PreTriageCallerMode.Anonymous

@@ -70,8 +70,8 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
         Assert.Equal(2, result.Conversation.Progress.Completed);
         Assert.Equal(3, result.Conversation.Progress.Total);
         Assert.Equal(67, result.Conversation.Progress.Percentage);
-        Assert.Equal("additionalSymptoms", result.Conversation.NextInteraction!.Field);
-        Assert.Equal("MULTI_SELECT", result.Conversation.NextInteraction.InputType);
+        Assert.Equal("educationalVideoDecision", result.Conversation.NextInteraction!.Field);
+        Assert.Equal("SINGLE_SELECT", result.Conversation.NextInteraction.InputType);
         Assert.Equal(new DurationResponse(2, "DAYS"),
             result.Conversation.AcceptedValues.Duration);
         Assert.Equal(6, result.Conversation.AcceptedValues.Intensity);
@@ -124,7 +124,7 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
         Assert.Equal("DURATION", result.InitialAnswers.Progression.NextQuestion!.Code);
         Assert.Equal("IN_PROGRESS", result.Conversation!.State);
         Assert.Equal(0, result.Conversation.Progress.Completed);
-        Assert.Equal("duration", result.Conversation.NextInteraction!.Field);
+        Assert.Equal("educationalVideoDecision", result.Conversation.NextInteraction!.Field);
         Assert.Equal(0, provider.CallCount);
     }
 
@@ -156,8 +156,8 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
         Assert.Equal("IN_PROGRESS", result.Conversation!.State);
         Assert.Equal(1, result.Conversation.Progress.Completed);
         Assert.Equal(33, result.Conversation.Progress.Percentage);
-        Assert.Equal("intensity", result.Conversation.NextInteraction!.Field);
-        Assert.Equal("SCALE", result.Conversation.NextInteraction.InputType);
+        Assert.Equal("educationalVideoDecision", result.Conversation.NextInteraction!.Field);
+        Assert.Equal("SINGLE_SELECT", result.Conversation.NextInteraction.InputType);
         await using var db = CreateDbContext();
         Assert.Equal(1, await db.TriageAnswers.CountAsync(value =>
             value.SessionId == EntityId.From(result.Session!.SessionId)));
@@ -622,11 +622,18 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
         Assert.Equal(identity.ProfileId.Value, result!.Session!.PatientId);
         Assert.Null(result.Session.AnonymousCapability);
         Assert.True(result.InitialAnswers!.Progression.ReadyToComplete);
-        Assert.Equal("READY_FOR_REVIEW", result.Conversation!.State);
+        Assert.Equal("IN_PROGRESS", result.Conversation!.State);
         Assert.Equal(new ConversationProgressResponse(3, 3, 100),
             result.Conversation.Progress);
-        Assert.Null(result.Conversation.NextInteraction);
+        Assert.Equal("educationalVideoDecision", result.Conversation.NextInteraction!.Field);
         Assert.Equal(1, provider.CallCount);
+
+        using var resolveOffer = await SendOfferDecisionAsync(
+            client,
+            result.Session.SessionId,
+            capability: null,
+            decision: "SKIP");
+        Assert.Equal(HttpStatusCode.OK, resolveOffer.StatusCode);
 
         using var readyRead = await client.GetAsync(
             ConversationEndpoint(result.Session.SessionId));
@@ -847,6 +854,9 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
     private static string CompleteEndpoint(Guid id) =>
         $"/api/v1/pre-triage/sessions/{id:D}/complete";
 
+    private static string EducationalVideoOfferEndpoint(Guid id) =>
+        $"/api/v1/pre-triage/sessions/{id:D}/educational-video-offer";
+
     private static string ConversationEndpoint(Guid id) =>
         $"/api/v1/pre-triage/sessions/{id:D}/conversation";
 
@@ -882,6 +892,26 @@ public sealed class PreTriageIntakeOrchestrationEndpointTests(
         }
 
         return await client.SendAsync(request);
+    }
+
+    private static Task<HttpResponseMessage> SendOfferDecisionAsync(
+        HttpClient client,
+        Guid sessionId,
+        string? capability,
+        string decision)
+    {
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            EducationalVideoOfferEndpoint(sessionId))
+        {
+            Content = JsonContent.Create(new { decision })
+        };
+        if (capability is not null)
+        {
+            request.Headers.Add(CapabilityHeader, capability);
+        }
+
+        return client.SendAsync(request);
     }
 
     private sealed class FixedProvider(ClinicalAiProviderOutput output) : IClinicalAiProvider

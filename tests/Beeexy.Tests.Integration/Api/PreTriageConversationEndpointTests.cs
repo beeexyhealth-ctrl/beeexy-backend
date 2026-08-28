@@ -40,7 +40,7 @@ public sealed class PreTriageConversationEndpointTests(
     [InlineData("CHEST_PAIN", "Chest pain")]
     [InlineData("FEVER", "Fever")]
     [InlineData("OTHER_SYMPTOMS", "Other symptoms")]
-    public async Task AllPathways_StartWithCanonicalDurationProjection(
+    public async Task AllPathways_StartWithCanonicalEducationalOrDurationProjection(
         string pathway,
         string label)
     {
@@ -55,15 +55,34 @@ public sealed class PreTriageConversationEndpointTests(
         Assert.Equal("IN_PROGRESS", session.Conversation.State);
         Assert.Equal(new PathwayResponse(pathway, label), session.Conversation.Pathway);
         Assert.Equal(new ProgressResponse(0, 3, 0), session.Conversation.Progress);
-        Assert.Equal("duration", session.Conversation.NextInteraction!.Field);
-        Assert.Equal("DURATION", session.Conversation.NextInteraction.QuestionCode);
-        Assert.Equal("DURATION", session.Conversation.NextInteraction.InputType);
-        Assert.True(session.Conversation.NextInteraction.Required);
-        Assert.Equal(0, session.Conversation.NextInteraction.Constraints.Minimum);
-        Assert.True(session.Conversation.NextInteraction.Constraints.ExclusiveMinimum);
-        Assert.Equal(
-            ["MINUTES", "HOURS", "DAYS", "WEEKS", "MONTHS"],
-            session.Conversation.NextInteraction.Constraints.AllowedUnits);
+        if (pathway == "OTHER_SYMPTOMS")
+        {
+            Assert.Equal("QUESTION", session.Conversation.NextInteraction!.Type);
+            Assert.Equal("duration", session.Conversation.NextInteraction.Field);
+            Assert.Equal("DURATION", session.Conversation.NextInteraction.QuestionCode);
+            Assert.Equal("DURATION", session.Conversation.NextInteraction.InputType);
+            Assert.True(session.Conversation.NextInteraction.Required);
+            Assert.Null(session.Conversation.NextInteraction.Video);
+        }
+        else
+        {
+            Assert.Equal("EDUCATIONAL_VIDEO_OFFER",
+                session.Conversation.NextInteraction!.Type);
+            Assert.Equal("educationalVideoDecision",
+                session.Conversation.NextInteraction.Field);
+            Assert.Null(session.Conversation.NextInteraction.QuestionCode);
+            Assert.Equal("SINGLE_SELECT", session.Conversation.NextInteraction.InputType);
+            Assert.False(session.Conversation.NextInteraction.Required);
+            Assert.Equal(
+                [
+                    new OptionResponse("WATCH", "Yes, show me the video"),
+                    new OptionResponse("SKIP", "No, continue with assessment")
+                ],
+                session.Conversation.NextInteraction.Options);
+            Assert.NotNull(session.Conversation.NextInteraction.Video);
+            Assert.StartsWith("https://res.cloudinary.com/",
+                session.Conversation.NextInteraction.Video.Url);
+        }
 
         using var refresh = await GetConversationAsync(client, session);
         var refreshed = await refresh.Content.ReadFromJsonAsync<ConversationResponse>();
@@ -79,12 +98,70 @@ public sealed class PreTriageConversationEndpointTests(
         Assert.Equal(0, provider.CallCount);
     }
 
+    [Theory]
+    [InlineData("WATCH")]
+    [InlineData("SKIP")]
+    public async Task WatchAndSkip_ArePersistedIdempotentlyAndAdvanceWithoutClinicalValues(
+        string decision)
+    {
+        using var factory = Factory(new FailIfInvokedClinicalAiProvider());
+        using var client = factory.CreateApiClient();
+        var session = await StartAnonymousAsync(client, "CHEST_PAIN");
+
+        var first = await ResolveOfferAsync(client, session, decision);
+        var repeated = await ResolveOfferAsync(client, session, decision);
+        using var refresh = await GetConversationAsync(client, session);
+        var refreshed = await refresh.Content.ReadFromJsonAsync<ConversationResponse>();
+
+        Assert.Equal(decision, first.Decision);
+        Assert.True(first.NewlyResolved);
+        Assert.False(repeated.NewlyResolved);
+        Assert.Equal(first.ResolvedAt, repeated.ResolvedAt);
+        AssertClinicalValuesEmpty(first.Conversation.AcceptedValues);
+        Assert.Equal("QUESTION", first.Conversation.NextInteraction!.Type);
+        Assert.Equal("DURATION", first.Conversation.NextInteraction.QuestionCode);
+        Assert.Equal(first.Conversation.NextInteraction.Field,
+            repeated.Conversation.NextInteraction!.Field);
+        Assert.Equal(first.Conversation.NextInteraction.QuestionCode,
+            repeated.Conversation.NextInteraction.QuestionCode);
+        Assert.Equal(first.Conversation.NextInteraction.Field,
+            refreshed!.NextInteraction!.Field);
+        Assert.Equal(first.Conversation.NextInteraction.QuestionCode,
+            refreshed.NextInteraction.QuestionCode);
+
+        await using var db = CreateDbContext();
+        var stored = await db.PreTriageSessions.AsNoTracking().SingleAsync(value =>
+            value.Id == EntityId.From(session.SessionId));
+        Assert.Equal(decision.ToLowerInvariant(),
+            stored.EducationalVideoDecision!.Value.ToString().ToLowerInvariant());
+        Assert.Empty(stored.Answers);
+    }
+
+    [Theory]
+    [InlineData("PLAY")]
+    [InlineData("watch")]
+    public async Task InvalidEducationalDecision_IsRejectedWithoutResolvingOffer(string decision)
+    {
+        using var factory = Factory(new FailIfInvokedClinicalAiProvider());
+        using var client = factory.CreateApiClient();
+        var session = await StartAnonymousAsync(client, "FEVER");
+
+        using var response = await SendOfferDecisionAsync(client, session, decision);
+        using var refresh = await GetConversationAsync(client, session);
+        var projection = await refresh.Content.ReadFromJsonAsync<ConversationResponse>();
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("EDUCATIONAL_VIDEO_OFFER", projection!.NextInteraction!.Type);
+        AssertClinicalValuesEmpty(projection.AcceptedValues);
+    }
+
     [Fact]
     public async Task AcceptedAnswers_AdvanceEmbeddedAndRefreshedProjectionToReview()
     {
         using var factory = Factory(new FailIfInvokedClinicalAiProvider());
         using var client = factory.CreateApiClient();
         var session = await StartAnonymousAsync(client, "ABDOMINAL_PAIN");
+        _ = await ResolveOfferAsync(client, session, "SKIP");
         var sideEffectsBefore = await PermanentCountsAsync();
 
         var afterDuration = await SubmitAsync(client, session, new
@@ -149,6 +226,7 @@ public sealed class PreTriageConversationEndpointTests(
         using var factory = Factory(new FailIfInvokedClinicalAiProvider());
         using var client = factory.CreateApiClient();
         var session = await StartAnonymousAsync(client, "HEADACHE");
+        _ = await ResolveOfferAsync(client, session, "SKIP");
         _ = await SubmitAsync(client, session, new
         {
             structured = new
@@ -270,6 +348,7 @@ public sealed class PreTriageConversationEndpointTests(
             "part4-v2",
             "This v2 prompt must never appear for the old session.",
             2);
+        _ = await ResolveOfferAsync(client, session, "SKIP");
 
         using var response = await GetConversationAsync(client, session);
         var projection = await response.Content.ReadFromJsonAsync<ConversationResponse>();
@@ -437,6 +516,32 @@ public sealed class PreTriageConversationEndpointTests(
         return client.SendAsync(request);
     }
 
+    private static async Task<OfferDecisionResponse> ResolveOfferAsync(
+        HttpClient client,
+        StartResponse session,
+        string decision)
+    {
+        using var response = await SendOfferDecisionAsync(client, session, decision);
+        var result = await response.Content.ReadFromJsonAsync<OfferDecisionResponse>();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return result!;
+    }
+
+    private static Task<HttpResponseMessage> SendOfferDecisionAsync(
+        HttpClient client,
+        StartResponse session,
+        string decision)
+    {
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            EducationalVideoOfferEndpoint(session.SessionId))
+        {
+            Content = JsonContent.Create(new { decision })
+        };
+        request.Headers.Add(CapabilityHeader, session.AnonymousCapability);
+        return client.SendAsync(request);
+    }
+
     private static Task<HttpResponseMessage> GetConversationAsync(
         HttpClient client,
         StartResponse session) => GetConversationAsync(
@@ -580,6 +685,9 @@ public sealed class PreTriageConversationEndpointTests(
     private static string AnswerEndpoint(Guid sessionId) =>
         $"/api/v1/pre-triage/sessions/{sessionId:D}/answers";
 
+    private static string EducationalVideoOfferEndpoint(Guid sessionId) =>
+        $"/api/v1/pre-triage/sessions/{sessionId:D}/educational-video-offer";
+
     private static string CompleteEndpoint(Guid sessionId) =>
         $"/api/v1/pre-triage/sessions/{sessionId:D}/complete";
 
@@ -613,6 +721,13 @@ public sealed class PreTriageConversationEndpointTests(
 
     private sealed record AnswerResponse(ConversationResponse Conversation);
 
+    private sealed record OfferDecisionResponse(
+        Guid SessionId,
+        string Decision,
+        DateTimeOffset ResolvedAt,
+        bool NewlyResolved,
+        ConversationResponse Conversation);
+
     private sealed record ConversationResponse(
         Guid SessionId,
         string SessionStatus,
@@ -639,13 +754,17 @@ public sealed class PreTriageConversationEndpointTests(
     private sealed record DurationResponse(decimal Value, string Unit);
 
     private sealed record InteractionResponse(
+        string Type,
         string Field,
-        string QuestionCode,
+        string? QuestionCode,
         string Prompt,
         string InputType,
         bool Required,
         ConstraintsResponse Constraints,
-        IReadOnlyList<OptionResponse> Options);
+        IReadOnlyList<OptionResponse> Options,
+        VideoResponse? Video);
+
+    private sealed record VideoResponse(string Id, string Title, string Url);
 
     private sealed record ConstraintsResponse(
         decimal? Minimum,
@@ -658,4 +777,11 @@ public sealed class PreTriageConversationEndpointTests(
         bool? AllowsEmptySelection);
 
     private sealed record OptionResponse(string Value, string Label);
+
+    private static void AssertClinicalValuesEmpty(AcceptedValuesResponse values)
+    {
+        Assert.Null(values.Duration);
+        Assert.Null(values.Intensity);
+        Assert.Null(values.AdditionalSymptoms);
+    }
 }

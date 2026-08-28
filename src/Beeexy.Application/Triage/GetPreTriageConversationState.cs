@@ -11,7 +11,8 @@ public sealed class GetPreTriageConversationState(
     AuthorizePatientAccess authorizePatientAccess,
     IAnonymousPreTriageCapabilityService capabilityService,
     IClinicalDefinitionProvider definitionProvider,
-    IPreTriageCompletionRepository repository)
+    IPreTriageCompletionRepository repository,
+    IPreTriageEducationalVideoCatalog? educationalVideos = null)
 {
     public async Task<PreTriageConversationProjection> ExecuteAsync(
         GetPreTriageConversationStateQuery query,
@@ -35,7 +36,8 @@ public sealed class GetPreTriageConversationState(
         return PreTriageConversationProjectionBuilder.Build(
             graph.Session,
             answers,
-            package);
+            package,
+            educationalVideos);
     }
 
     private async Task AuthorizeAsync(
@@ -131,7 +133,8 @@ public static class PreTriageConversationProjectionBuilder
     public static PreTriageConversationProjection Build(
         PreTriageSession session,
         IReadOnlyCollection<TriageAnswer> answers,
-        ClinicalDefinitionPackage package)
+        ClinicalDefinitionPackage package,
+        IPreTriageEducationalVideoCatalog? educationalVideos = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(answers);
@@ -177,12 +180,31 @@ public static class PreTriageConversationProjectionBuilder
                 MidpointRounding.AwayFromZero);
         var state = session.Status == PreTriageSessionStatus.Completed
             ? PreTriageConversationState.Completed
-            : progression.ReadyToComplete
+            : session.EducationalVideoOfferRequired &&
+                !session.EducationalVideoDecision.HasValue
+                ? PreTriageConversationState.InProgress
+                : progression.ReadyToComplete
                 ? PreTriageConversationState.ReadyForReview
                 : PreTriageConversationState.InProgress;
-        var nextInteraction = state == PreTriageConversationState.InProgress
-            ? BuildNextInteraction(progression.NextQuestion, package, required)
-            : null;
+        PreTriageConversationInteraction? nextInteraction = null;
+        if (state == PreTriageConversationState.InProgress)
+        {
+            if (session.EducationalVideoOfferRequired &&
+                !session.EducationalVideoDecision.HasValue)
+            {
+                var video = educationalVideos?.Find(package.Pathway) ??
+                    throw new InvalidOperationException(
+                        "The session's educational video configuration is unavailable.");
+                nextInteraction = BuildEducationalVideoOffer(video);
+            }
+            else
+            {
+                nextInteraction = BuildNextInteraction(
+                    progression.NextQuestion,
+                    package,
+                    required);
+            }
+        }
 
         return new PreTriageConversationProjection(
             session.Id,
@@ -219,6 +241,7 @@ public static class PreTriageConversationProjectionBuilder
             next.AnswerType == ClinicalAnswerType.Duration)
         {
             return new PreTriageConversationInteraction(
+                PreTriageConversationInteractionType.Question,
                 "duration",
                 next.Code,
                 next.Prompt,
@@ -240,6 +263,7 @@ public static class PreTriageConversationProjectionBuilder
             next.AnswerType == ClinicalAnswerType.IntegerScale)
         {
             return new PreTriageConversationInteraction(
+                PreTriageConversationInteractionType.Question,
                 "intensity",
                 next.Code,
                 next.Prompt,
@@ -265,6 +289,7 @@ public static class PreTriageConversationProjectionBuilder
                     value,
                     DemoAdditionalSymptoms.DisplayLabel(value))).ToArray();
             return new PreTriageConversationInteraction(
+                PreTriageConversationInteractionType.Question,
                 "additionalSymptoms",
                 next.Code,
                 next.Prompt,
@@ -286,6 +311,29 @@ public static class PreTriageConversationProjectionBuilder
             "The pinned questionnaire contains an unsupported conversation input type.");
     }
 
+    private static PreTriageConversationInteraction BuildEducationalVideoOffer(
+        PreTriageEducationalVideo video) => new(
+            PreTriageConversationInteractionType.EducationalVideoOffer,
+            "educationalVideoDecision",
+            QuestionCode: null,
+            "Would you like to watch a short video where a medical professional explains more about your symptoms?",
+            PreTriageConversationInputType.SingleSelect,
+            Required: false,
+            new PreTriageConversationConstraints(
+                Minimum: null,
+                Maximum: null,
+                Step: null,
+                ExclusiveMinimum: null,
+                AllowedUnits: null,
+                MinimumSelections: 1,
+                MaximumSelections: 1,
+                AllowsEmptySelection: false),
+            [
+                new PreTriageConversationOption("WATCH", "Yes, show me the video"),
+                new PreTriageConversationOption("SKIP", "No, continue with assessment")
+            ],
+            video);
+
 }
 
 public sealed record GetPreTriageConversationStateQuery(
@@ -304,7 +352,14 @@ public enum PreTriageConversationInputType
 {
     Duration,
     Scale,
-    MultiSelect
+    MultiSelect,
+    SingleSelect
+}
+
+public enum PreTriageConversationInteractionType
+{
+    Question,
+    EducationalVideoOffer
 }
 
 public sealed record PreTriageConversationProjection(
@@ -333,13 +388,15 @@ public sealed record PreTriageConversationProgress(
     int Percentage);
 
 public sealed record PreTriageConversationInteraction(
+    PreTriageConversationInteractionType Type,
     string Field,
-    QuestionCode QuestionCode,
+    QuestionCode? QuestionCode,
     string Prompt,
     PreTriageConversationInputType InputType,
     bool Required,
     PreTriageConversationConstraints Constraints,
-    IReadOnlyList<PreTriageConversationOption> Options);
+    IReadOnlyList<PreTriageConversationOption> Options,
+    PreTriageEducationalVideo? Video = null);
 
 public sealed record PreTriageConversationConstraints(
     decimal? Minimum,

@@ -31,6 +31,13 @@ internal sealed class PreTriageSessionConfiguration
                     "(status = 'active' AND completed_at IS NULL) OR " +
                     "(status = 'completed' AND completed_at IS NOT NULL " +
                     "AND completed_at >= created_at AND completed_at < expires_at)");
+                table.HasCheckConstraint(
+                    "ck_pre_triage_sessions_educational_video_decision",
+                    "(educational_video_decision IS NULL AND " +
+                    "educational_video_offer_resolved_at IS NULL) OR " +
+                    "(educational_video_offer_required = TRUE AND " +
+                    "educational_video_decision IN ('watch', 'skip') AND " +
+                    "educational_video_offer_resolved_at IS NOT NULL)");
             });
 
         builder.HasKey(session => session.Id)
@@ -90,6 +97,26 @@ internal sealed class PreTriageSessionConfiguration
 
         builder.Property(session => session.UpdatedAt)
             .HasColumnName("updated_at")
+            .HasColumnType("timestamp with time zone");
+
+        builder.Property(session => session.EducationalVideoOfferRequired)
+            .HasColumnName("educational_video_offer_required")
+            .HasDefaultValue(false)
+            .IsRequired();
+
+        builder.Property(session => session.EducationalVideoDecision)
+            .HasColumnName("educational_video_decision")
+            .HasConversion(
+                decision => decision.HasValue
+                    ? decision.Value.ToString().ToLowerInvariant()
+                    : null,
+                value => value == null
+                    ? (PreTriageEducationalVideoDecision?)null
+                    : Enum.Parse<PreTriageEducationalVideoDecision>(value, true))
+            .HasMaxLength(8);
+
+        builder.Property(session => session.EducationalVideoOfferResolvedAt)
+            .HasColumnName("educational_video_offer_resolved_at")
             .HasColumnType("timestamp with time zone");
 
         builder.Ignore(session => session.IsAnonymous);

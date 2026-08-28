@@ -17,7 +17,8 @@ public sealed class PreTriageSession
         EntityId questionnaireVersionId,
         AnonymousCapabilityHash? anonymousCapabilityHash,
         DateTimeOffset expiresAt,
-        DateTimeOffset createdAt)
+        DateTimeOffset createdAt,
+        bool educationalVideoOfferRequired)
     {
         Id = id;
         PatientProfileId = patientProfileId;
@@ -26,6 +27,7 @@ public sealed class PreTriageSession
         ExpiresAt = expiresAt;
         Status = PreTriageSessionStatus.Active;
         CreatedAt = createdAt;
+        EducationalVideoOfferRequired = educationalVideoOfferRequired;
     }
 
     public EntityId Id { get; private set; }
@@ -46,6 +48,12 @@ public sealed class PreTriageSession
 
     public DateTimeOffset? UpdatedAt { get; private set; }
 
+    public bool EducationalVideoOfferRequired { get; private set; }
+
+    public PreTriageEducationalVideoDecision? EducationalVideoDecision { get; private set; }
+
+    public DateTimeOffset? EducationalVideoOfferResolvedAt { get; private set; }
+
     public IReadOnlyCollection<TriageAnswer> Answers => _answers.AsReadOnly();
 
     public IReadOnlyCollection<ReportedSymptom> ReportedSymptoms => _reportedSymptoms.AsReadOnly();
@@ -57,6 +65,7 @@ public sealed class PreTriageSession
         AnonymousCapabilityHash anonymousCapabilityHash,
         DateTimeOffset expiresAt,
         DateTimeOffset createdAt,
+        bool educationalVideoOfferRequired = false,
         EntityId? id = null)
     {
         ArgumentNullException.ThrowIfNull(anonymousCapabilityHash);
@@ -66,7 +75,8 @@ public sealed class PreTriageSession
             questionnaireVersionId,
             anonymousCapabilityHash,
             expiresAt,
-            createdAt);
+            createdAt,
+            educationalVideoOfferRequired);
     }
 
     public static PreTriageSession CreateForPatient(
@@ -74,6 +84,7 @@ public sealed class PreTriageSession
         EntityId questionnaireVersionId,
         DateTimeOffset expiresAt,
         DateTimeOffset createdAt,
+        bool educationalVideoOfferRequired = false,
         EntityId? id = null)
     {
         EnsureNonEmpty(patientProfileId, nameof(patientProfileId));
@@ -83,7 +94,30 @@ public sealed class PreTriageSession
             questionnaireVersionId,
             null,
             expiresAt,
-            createdAt);
+            createdAt,
+            educationalVideoOfferRequired);
+    }
+
+    public bool ResolveEducationalVideoOffer(
+        PreTriageEducationalVideoDecision decision,
+        DateTimeOffset resolvedAt)
+    {
+        EnsureActiveAt(resolvedAt);
+        if (!EducationalVideoOfferRequired)
+        {
+            throw new InvalidOperationException(
+                "This session does not have an educational video offer.");
+        }
+
+        if (EducationalVideoDecision.HasValue)
+        {
+            return false;
+        }
+
+        EducationalVideoDecision = decision;
+        EducationalVideoOfferResolvedAt = resolvedAt;
+        UpdatedAt = resolvedAt;
+        return true;
     }
 
     public TriageAnswer RecordAnswer(
@@ -187,7 +221,8 @@ public sealed class PreTriageSession
         EntityId questionnaireVersionId,
         AnonymousCapabilityHash? anonymousCapabilityHash,
         DateTimeOffset expiresAt,
-        DateTimeOffset createdAt)
+        DateTimeOffset createdAt,
+        bool educationalVideoOfferRequired)
     {
         EnsureNonEmpty(id, nameof(id));
         EnsureNonEmpty(questionnaireVersionId, nameof(questionnaireVersionId));
@@ -206,7 +241,8 @@ public sealed class PreTriageSession
             questionnaireVersionId,
             anonymousCapabilityHash,
             expiresAt,
-            createdAt);
+            createdAt,
+            educationalVideoOfferRequired);
     }
 
     private void EnsureActiveAt(DateTimeOffset instant)
@@ -234,4 +270,10 @@ public sealed class PreTriageSession
     internal sealed record CompletedWorkflowData(
         IReadOnlyCollection<TriageAnswer> Answers,
         IReadOnlyCollection<ReportedSymptom> ReportedSymptoms);
+}
+
+public enum PreTriageEducationalVideoDecision
+{
+    Watch,
+    Skip
 }

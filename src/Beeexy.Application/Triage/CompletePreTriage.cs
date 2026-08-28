@@ -56,6 +56,14 @@ public sealed class CompletePreTriage(
                     throw new PreTriageSessionNotFoundException();
                 }
 
+                if (session.EducationalVideoOfferRequired &&
+                    !session.EducationalVideoDecision.HasValue)
+                {
+                    throw InvalidCompletion(
+                        "pre_triage.educational_video_offer_unresolved",
+                        "The educational video offer must be resolved before completion.");
+                }
+
                 var package = await LoadPinnedPackageAsync(session, null, cancellationToken);
                 var summary = completeness.CheckTemporary(session, package);
                 MaterializeControlledSymptoms(session, package, summary, now);

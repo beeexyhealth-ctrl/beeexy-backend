@@ -28,6 +28,7 @@ public static class DependencyInjection
         AuthenticationEmailSenderOptions authenticationEmailSenderOptions,
         PreTriageCleanupOptions preTriageCleanupOptions,
         ClinicalAiProviderOptions clinicalAiProviderOptions,
+        PreTriageEducationalVideoOptions preTriageEducationalVideoOptions,
         string? privateFhirArtifactRoot = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
@@ -38,6 +39,7 @@ public static class DependencyInjection
         ArgumentNullException.ThrowIfNull(authenticationEmailSenderOptions);
         ArgumentNullException.ThrowIfNull(preTriageCleanupOptions);
         ArgumentNullException.ThrowIfNull(clinicalAiProviderOptions);
+        ArgumentNullException.ThrowIfNull(preTriageEducationalVideoOptions);
 
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton(emailChallengePolicy);
@@ -103,6 +105,9 @@ public static class DependencyInjection
             services.AddSingleton<IClinicalAiProvider, UnavailableClinicalAiProvider>();
         }
         services.AddSingleton<IClinicalSafetyPolicy, ClinicalSafetyPolicy>();
+        services.AddSingleton(preTriageEducationalVideoOptions);
+        services.AddSingleton<IPreTriageEducationalVideoCatalog,
+            PreTriageEducationalVideoCatalog>();
         services.AddScoped<IClinicalAiOutputValidator, ClinicalAiOutputValidator>();
         services.AddScoped<InterpretClinicalInput>();
         services.AddSingleton<
@@ -112,6 +117,8 @@ public static class DependencyInjection
             IAnonymousPreTriageCapabilityService,
             CryptographicAnonymousPreTriageCapabilityService>();
         services.AddScoped<IPreTriageSessionRepository, PreTriageSessionRepository>();
+        services.AddScoped<IPreTriageEducationalVideoOfferRepository,
+            PreTriageEducationalVideoOfferRepository>();
         services.AddSingleton<IPreTriageSessionAuditLogger, PreTriageSessionAuditLogger>();
         services.AddScoped<IPreTriageAnswerRepository, PreTriageAnswerRepository>();
         services.AddScoped<

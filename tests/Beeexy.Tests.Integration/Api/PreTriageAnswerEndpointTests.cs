@@ -727,7 +727,11 @@ public sealed class PreTriageAnswerEndpointTests(
         var additionalSymptoms = pathway == "FEVER"
             ? new[] { "NAUSEA", "DIARRHEA" }
             : new[] { "NAUSEA", "FEVER" };
-        await MakeReadyAuthenticatedAsync(client, sessionId, additionalSymptoms);
+        await MakeReadyAuthenticatedAsync(
+            client,
+            sessionId,
+            additionalSymptoms,
+            educationalVideoOfferRequired: pathway != "OTHER_SYMPTOMS");
 
         using var completion = await client.PostAsync(CompleteEndpoint(sessionId), null);
         var completed = await completion.Content.ReadFromJsonAsync<ResultResponse>();
@@ -1694,12 +1698,26 @@ public sealed class PreTriageAnswerEndpointTests(
             }
         });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        if (session.Pathway != "OTHER_SYMPTOMS")
+        {
+            using var offerRequest = new HttpRequestMessage(
+                HttpMethod.Post,
+                EducationalVideoOfferEndpoint(session.SessionId))
+            {
+                Content = JsonContent.Create(new { decision = "SKIP" })
+            };
+            offerRequest.Headers.Add(CapabilityHeader, session.AnonymousCapability);
+            using var offerResponse = await client.SendAsync(offerRequest);
+            Assert.Equal(HttpStatusCode.OK, offerResponse.StatusCode);
+        }
     }
 
     private static async Task MakeReadyAuthenticatedAsync(
         HttpClient client,
         Guid sessionId,
-        IReadOnlyList<string>? additionalSymptoms = null)
+        IReadOnlyList<string>? additionalSymptoms = null,
+        bool educationalVideoOfferRequired = true)
     {
         using var response = await client.PostAsJsonAsync(AnswerEndpoint(sessionId), new
         {
@@ -1711,6 +1729,14 @@ public sealed class PreTriageAnswerEndpointTests(
             }
         });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        if (educationalVideoOfferRequired)
+        {
+            using var offerResponse = await client.PostAsJsonAsync(
+                EducationalVideoOfferEndpoint(sessionId),
+                new { decision = "SKIP" });
+            Assert.Equal(HttpStatusCode.OK, offerResponse.StatusCode);
+        }
     }
 
     private async Task<AnonymousSession> CreateCompletedAnonymousAsync(
@@ -1744,6 +1770,9 @@ public sealed class PreTriageAnswerEndpointTests(
 
     private static string CompleteEndpoint(Guid sessionId) =>
         $"/api/v1/pre-triage/sessions/{sessionId:D}/complete";
+
+    private static string EducationalVideoOfferEndpoint(Guid sessionId) =>
+        $"/api/v1/pre-triage/sessions/{sessionId:D}/educational-video-offer";
 
     private static string ResultEndpoint(Guid sessionId) =>
         $"/api/v1/pre-triage/sessions/{sessionId:D}/result";

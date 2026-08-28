@@ -372,6 +372,20 @@ public sealed class PreTriageAmendmentEndpointTests(
 
         using var response = await client.SendAsync(request);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var offerRequest = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/api/v1/pre-triage/sessions/{started.SessionId:D}/educational-video-offer")
+        {
+            Content = JsonContent.Create(new { decision = "SKIP" })
+        };
+        if (anonymousCapability)
+        {
+            offerRequest.Headers.Add("X-Pre-Triage-Capability", started.AnonymousCapability);
+        }
+
+        using var offerResponse = await client.SendAsync(offerRequest);
+        Assert.Equal(HttpStatusCode.OK, offerResponse.StatusCode);
     }
 
     private static async Task<CompletedJourney> CompleteJourneyAsync(

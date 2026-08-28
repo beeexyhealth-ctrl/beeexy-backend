@@ -243,6 +243,16 @@ public sealed class Phase56ClinicalHistoryAcceptanceTests(
         AddCapability(request, started, useCapability);
         using var response = await client.SendAsync(request);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var offerRequest = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/api/v1/pre-triage/sessions/{started.SessionId:D}/educational-video-offer")
+        {
+            Content = JsonContent.Create(new { decision = "SKIP" })
+        };
+        AddCapability(offerRequest, started, useCapability);
+        using var offerResponse = await client.SendAsync(offerRequest);
+        Assert.Equal(HttpStatusCode.OK, offerResponse.StatusCode);
     }
 
     private static async Task<CompletedJourney> CompleteAsync(

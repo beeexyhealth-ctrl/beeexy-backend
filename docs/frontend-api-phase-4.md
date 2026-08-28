@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-This document is the frontend integration contract for **Phase 4 — Anonymous and Authenticated Pre-Triage**. It describes the eight implemented `/api/v1/pre-triage` operations, their security modes, the deterministic intake flow, canonical conversation projection, neutral completion/result behavior, and optional anonymous claim after Beeexy authentication. The additive Chat Pre-Triage projection contract is documented in [`frontend-api-chat-pretriage.md`](frontend-api-chat-pretriage.md).
+This document is the frontend integration contract for **Phase 4 — Anonymous and Authenticated Pre-Triage**. It describes the nine implemented `/api/v1/pre-triage` operations, their security modes, the deterministic intake flow, optional educational video offer, canonical conversation projection, neutral completion/result behavior, and optional anonymous claim after Beeexy authentication. The additive Chat Pre-Triage projection contract is documented in [`frontend-api-chat-pretriage.md`](frontend-api-chat-pretriage.md).
 
 The current endpoint mappings, DTOs, application behavior, OpenAPI document, and integration tests are authoritative. This guide does not define backend architecture, Phase 1–3 APIs, Phase 5 Clinical History APIs, frontend styling, or future clinical behavior.
 
@@ -10,6 +10,7 @@ The Phase 4 journey is:
 
 ```text
 Interpret and start from the first natural-language message, or select a pathway and start
+→ resolve the optional educational video offer with WATCH or SKIP
 → submit structured or natural-language answers
 → follow backend progression
 → complete
@@ -29,6 +30,7 @@ The public Phase 4 endpoint inventory is exactly:
 | `POST` | `/api/v1/pre-triage/intake/interpret` | Yes | Yes, Bearer | Stateless; no patient selector |
 | `POST` | `/api/v1/pre-triage/sessions` | Yes | Yes | Yes |
 | `POST` | `/api/v1/pre-triage/sessions/{id}/answers` | Yes, capability | Yes, Bearer | Yes, Bearer |
+| `POST` | `/api/v1/pre-triage/sessions/{id}/educational-video-offer` | Yes, capability | Yes, Bearer | Yes, Bearer |
 | `GET` | `/api/v1/pre-triage/sessions/{id}/conversation` | Yes, capability | Yes, Bearer | Yes, Bearer |
 | `POST` | `/api/v1/pre-triage/sessions/{id}/complete` | Yes, capability | Yes, Bearer | Yes, Bearer |
 | `GET` | `/api/v1/pre-triage/sessions/{id}/result` | Yes, capability | Yes, Bearer | Yes, Bearer |
@@ -776,7 +778,7 @@ Recommended flow:
 2. For the primary patient, either send the first natural-language message to `POST /api/v1/pre-triage/intake` or let the user select one of the five pathways. For a managed patient, use explicit selection.
 3. Call `/intake` with Bearer for the primary conversational path, or call `POST /api/v1/pre-triage/sessions` with Bearer, pathway, and `patientId` only for a managed selection.
 4. On intake `201` or session-start `201`, store the returned `sessionId`, pathway, expiry, questionnaire version, and `conversation`. On intake `200`, clarify/select a pathway without creating local session state.
-5. Continue from `conversation.nextInteraction`; after explicit start, a non-conversational client may still submit all structured fields together.
+5. Continue from `conversation.nextInteraction`. For `EDUCATIONAL_VIDEO_OFFER`, submit exactly `WATCH` or `SKIP` to the dedicated endpoint, display the video inline only for WATCH, and retain the returned clinical interaction without waiting for playback completion.
 6. After every answer response, replace local conversation state with `response.conversation`.
 7. When the backend returns `conversation.state === "READY_FOR_REVIEW"`, show Review and call `/complete` with no body only after explicit confirmation.
 8. Render the neutral result returned by completion.
@@ -791,7 +793,7 @@ Recommended flow:
 1. Start Pre-Triage without an `Authorization` header.
 2. Either send the first natural-language message to `POST /api/v1/pre-triage/intake` or let the user select one of the five supported pathways and call `POST /api/v1/pre-triage/sessions`.
 3. On intake `200`, clarify/select without storing session state. On either `201`, store `sessionId`, `pathway`, `expiresAt`, questionnaire version, `conversation`, and `anonymousCapability`.
-4. Continue from `conversation.nextInteraction`, or submit all structured fields together in a non-conversational flow.
+4. Continue from `conversation.nextInteraction`. Resolve `EDUCATIONAL_VIDEO_OFFER` with WATCH or SKIP before the clinical questions; playback completion is never required or tracked.
 5. Submit later answers with `X-Pre-Triage-Capability` and no Bearer.
 6. Drive the remaining UI from each backend progression response.
 7. Complete with the capability and no request body.
@@ -1026,7 +1028,14 @@ export type PreTriageConversationState =
 export type PreTriageConversationInputType =
   | "DURATION"
   | "SCALE"
-  | "MULTI_SELECT";
+  | "MULTI_SELECT"
+  | "SINGLE_SELECT";
+
+export interface EducationalVideo {
+  id: string;
+  title: string;
+  url: string;
+}
 
 export interface PreTriageConversation {
   sessionId: Uuid;
@@ -1040,6 +1049,7 @@ export interface PreTriageConversation {
   acceptedValues: PreTriageAcceptedValues;
   /** Present exactly once while IN_PROGRESS; omitted otherwise. */
   nextInteraction?: {
+    type: "QUESTION";
     field: "duration" | "intensity" | "additionalSymptoms";
     questionCode: RequiredAnswerCode;
     prompt: string;
@@ -1056,6 +1066,24 @@ export interface PreTriageConversation {
       allowsEmptySelection?: boolean;
     };
     options: Array<{ value: string; label: string }>;
+    video?: never;
+  } | {
+    type: "EDUCATIONAL_VIDEO_OFFER";
+    field: "educationalVideoDecision";
+    questionCode?: never;
+    prompt: string;
+    inputType: "SINGLE_SELECT";
+    required: false;
+    constraints: {
+      minimumSelections: 1;
+      maximumSelections: 1;
+      allowsEmptySelection: false;
+    };
+    options: Array<
+      | { value: "WATCH"; label: "Yes, show me the video" }
+      | { value: "SKIP"; label: "No, continue with assessment" }
+    >;
+    video: EducationalVideo;
   };
 }
 

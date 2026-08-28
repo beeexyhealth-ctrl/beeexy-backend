@@ -83,17 +83,25 @@ POST /api/v1/pre-triage/sessions
     },
     "acceptedValues": {},
     "nextInteraction": {
-      "field": "duration",
-      "questionCode": "DURATION",
-      "prompt": "How long ago did the stomach pain start?",
-      "inputType": "DURATION",
-      "required": true,
+      "type": "EDUCATIONAL_VIDEO_OFFER",
+      "field": "educationalVideoDecision",
+      "prompt": "Would you like to watch a short video where a medical professional explains more about your symptoms?",
+      "inputType": "SINGLE_SELECT",
+      "required": false,
       "constraints": {
-        "minimum": 0,
-        "exclusiveMinimum": true,
-        "allowedUnits": ["MINUTES", "HOURS", "DAYS", "WEEKS", "MONTHS"]
+        "minimumSelections": 1,
+        "maximumSelections": 1,
+        "allowsEmptySelection": false
       },
-      "options": []
+      "options": [
+        { "value": "WATCH", "label": "Yes, show me the video" },
+        { "value": "SKIP", "label": "No, continue with assessment" }
+      ],
+      "video": {
+        "id": "abdominal-pain",
+        "title": "Understanding Stomach Pain",
+        "url": "https://res.cloudinary.com/mhy90qa7/video/upload/v1787888428/STOMACH_PAIN_VIDEO.mp4"
+      }
     }
   }
 }
@@ -200,29 +208,89 @@ A resolved response retains the existing `session` and `initialAnswers` fields a
       "intensity": 6
     },
     "nextInteraction": {
-      "field": "additionalSymptoms",
-      "questionCode": "ADDITIONAL_SYMPTOMS",
-      "prompt": "Do you have any of these additional symptoms?",
-      "inputType": "MULTI_SELECT",
-      "required": true,
+      "type": "EDUCATIONAL_VIDEO_OFFER",
+      "field": "educationalVideoDecision",
+      "prompt": "Would you like to watch a short video where a medical professional explains more about your symptoms?",
+      "inputType": "SINGLE_SELECT",
+      "required": false,
       "constraints": {
-        "minimumSelections": 0,
-        "maximumSelections": 3,
-        "allowsEmptySelection": true
+        "minimumSelections": 1,
+        "maximumSelections": 1,
+        "allowsEmptySelection": false
       },
       "options": [
-        { "value": "NAUSEA", "label": "Nausea" },
-        { "value": "DIARRHEA", "label": "Diarrhea" },
-        { "value": "FEVER", "label": "Fever" }
-      ]
+        { "value": "WATCH", "label": "Yes, show me the video" },
+        { "value": "SKIP", "label": "No, continue with assessment" }
+      ],
+      "video": {
+        "id": "abdominal-pain",
+        "title": "Understanding Stomach Pain",
+        "url": "https://res.cloudinary.com/mhy90qa7/video/upload/v1787888428/STOMACH_PAIN_VIDEO.mp4"
+      }
     }
   }
 }
 ```
 
-If intake accepts only duration, `conversation.nextInteraction.field` is `intensity`. If duration and intensity are accepted, it is `additionalSymptoms`. The frontend must not repeat or skip fields itself.
+The educational offer remains the first interaction even when intake has already accepted clinical values. After the offer is resolved, the backend skips accepted questions: if intake accepted only duration, the next field is `intensity`; if duration and intensity were accepted, it is `additionalSymptoms`.
 
 `AMBIGUOUS` and `UNRESOLVED` responses omit `session`, `initialAnswers`, and `conversation`.
+
+## Educational video offer
+
+`HEADACHE`, `ABDOMINAL_PAIN`, `CHEST_PAIN`, and `FEVER` start with an `EDUCATIONAL_VIDEO_OFFER`. `OTHER_SYMPTOMS` has no fallback video and starts directly with the normal `DURATION` question. The backend mapping is configured under `PreTriageEducationalVideos`; the checked-in values use the public Cloudinary Delivery URLs listed in `videos-cloudinary.md`.
+
+| Pathway | Video ID | Title | Delivery URL |
+|---|---|---|---|
+| `HEADACHE` | `headache` | Understanding Headaches | `https://res.cloudinary.com/mhy90qa7/video/upload/v1787888338/HEADACHE_VIDEO.mp4` |
+| `ABDOMINAL_PAIN` | `abdominal-pain` | Understanding Stomach Pain | `https://res.cloudinary.com/mhy90qa7/video/upload/v1787888428/STOMACH_PAIN_VIDEO.mp4` |
+| `CHEST_PAIN` | `chest-pain` | Understanding Chest Pain | `https://res.cloudinary.com/mhy90qa7/video/upload/v1787888362/CHEST_PAIN_VIDEO.mp4` |
+| `FEVER` | `fever` | Understanding Fever | `https://res.cloudinary.com/mhy90qa7/video/upload/v1787888446/FEVER_VIDEO.mp4` |
+
+Resolve the offer with exactly one of `WATCH` or `SKIP`:
+
+```http
+POST /api/v1/pre-triage/sessions/{sessionId}/educational-video-offer
+X-Pre-Triage-Capability: <anonymous-only>
+Authorization: Bearer <authenticated-only>
+Content-Type: application/json
+
+{
+  "decision": "WATCH"
+}
+```
+
+`200 OK` returns the persisted decision and the canonical conversation after the offer:
+
+```json
+{
+  "sessionId": "40000000-0000-0000-0000-000000000004",
+  "decision": "WATCH",
+  "resolvedAt": "2026-08-27T18:01:00Z",
+  "newlyResolved": true,
+  "conversation": {
+    "acceptedValues": {},
+    "nextInteraction": {
+      "type": "QUESTION",
+      "field": "duration",
+      "questionCode": "DURATION",
+      "prompt": "How long ago did the stomach pain start?",
+      "inputType": "DURATION",
+      "required": true,
+      "constraints": {
+        "minimum": 0,
+        "exclusiveMinimum": true,
+        "allowedUnits": ["MINUTES", "HOURS", "DAYS", "WEEKS", "MONTHS"]
+      },
+      "options": []
+    }
+  }
+}
+```
+
+`WATCH` only tells the frontend to display the returned video. Playback completion, progress, comprehension, and consent are not tracked. The frontend may display the video inline while immediately retaining the returned clinical `nextInteraction`; assessment progression never waits for playback. `SKIP` produces the same clinical interaction. Repeating resolution is idempotent and returns `newlyResolved: false` with the original persisted decision and timestamp.
+
+The decision is non-clinical workflow state stored separately on the session. It never appears in `acceptedValues`, questionnaire answers, clinical rules, History, RiskAssessment, or FHIR. On refresh, the persisted resolution prevents the offer from being shown again.
 
 ## Conversation projection
 

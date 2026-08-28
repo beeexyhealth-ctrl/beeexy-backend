@@ -15,7 +15,8 @@ public sealed class SubmitTriageAnswers(
     IPreTriageAnswerRepository repository,
     IClinicalDefinitionProvider definitionProvider,
     InterpretClinicalInput interpretClinicalInput,
-    IPreTriageIntakeAuditLogger auditLogger)
+    IPreTriageIntakeAuditLogger auditLogger,
+    IPreTriageEducationalVideoCatalog? educationalVideos = null)
 {
     public const int MaximumNaturalLanguageLength = 4000;
 
@@ -87,7 +88,8 @@ public sealed class SubmitTriageAnswers(
                     PreTriageConversationProjectionBuilder.Build(
                         session,
                         session.Answers,
-                        package));
+                        package,
+                        educationalVideos));
             },
             cancellationToken) ?? throw new PreTriageSessionNotFoundException();
 
@@ -178,7 +180,8 @@ public sealed class SubmitTriageAnswers(
                     PreTriageConversationProjectionBuilder.Build(
                         session,
                         session.Answers,
-                        package));
+                        package,
+                        educationalVideos));
             },
             cancellationToken) ?? throw new PreTriageSessionNotFoundException();
 

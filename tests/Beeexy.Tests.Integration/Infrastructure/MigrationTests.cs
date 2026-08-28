@@ -38,7 +38,8 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                     "20260823192326_Phase51ClinicalHistoryFoundation",
                     "20260824035248_Phase55TraceablePreTriageAmendments",
                     "20260824202650_Phase61FhirExportPersistenceFoundation",
-                    "20260826171318_Part31DurableIntakeIdempotency"
+                    "20260826171318_Part31DurableIntakeIdempotency",
+                    "20260828040441_EducationalVideoOfferWorkflow"
                 ],
                 appliedMigrations);
             Assert.Empty(pendingMigrations);

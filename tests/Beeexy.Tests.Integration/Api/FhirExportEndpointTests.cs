@@ -501,6 +501,13 @@ public sealed class FhirExportEndpointTests(PostgreSqlContainerFixture postgres)
                 }
             });
         Assert.Equal(HttpStatusCode.OK, answer.StatusCode);
+        if (pathway != "OTHER_SYMPTOMS")
+        {
+            using var offer = await client.PostAsJsonAsync(
+                $"/api/v1/pre-triage/sessions/{started.SessionId:D}/educational-video-offer",
+                new { decision = "SKIP" });
+            Assert.Equal(HttpStatusCode.OK, offer.StatusCode);
+        }
         using var complete = await client.PostAsync(
             $"/api/v1/pre-triage/sessions/{started.SessionId:D}/complete",
             null);

@@ -228,7 +228,7 @@ public sealed class DemoGuestSessionEndpointTests(PostgreSqlContainerFixture pos
         Assert.Equal("IN_PROGRESS", started.Conversation.State);
         Assert.Equal("ACTIVE", started.Conversation.SessionStatus);
         Assert.Equal(new ConversationProgress(0, 3, 0), started.Conversation.Progress);
-        Assert.Equal("duration", started.Conversation.NextInteraction!.Field);
+        Assert.Equal("educationalVideoDecision", started.Conversation.NextInteraction!.Field);
 
         using var answer = await client.PostAsJsonAsync(
             $"/api/v1/pre-triage/sessions/{started.SessionId:D}/answers",
@@ -243,13 +243,18 @@ public sealed class DemoGuestSessionEndpointTests(PostgreSqlContainerFixture pos
             });
         var answered = await answer.Content.ReadFromJsonAsync<AnswerWithConversation>();
         Assert.Equal(HttpStatusCode.OK, answer.StatusCode);
-        Assert.Equal("READY_FOR_REVIEW", answered!.Conversation.State);
+        Assert.Equal("IN_PROGRESS", answered!.Conversation.State);
         Assert.Equal("ACTIVE", answered.Conversation.SessionStatus);
         Assert.Equal(new ConversationProgress(3, 3, 100),
             answered.Conversation.Progress);
-        Assert.Null(answered.Conversation.NextInteraction);
+        Assert.Equal("educationalVideoDecision", answered.Conversation.NextInteraction!.Field);
         Assert.Equal(["FEVER"],
             answered.Conversation.AcceptedValues.AdditionalSymptoms);
+
+        using var offer = await client.PostAsJsonAsync(
+            $"/api/v1/pre-triage/sessions/{started.SessionId:D}/educational-video-offer",
+            new { decision = "SKIP" });
+        Assert.Equal(HttpStatusCode.OK, offer.StatusCode);
 
         var conversationEndpoint =
             $"/api/v1/pre-triage/sessions/{started.SessionId:D}/conversation";

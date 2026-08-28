@@ -22,6 +22,8 @@ internal static class StartupConfiguration
     private const string GoogleSectionKey = "Authentication:Google";
     private const string PreTriageCleanupSectionKey = "PreTriageCleanup";
     private const string ClinicalAiSectionKey = "ClinicalAi";
+    private const string PreTriageEducationalVideosSectionKey =
+        "PreTriageEducationalVideos";
     private const string PrivateAccessSectionKey = "PrivateAccess";
 
     public static PrivateAccessSettings GetPrivateAccessSettings(
@@ -401,6 +403,30 @@ internal static class StartupConfiguration
             section["BaseUrl"],
             section.GetValue<int?>("TimeoutSeconds"),
             section.GetValue<bool?>("UseJsonObjectResponseFormat"));
+    }
+
+    public static PreTriageEducationalVideoOptions GetRequiredPreTriageEducationalVideoOptions(
+        IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        var section = configuration.GetSection(PreTriageEducationalVideosSectionKey);
+        var configured = section.GetChildren().ToDictionary(
+            child => child.Key,
+            child => new PreTriageEducationalVideoConfiguration(
+                child["Id"],
+                child["Title"],
+                child["Url"]),
+            StringComparer.Ordinal);
+        try
+        {
+            return PreTriageEducationalVideoOptions.Create(configured);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new InvalidOperationException(
+                $"Configuration section '{PreTriageEducationalVideosSectionKey}' is invalid.",
+                exception);
+        }
     }
 
     private static bool IsValidOrigin(string origin)

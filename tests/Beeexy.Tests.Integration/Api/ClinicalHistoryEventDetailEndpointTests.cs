@@ -275,6 +275,10 @@ public sealed class ClinicalHistoryEventDetailEndpointTests(
                 }
             });
         Assert.Equal(HttpStatusCode.OK, answerResponse.StatusCode);
+        using var offerResponse = await client.PostAsJsonAsync(
+            $"/api/v1/pre-triage/sessions/{started.SessionId:D}/educational-video-offer",
+            new { decision = "SKIP" });
+        Assert.Equal(HttpStatusCode.OK, offerResponse.StatusCode);
         using var completionResponse = await client.PostAsync(
             $"/api/v1/pre-triage/sessions/{started.SessionId:D}/complete",
             null);

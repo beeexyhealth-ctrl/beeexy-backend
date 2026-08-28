@@ -155,6 +155,7 @@ public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
             await dbContext.GetService<IMigrator>()
                 .MigrateAsync("20260822163355_Phase47NeutralClinicalAssessment");
         }
+        await AddCurrentSessionColumnsForHistoricalModelAsync();
 
         var package = SimplifiedDemoDefinitionPackages.Create(ClinicalPathways.Headache);
         var now = new DateTimeOffset(2026, 8, 22, 12, 0, 0, TimeSpan.Zero);
@@ -188,6 +189,7 @@ public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
             dbContext.AddRange(patient, session, episode, assessment);
             await dbContext.SaveChangesAsync();
         }
+        await DropCurrentSessionColumnsForHistoricalModelAsync();
 
         await using (var dbContext = new BeeexyDbContext(options))
         {
@@ -253,6 +255,7 @@ public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
             await dbContext.GetService<IMigrator>()
                 .MigrateAsync("20260822061610_Phase45ConfirmedDemoPackages");
         }
+        await AddCurrentSessionColumnsForHistoricalModelAsync();
 
         Assert.Equal("NO", await LoadUrgencyNullabilityAsync());
         var now = DateTimeOffset.UtcNow;
@@ -282,6 +285,7 @@ public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
             dbContext.AddRange(session, episode, historicalAssessment);
             await dbContext.SaveChangesAsync();
         }
+        await DropCurrentSessionColumnsForHistoricalModelAsync();
 
         await using (var dbContext = new BeeexyDbContext(options))
         {
@@ -628,6 +632,32 @@ public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
         return new DbContextOptionsBuilder<BeeexyDbContext>()
             .UseNpgsql(postgres.ConnectionString)
             .Options;
+    }
+
+    private async Task AddCurrentSessionColumnsForHistoricalModelAsync()
+    {
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "ALTER TABLE triage.pre_triage_sessions " +
+            "ADD COLUMN educational_video_decision character varying(8) NULL, " +
+            "ADD COLUMN educational_video_offer_required boolean NOT NULL DEFAULT FALSE, " +
+            "ADD COLUMN educational_video_offer_resolved_at timestamp with time zone NULL;";
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private async Task DropCurrentSessionColumnsForHistoricalModelAsync()
+    {
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "ALTER TABLE triage.pre_triage_sessions " +
+            "DROP COLUMN educational_video_decision, " +
+            "DROP COLUMN educational_video_offer_required, " +
+            "DROP COLUMN educational_video_offer_resolved_at;";
+        await command.ExecuteNonQueryAsync();
     }
 
     private static void AddDemoAnswersAndSymptoms(

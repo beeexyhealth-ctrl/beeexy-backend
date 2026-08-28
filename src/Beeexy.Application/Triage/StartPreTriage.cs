@@ -13,7 +13,8 @@ public sealed class StartPreTriage(
     IClinicalPathwayRegistry pathwayRegistry,
     IAnonymousPreTriageCapabilityService capabilityService,
     IPreTriageSessionRepository repository,
-    IPreTriageSessionAuditLogger auditLogger)
+    IPreTriageSessionAuditLogger auditLogger,
+    IPreTriageEducationalVideoCatalog? educationalVideos = null)
 {
     public static readonly TimeSpan AnonymousSessionLifetime = TimeSpan.FromHours(24);
     public static readonly TimeSpan AuthenticatedSessionLifetime = TimeSpan.FromHours(24);
@@ -45,6 +46,7 @@ public sealed class StartPreTriage(
             ? AnonymousSessionLifetime
             : AuthenticatedSessionLifetime;
         var expiresAt = now.Add(lifetime);
+        var educationalVideoOfferRequired = educationalVideos?.Find(package.Pathway) is not null;
 
         GeneratedAnonymousCapability? generatedCapability = null;
         PreTriageSession session;
@@ -55,7 +57,8 @@ public sealed class StartPreTriage(
                 package.Questionnaire.Id,
                 generatedCapability.Hash,
                 expiresAt,
-                now);
+                now,
+                educationalVideoOfferRequired);
         }
         else
         {
@@ -63,7 +66,8 @@ public sealed class StartPreTriage(
                 patientProfileId!.Value,
                 package.Questionnaire.Id,
                 expiresAt,
-                now);
+                now,
+                educationalVideoOfferRequired);
         }
 
         repository.Add(session);
@@ -89,7 +93,8 @@ public sealed class StartPreTriage(
                     ? PreTriageConversationProjectionBuilder.Build(
                         session,
                         session.Answers,
-                        package)
+                        package,
+                        educationalVideos)
                     : null
         };
         if (auditAfterSave)

@@ -131,6 +131,30 @@ internal static class PreTriageEndpointExtensions
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
+        endpoints.MapPost(
+                "/api/v1/pre-triage/sessions/{id:guid}/educational-video-offer",
+                ResolveEducationalVideoOfferAsync)
+            .WithName("ResolvePreTriageEducationalVideoOffer")
+            .WithTags("Pre-Triage")
+            .WithDescription(
+                "Resolves the optional non-clinical educational video offer with exactly " +
+                "WATCH or SKIP. WATCH means the frontend should display the configured public " +
+                "video; it does not mean playback completed, understanding was confirmed, or " +
+                "consent was given. Both decisions immediately expose the same next unanswered " +
+                "clinical interaction. The first accepted decision is persisted separately " +
+                "from clinical answers and repeated requests are idempotent. " +
+                $"Anonymous sessions require {AnonymousCapabilityHeader}; authenticated " +
+                "sessions require current patient authorization.")
+            .WithMetadata(new OptionalBearerAuthorizationMetadata())
+            .Accepts<ResolveEducationalVideoOfferRequest>("application/json")
+            .Produces<ResolveEducationalVideoOfferResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
         endpoints.MapGet(
                 "/api/v1/pre-triage/sessions/{id:guid}/conversation",
                 GetConversationAsync)
@@ -141,9 +165,12 @@ internal static class PreTriageEndpointExtensions
                 "from the session, its accepted answers, and its exact pinned questionnaire " +
                 "and rule-set. States are IN_PROGRESS, READY_FOR_REVIEW, and COMPLETED. " +
                 "Progress counts accepted required fields only; optional fields do not " +
-                "contribute. IN_PROGRESS returns exactly one nextInteraction with a DURATION, " +
-                "SCALE, or MULTI_SELECT input, versioned prompt, constraints, and controlled " +
-                "options. READY_FOR_REVIEW remains active and requires the existing explicit " +
+                "contribute. Before the first unanswered clinical question, configured " +
+                "pathways expose an EDUCATIONAL_VIDEO_OFFER with WATCH and SKIP options and " +
+                "public delivery metadata. Otherwise IN_PROGRESS returns exactly one clinical " +
+                "nextInteraction with a DURATION, SCALE, or MULTI_SELECT input, versioned " +
+                "prompt, constraints, and controlled options. READY_FOR_REVIEW remains active " +
+                "and requires the existing explicit " +
                 "completion flow. Completed sessions are read-only. Expired sessions preserve " +
                 "the existing concealed not-found behavior. The projection never invokes AI. " +
                 $"Anonymous sessions require {AnonymousCapabilityHeader}; authenticated " +
@@ -419,6 +446,35 @@ internal static class PreTriageEndpointExtensions
         return Results.Ok(ToResponse(result));
     }
 
+    private static async Task<IResult> ResolveEducationalVideoOfferAsync(
+        Guid id,
+        ResolveEducationalVideoOfferRequest request,
+        HttpContext httpContext,
+        ResolvePreTriageEducationalVideoOffer useCase,
+        [FromHeader(Name = AnonymousCapabilityHeader)] string? anonymousCapability,
+        CancellationToken cancellationToken)
+    {
+        if (id == Guid.Empty)
+        {
+            throw new PreTriageSessionNotFoundException();
+        }
+
+        var result = await useCase.ExecuteAsync(
+            new ResolvePreTriageEducationalVideoOfferCommand(
+                EntityId.From(id),
+                ResolveCallerMode(httpContext),
+                anonymousCapability,
+                request.Decision,
+                request.UnsupportedFields?.Keys.ToArray() ?? []),
+            cancellationToken);
+        return Results.Ok(new ResolveEducationalVideoOfferResponse(
+            result.SessionId.Value,
+            ToApiEnum(result.Decision),
+            result.ResolvedAt,
+            result.NewlyResolved,
+            ToResponse(result.Conversation)));
+    }
+
     private static async Task<IResult> StartSessionAsync(
         StartPreTriageSessionRequest request,
         HttpContext httpContext,
@@ -615,8 +671,9 @@ internal static class PreTriageEndpointExtensions
             projection.NextInteraction is null
                 ? null
                 : new ConversationInteractionResponse(
+                    ToApiEnum(projection.NextInteraction.Type),
                     projection.NextInteraction.Field,
-                    projection.NextInteraction.QuestionCode.Value,
+                    projection.NextInteraction.QuestionCode?.Value,
                     projection.NextInteraction.Prompt,
                     ToApiEnum(projection.NextInteraction.InputType),
                     projection.NextInteraction.Required,
@@ -630,7 +687,13 @@ internal static class PreTriageEndpointExtensions
                         projection.NextInteraction.Constraints.MaximumSelections,
                         projection.NextInteraction.Constraints.AllowsEmptySelection),
                     projection.NextInteraction.Options.Select(option =>
-                        new ConversationOptionResponse(option.Value, option.Label)).ToArray()));
+                        new ConversationOptionResponse(option.Value, option.Label)).ToArray(),
+                    projection.NextInteraction.Video is null
+                        ? null
+                        : new ConversationVideoResponse(
+                            projection.NextInteraction.Video.Id,
+                            projection.NextInteraction.Video.Title,
+                            projection.NextInteraction.Video.Url)));
 
     private static PreTriageAcceptedValuesResponse ToAcceptedValuesResponse(
         IReadOnlyList<AcceptedTriageAnswerValue> acceptedValues)
@@ -760,6 +823,16 @@ internal sealed class SubmitPreTriageAnswersRequest
     public Dictionary<string, JsonElement>? UnsupportedFields { get; init; }
 }
 
+internal sealed class ResolveEducationalVideoOfferRequest
+{
+    [Required]
+    [StringLength(5, MinimumLength = 4)]
+    public string? Decision { get; init; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? UnsupportedFields { get; init; }
+}
+
 internal sealed class StructuredPreTriageAnswersRequest
 {
     public DurationAnswerRequest? Duration { get; init; }
@@ -850,6 +923,13 @@ internal sealed record PreTriageConversationResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     ConversationInteractionResponse? NextInteraction);
 
+internal sealed record ResolveEducationalVideoOfferResponse(
+    Guid SessionId,
+    string Decision,
+    DateTimeOffset ResolvedAt,
+    bool NewlyResolved,
+    PreTriageConversationResponse Conversation);
+
 internal sealed record ConversationPathwayResponse(
     string Code,
     string Label);
@@ -860,13 +940,22 @@ internal sealed record ConversationProgressResponse(
     int Percentage);
 
 internal sealed record ConversationInteractionResponse(
+    string Type,
     string Field,
-    string QuestionCode,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? QuestionCode,
     string Prompt,
     string InputType,
     bool Required,
     ConversationConstraintsResponse Constraints,
-    IReadOnlyList<ConversationOptionResponse> Options);
+    IReadOnlyList<ConversationOptionResponse> Options,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    ConversationVideoResponse? Video);
+
+internal sealed record ConversationVideoResponse(
+    string Id,
+    string Title,
+    string Url);
 
 internal sealed record ConversationConstraintsResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

@@ -52,6 +52,8 @@ var preTriageCleanupOptions = StartupConfiguration.GetRequiredPreTriageCleanupOp
     builder.Configuration);
 var clinicalAiProviderOptions = StartupConfiguration.GetClinicalAiProviderOptions(
     builder.Configuration);
+var preTriageEducationalVideoOptions =
+    StartupConfiguration.GetRequiredPreTriageEducationalVideoOptions(builder.Configuration);
 var privateAccessSettings = StartupConfiguration.GetPrivateAccessSettings(
     builder.Configuration,
     builder.Environment);
@@ -66,7 +68,8 @@ builder.Services.AddInfrastructure(
     emailChallengeSettings.OtpHashingKey,
     emailChallengeSettings.EmailSender,
     preTriageCleanupOptions,
-    clinicalAiProviderOptions);
+    clinicalAiProviderOptions,
+    preTriageEducationalVideoOptions);
 if (builder.Environment.IsDevelopment())
 {
     builder.Services.AddHostedService<DevelopmentDemoDefinitionsBootstrapper>();
@@ -97,6 +100,7 @@ builder.Services.AddScoped<StartPreTriageFromIntake>();
 builder.Services.AddScoped<ReplayPreTriageIntake>();
 builder.Services.AddScoped<SubmitTriageAnswers>();
 builder.Services.AddScoped<GetPreTriageConversationState>();
+builder.Services.AddScoped<ResolvePreTriageEducationalVideoOffer>();
 builder.Services.AddScoped<CheckDemoQuestionnaireCompleteness>();
 builder.Services.AddScoped<NeutralClinicalAssessmentFactory>();
 builder.Services.AddScoped<CompletePreTriage>();
