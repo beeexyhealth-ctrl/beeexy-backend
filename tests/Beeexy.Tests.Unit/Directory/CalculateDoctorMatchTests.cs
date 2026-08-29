@@ -298,6 +298,7 @@ public sealed class CalculateDoctorMatchTests
         }
 
         public Task<IReadOnlyList<DoctorMatchCandidateSnapshot>> ListEligibleCandidatesAsync(
+            IReadOnlyCollection<EntityId>? doctorIds = null,
             CancellationToken cancellationToken = default) => Task.FromResult(candidates);
     }
 }

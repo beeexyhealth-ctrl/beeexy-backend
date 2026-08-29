@@ -32,6 +32,43 @@ internal sealed class DoctorDirectoryReadRepository(PublicDirectoryQueryBoundary
         return await LoadProfilesAsync(doctors, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<EntityId>> ListFilteredDoctorIdsAsync(
+        DoctorDirectoryFilter filter,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildFilteredQuery(filter)
+            .Select(doctor => doctor.Id)
+            .ToArrayAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<DoctorDirectoryProfile>> GetManyAsync(
+        IReadOnlyList<EntityId> doctorIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(doctorIds);
+        if (doctorIds.Count == 0)
+        {
+            return [];
+        }
+
+        var doctors = await boundary.Doctors()
+            .Where(doctor => doctorIds.Contains(doctor.Id))
+            .Select(doctor => new DoctorRow(
+                doctor.Id,
+                doctor.Code.Value,
+                doctor.DisplayName.Value))
+            .ToArrayAsync(cancellationToken);
+        var byId = doctors.ToDictionary(doctor => doctor.DoctorId);
+        if (byId.Count != doctorIds.Count)
+        {
+            throw new InvalidOperationException(
+                "A ranked doctor page no longer satisfies the public visibility boundary.");
+        }
+
+        var ordered = doctorIds.Select(doctorId => byId[doctorId]).ToArray();
+        return await LoadProfilesAsync(ordered, cancellationToken);
+    }
+
     public async Task<DoctorDirectoryProfile?> GetAsync(
         EntityId doctorId,
         CancellationToken cancellationToken = default)

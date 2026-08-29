@@ -12,6 +12,14 @@ public sealed class CalculateDoctorMatch(
         CalculateDoctorMatchQuery query,
         CancellationToken cancellationToken = default)
     {
+        return await ExecuteAsync(query, null, cancellationToken);
+    }
+
+    public async Task<CalculateDoctorMatchResult> ExecuteAsync(
+        CalculateDoctorMatchQuery query,
+        IReadOnlyCollection<EntityId>? candidateDoctorIds,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(query);
         var version = DoctorDirectoryInputNormalizer.NormalizeRequiredCode(
             query.RuleVersion,
@@ -29,7 +37,9 @@ public sealed class CalculateDoctorMatch(
         var rule = await repository.GetRuleAsync(
             DirectoryCode.Create(version),
             cancellationToken) ?? throw new DoctorMatchRuleNotFoundException();
-        var candidates = await repository.ListEligibleCandidatesAsync(cancellationToken);
+        var candidates = await repository.ListEligibleCandidatesAsync(
+            candidateDoctorIds,
+            cancellationToken);
         return engine.Calculate(rule, criteria, candidates);
     }
 }
@@ -108,6 +118,7 @@ public interface IDoctorMatchingRepository
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<DoctorMatchCandidateSnapshot>> ListEligibleCandidatesAsync(
+        IReadOnlyCollection<EntityId>? doctorIds = null,
         CancellationToken cancellationToken = default);
 }
 

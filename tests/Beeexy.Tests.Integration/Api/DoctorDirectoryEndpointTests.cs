@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using Beeexy.Application.Directory;
 using Beeexy.Infrastructure.Persistence;
 using Beeexy.Tests.Integration.Support;
 using Microsoft.EntityFrameworkCore;
@@ -34,6 +36,13 @@ public sealed class DoctorDirectoryEndpointTests(PostgreSqlContainerFixture post
         Assert.Equal([AmberId, BlueId], first.Items.Select(value => value.DoctorId).ToArray());
         Assert.NotNull(first.NextCursor);
         Assert.DoesNotContain(BlueId.ToString(), first.NextCursor!);
+        Assert.All(first.Items, item => Assert.Null(item.Match));
+        using (var firstDocument = JsonDocument.Parse(
+            await firstResponse.Content.ReadAsStringAsync()))
+        {
+            Assert.All(firstDocument.RootElement.GetProperty("items").EnumerateArray(), item =>
+                Assert.False(item.TryGetProperty("match", out _)));
+        }
 
         var amber = first.Items[0];
         Assert.Equal("demo-doctor-amber", amber.Code);
@@ -69,6 +78,7 @@ public sealed class DoctorDirectoryEndpointTests(PostgreSqlContainerFixture post
         Assert.NotNull(second);
         Assert.Equal([CoralId, EmberId], second.Items.Select(value => value.DoctorId).ToArray());
         Assert.Null(second.NextCursor);
+        Assert.All(second.Items, item => Assert.Null(item.Match));
         Assert.DoesNotContain(second.Items, value => value.DoctorId == DuskId);
         Assert.Empty(second.Items[0].Affiliations);
         var emberAffiliation = Assert.Single(second.Items[1].Affiliations);
@@ -77,23 +87,35 @@ public sealed class DoctorDirectoryEndpointTests(PostgreSqlContainerFixture post
     }
 
     [Theory]
-    [InlineData("specialtyCode=demo-specialty-general", "demo-doctor-amber,demo-doctor-blue")]
-    [InlineData("languageCode=demo-language-pt", "demo-doctor-coral")]
-    [InlineData("locality=Demo%20Central", "demo-doctor-amber")]
-    [InlineData("country=Synthetic%20Demo%20Country", "demo-doctor-amber,demo-doctor-blue")]
-    [InlineData("insurancePlanCode=demo-plan-blue", "demo-doctor-amber,demo-doctor-blue")]
+    [InlineData(
+        "specialtyCode=demo-specialty-general",
+        "demo-doctor-amber,demo-doctor-blue",
+        25)]
+    [InlineData("languageCode=demo-language-pt", "demo-doctor-coral", 25)]
+    [InlineData("locality=Demo%20Central", "demo-doctor-amber", 25)]
+    [InlineData(
+        "country=Synthetic%20Demo%20Country",
+        "demo-doctor-amber,demo-doctor-blue",
+        25)]
+    [InlineData(
+        "insurancePlanCode=demo-plan-blue",
+        "demo-doctor-amber,demo-doctor-blue",
+        25)]
     [InlineData(
         "specialtyCode=demo-specialty-child&languageCode=demo-language-es&" +
         "insurancePlanCode=demo-plan-coral",
-        "demo-doctor-ember")]
+        "demo-doctor-ember",
+        75)]
     [InlineData(
         "specialtyCode=demo-specialty-general&languageCode=demo-language-es&" +
         "locality=Demo%20Harbor&administrativeArea=Synthetic%20Demo%20Region&" +
         "country=Synthetic%20Demo%20Country&insurancePlanCode=demo-plan-blue",
-        "demo-doctor-blue")]
+        "demo-doctor-blue",
+        100)]
     public async Task Search_UsesExactStoredFiltersWithIntersectionSemantics(
         string query,
-        string expectedCodes)
+        string expectedCodes,
+        int expectedScore)
     {
         using var context = await CreateContextAsync();
 
@@ -103,6 +125,150 @@ public sealed class DoctorDirectoryEndpointTests(PostgreSqlContainerFixture post
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotNull(page);
         Assert.Equal(expectedCodes.Split(','), page.Items.Select(value => value.Code));
+        Assert.All(page.Items, item =>
+        {
+            Assert.NotNull(item.Match);
+            Assert.Equal(ProductApprovedDoctorMatchRule.Version, item.Match.RuleVersion);
+            Assert.Equal(expectedScore, item.Match.MatchScore);
+        });
+    }
+
+    [Fact]
+    public async Task RankedSearch_ExposesExactRuleScoreAndSafeStructuredFactors()
+    {
+        using var context = await CreateContextAsync();
+        const string query =
+            "specialtyCode=demo-specialty-general&languageCode=demo-language-es&" +
+            "country=Synthetic%20Demo%20Country&insurancePlanCode=demo-plan-blue";
+
+        using var response = await context.Client.GetAsync($"/api/v1/doctors?{query}");
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var page = await response.Content.ReadFromJsonAsync<DoctorPage>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(page);
+        Assert.Equal([AmberId, BlueId], page.Items.Select(item => item.DoctorId));
+        Assert.All(page.Items, item =>
+        {
+            Assert.Equal(ProductApprovedDoctorMatchRule.Version, item.Match!.RuleVersion);
+            Assert.Equal(100, item.Match.MatchScore);
+            Assert.Equal(DoctorMatchFactorCodes.Ordered, item.Match.Factors.Select(
+                factor => factor.FactorCode));
+            Assert.All(item.Match.Factors, factor =>
+            {
+                Assert.Equal(25, factor.ConfiguredWeightPoints);
+                Assert.Equal("matched", factor.State);
+                Assert.Equal(25, factor.ContributionPoints);
+                Assert.EndsWith(".matched", factor.ExplanationCode,
+                    StringComparison.Ordinal);
+            });
+        });
+
+        var matchJson = document.RootElement.GetProperty("items")[0].GetProperty("match");
+        Assert.Equal(
+            ["factors", "matchScore", "ruleVersion"],
+            matchJson.EnumerateObject().Select(value => value.Name).Order().ToArray());
+        Assert.Equal(
+            [
+                "configuredWeightPoints",
+                "contributionPoints",
+                "explanationCode",
+                "explanationData",
+                "factorCode",
+                "semanticsVersion",
+                "state"
+            ],
+            matchJson.GetProperty("factors")[0].EnumerateObject()
+                .Select(value => value.Name).Order().ToArray());
+        var serializedMatch = matchJson.ToString();
+        foreach (var forbidden in new[]
+        {
+            "contentHash", "packageCode", "formulaCode", "maximumScore", "ledger",
+            "patient", "clinical", "eligibility", "coverage", "inNetwork"
+        })
+        {
+            Assert.DoesNotContain(forbidden, serializedMatch,
+                StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public async Task RankedCursor_TraversesGlobalTieOrderWithoutDuplicatesOrOmissions()
+    {
+        using var context = await CreateContextAsync();
+        const string query = "languageCode=demo-language-es&pageSize=1";
+
+        var first = await GetPageAsync(context.Client, $"/api/v1/doctors?{query}");
+        var second = await GetPageAsync(
+            context.Client,
+            $"/api/v1/doctors?{query}&cursor={Uri.EscapeDataString(first.NextCursor!)}");
+        var third = await GetPageAsync(
+            context.Client,
+            $"/api/v1/doctors?{query}&cursor={Uri.EscapeDataString(second.NextCursor!)}");
+        var repeatedFirst = await GetPageAsync(context.Client, $"/api/v1/doctors?{query}");
+
+        Assert.Equal(
+            [AmberId, BlueId, EmberId],
+            new[] { first, second, third }.Select(page => Assert.Single(page.Items).DoctorId));
+        Assert.All(new[] { first, second, third }, page =>
+            Assert.Equal(25, Assert.Single(page.Items).Match!.MatchScore));
+        Assert.Equal(
+            first.Items.Select(item => item.DoctorId),
+            repeatedFirst.Items.Select(item => item.DoctorId));
+        Assert.Equal(first.NextCursor, repeatedFirst.NextCursor);
+        Assert.Equal(
+            Assert.Single(first.Items).Match!.MatchScore,
+            Assert.Single(repeatedFirst.Items).Match!.MatchScore);
+        Assert.NotNull(first.NextCursor);
+        Assert.NotNull(second.NextCursor);
+        Assert.Null(third.NextCursor);
+    }
+
+    [Theory]
+    [InlineData("specialtyCode=demo-specialty-general")]
+    [InlineData("languageCode=demo-language-en")]
+    [InlineData("locality=Demo%20Central")]
+    [InlineData("administrativeArea=Synthetic%20Demo%20Region")]
+    [InlineData("country=Synthetic%20Demo%20Country")]
+    [InlineData("insurancePlanCode=demo-plan-blue")]
+    public async Task RankedCursor_RejectsEveryCriteriaChange(string changedCriteria)
+    {
+        using var context = await CreateContextAsync();
+        var first = await GetPageAsync(
+            context.Client,
+            "/api/v1/doctors?languageCode=demo-language-es&pageSize=1");
+
+        using var response = await context.Client.GetAsync(
+            $"/api/v1/doctors?pageSize=1&{changedCriteria}&cursor=" +
+            Uri.EscapeDataString(first.NextCursor!));
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal(
+            "doctor_directory.cursor_invalid",
+            problem.RootElement.GetProperty("errorCode").GetString());
+    }
+
+    [Fact]
+    public async Task RankedCursor_RejectsIncompatibleRuleVersion()
+    {
+        using var context = await CreateContextAsync();
+        var first = await GetPageAsync(
+            context.Client,
+            "/api/v1/doctors?languageCode=demo-language-es&pageSize=1");
+        var incompatibleCursor = ReplaceCursorRuleVersion(
+            first.NextCursor!,
+            "2026.08.29-demo.previous");
+
+        using var response = await context.Client.GetAsync(
+            "/api/v1/doctors?languageCode=demo-language-es&pageSize=1&cursor=" +
+            Uri.EscapeDataString(incompatibleCursor));
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal(
+            "doctor_directory.cursor_invalid",
+            problem.RootElement.GetProperty("errorCode").GetString());
     }
 
     [Fact]
@@ -230,9 +396,21 @@ public sealed class DoctorDirectoryEndpointTests(PostgreSqlContainerFixture post
             detail.GetProperty("description").GetString();
         Assert.Contains("synthetic demo", descriptions, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("neutral UUID order", descriptions, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("not current coverage", descriptions, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not current eligibility or coverage", descriptions,
+            StringComparison.OrdinalIgnoreCase);
         Assert.Contains("not authoritative", descriptions, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("verified only within", descriptions, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(ProductApprovedDoctorMatchRule.Version, descriptions,
+            StringComparison.Ordinal);
+        Assert.Contains("score descending", descriptions, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("omit match data", descriptions, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not a probability", descriptions, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not", descriptions, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("clinically validated", descriptions, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("exact stored synthetic participation", descriptions,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("no distance or geocoding", descriptions,
+            StringComparison.OrdinalIgnoreCase);
 
         var schemas = document.RootElement.GetProperty("components")
             .GetProperty("schemas")
@@ -244,7 +422,8 @@ public sealed class DoctorDirectoryEndpointTests(PostgreSqlContainerFixture post
         foreach (var forbidden in new[]
         {
             "isPublished", "credentialStatus", "submitted", "pendingVerification", "rejected",
-            "rating", "review", "score", "recommend", "factor", "weight", "distance",
+            "rating", "review", "qualityScore", "clinicalScore", "confidence", "probability",
+            "bestDoctor", "distance",
             "latitude", "longitude", "availability", "realTime", "import", "hash", "ledger",
             "Practitioner", "Organization"
         })
@@ -277,6 +456,25 @@ public sealed class DoctorDirectoryEndpointTests(PostgreSqlContainerFixture post
                 .Select(response => response.Name)
                 .Order());
 
+    private static async Task<DoctorPage> GetPageAsync(HttpClient client, string endpoint)
+    {
+        using var response = await client.GetAsync(endpoint);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<DoctorPage>())!;
+    }
+
+    private static string ReplaceCursorRuleVersion(string cursor, string ruleVersion)
+    {
+        var base64 = cursor.Replace('-', '+').Replace('_', '/');
+        base64 = base64.PadRight(base64.Length + ((4 - (base64.Length % 4)) % 4), '=');
+        var payload = JsonNode.Parse(Convert.FromBase64String(base64))!.AsObject();
+        payload["ruleVersion"] = ruleVersion;
+        return Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(payload))
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+    }
+
     private sealed record DoctorPage(
         IReadOnlyList<DoctorProfile> Items,
         string? NextCursor);
@@ -289,7 +487,24 @@ public sealed class DoctorDirectoryEndpointTests(PostgreSqlContainerFixture post
         IReadOnlyList<CatalogValue> Languages,
         IReadOnlyList<Affiliation> Affiliations,
         IReadOnlyList<CatalogValue> StoredInsuranceParticipations,
-        IReadOnlyList<Credential> Credentials);
+        IReadOnlyList<Credential> Credentials,
+        DoctorMatch? Match = null);
+
+    private sealed record DoctorMatch(
+        string RuleVersion,
+        int MatchScore,
+        IReadOnlyList<MatchFactor> Factors);
+
+    private sealed record MatchFactor(
+        string FactorCode,
+        string SemanticsVersion,
+        int ConfiguredWeightPoints,
+        string State,
+        int ContributionPoints,
+        string ExplanationCode,
+        IReadOnlyList<ExplanationValue> ExplanationData);
+
+    private sealed record ExplanationValue(string Key, string Value);
 
     private sealed record CatalogValue(string Code, string Name);
 

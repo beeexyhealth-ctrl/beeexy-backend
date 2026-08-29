@@ -1,6 +1,7 @@
 using Beeexy.Application.Common;
 using Beeexy.Application.Directory;
 using Beeexy.Domain.Common;
+using System.Text.Json.Serialization;
 
 namespace Beeexy.Api.DoctorDirectory;
 
@@ -26,14 +27,22 @@ internal static class DoctorDirectoryEndpointExtensions
             .WithTags("Doctor Directory")
             .WithDescription(
                 "Lists published doctors from Beeexy's product-approved synthetic demo " +
-                "directory in neutral UUID order using opaque cursor pagination (default " +
-                "page size 20, maximum 100). specialtyCode, languageCode, locality, " +
-                "administrativeArea, country, and insurancePlanCode use exact stored-value " +
-                "matches with intersection semantics. Location parts must match one eligible " +
-                "stored affiliation location. Insurance participation is stored demo data " +
-                "only, not current coverage, payer confirmation, or real-time network " +
-                "membership. Results are not rankings or recommendations, and these synthetic " +
-                "records are not authoritative or externally verified professional data.")
+                "directory using opaque criteria-bound cursor pagination (default page size " +
+                "20, maximum 100). Without search criteria, results retain neutral UUID order " +
+                "and omit match data. Supplying any specialtyCode, languageCode, locality, " +
+                "administrativeArea, country, or insurancePlanCode activates deterministic " +
+                "demo matching with rule version 2026.08.29-demo.1 after all supplied criteria " +
+                "have constrained the candidate set as exact hard filters. Location parts must " +
+                "match one eligible stored affiliation location. Matched results expose a " +
+                "structured matchScore and factor explanations, order by score descending then " +
+                "canonical doctor UUID text ascending, and use a ranked cursor bound to the " +
+                "criteria, score boundary, and exact rule version. The score is deterministic " +
+                "demo/MVP logic: it is not a probability, confidence, provider-quality measure, " +
+                "medical suitability assessment, clinically validated result, or production " +
+                "recommendation. Insurance matching means exact stored synthetic participation " +
+                "only, not current eligibility or coverage, payer confirmation, or real-time " +
+                "in-network status. Location matching is exact stored data only, with no " +
+                "distance or geocoding. These records are not authoritative professional data.")
             .AllowAnonymous()
             .Produces<DoctorDirectoryPageResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
@@ -84,7 +93,7 @@ internal static class DoctorDirectoryEndpointExtensions
             cancellationToken);
 
         return Results.Ok(new DoctorDirectoryPageResponse(
-            result.Items.Select(ToResponse).ToArray(),
+            result.Items.Select(ToSearchResponse).ToArray(),
             result.NextCursor));
     }
 
@@ -131,6 +140,46 @@ internal static class DoctorDirectoryEndpointExtensions
             doctor.Credentials.Select(value =>
                 new DoctorDirectoryCredentialResponse(value.Name)).ToArray());
 
+    private static DoctorDirectorySearchItemResponse ToSearchResponse(
+        DoctorDirectorySearchItem item)
+    {
+        var doctor = ToResponse(item.Profile);
+        return new DoctorDirectorySearchItemResponse(
+            doctor.DoctorId,
+            doctor.Code,
+            doctor.DisplayName,
+            doctor.Specialties,
+            doctor.Languages,
+            doctor.Affiliations,
+            doctor.StoredInsuranceParticipations,
+            doctor.Credentials,
+            item.Match is null
+                ? null
+                : new DoctorDirectoryMatchResponse(
+                    item.Match.RuleVersion,
+                    item.Match.MatchScore,
+                    item.Match.Factors.Select(factor =>
+                        new DoctorDirectoryMatchFactorResponse(
+                            factor.FactorCode,
+                            factor.SemanticsCode,
+                            factor.WeightPoints,
+                            ToStateCode(factor.State),
+                            factor.ContributionPoints,
+                            factor.ExplanationCode,
+                            factor.ExplanationData.Select(value =>
+                                new DoctorDirectoryMatchExplanationValueResponse(
+                                    value.Key,
+                                    value.Value)).ToArray())).ToArray()));
+    }
+
+    private static string ToStateCode(DoctorMatchFactorState state) => state switch
+    {
+        DoctorMatchFactorState.Matched => "matched",
+        DoctorMatchFactorState.NotMatched => "not_matched",
+        DoctorMatchFactorState.NotApplicable => "not_applicable",
+        _ => throw new ArgumentOutOfRangeException(nameof(state))
+    };
+
     private static void ValidateQueryParameters(IQueryCollection query)
     {
         if (query.Keys.Any(key => !SupportedSearchQueryParameters.Contains(key)))
@@ -150,8 +199,36 @@ internal static class DoctorDirectoryEndpointExtensions
 }
 
 internal sealed record DoctorDirectoryPageResponse(
-    IReadOnlyList<DoctorDirectoryProfileResponse> Items,
+    IReadOnlyList<DoctorDirectorySearchItemResponse> Items,
     string? NextCursor);
+
+internal sealed record DoctorDirectorySearchItemResponse(
+    Guid DoctorId,
+    string Code,
+    string DisplayName,
+    IReadOnlyList<DoctorDirectoryCatalogValueResponse> Specialties,
+    IReadOnlyList<DoctorDirectoryCatalogValueResponse> Languages,
+    IReadOnlyList<DoctorDirectoryAffiliationResponse> Affiliations,
+    IReadOnlyList<DoctorDirectoryCatalogValueResponse> StoredInsuranceParticipations,
+    IReadOnlyList<DoctorDirectoryCredentialResponse> Credentials,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    DoctorDirectoryMatchResponse? Match);
+
+internal sealed record DoctorDirectoryMatchResponse(
+    string RuleVersion,
+    int MatchScore,
+    IReadOnlyList<DoctorDirectoryMatchFactorResponse> Factors);
+
+internal sealed record DoctorDirectoryMatchFactorResponse(
+    string FactorCode,
+    string SemanticsVersion,
+    int ConfiguredWeightPoints,
+    string State,
+    int ContributionPoints,
+    string ExplanationCode,
+    IReadOnlyList<DoctorDirectoryMatchExplanationValueResponse> ExplanationData);
+
+internal sealed record DoctorDirectoryMatchExplanationValueResponse(string Key, string Value);
 
 internal sealed record DoctorDirectoryProfileResponse(
     Guid DoctorId,

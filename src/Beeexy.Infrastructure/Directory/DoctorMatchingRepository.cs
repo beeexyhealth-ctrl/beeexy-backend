@@ -32,18 +32,25 @@ internal sealed class DoctorMatchingRepository(
     }
 
     public async Task<IReadOnlyList<DoctorMatchCandidateSnapshot>> ListEligibleCandidatesAsync(
+        IReadOnlyCollection<EntityId>? doctorIds = null,
         CancellationToken cancellationToken = default)
     {
-        var doctorIds = await boundary.Doctors()
+        var eligibleDoctors = boundary.Doctors();
+        if (doctorIds is not null)
+        {
+            eligibleDoctors = eligibleDoctors.Where(doctor => doctorIds.Contains(doctor.Id));
+        }
+
+        var eligibleDoctorIds = await eligibleDoctors
             .Select(doctor => doctor.Id)
             .ToArrayAsync(cancellationToken);
-        if (doctorIds.Length == 0)
+        if (eligibleDoctorIds.Length == 0)
         {
             return [];
         }
 
         var specialties = await boundary.DoctorSpecialties()
-            .Where(relationship => doctorIds.Contains(relationship.DoctorId))
+            .Where(relationship => eligibleDoctorIds.Contains(relationship.DoctorId))
             .Join(
                 boundary.Specialties(),
                 relationship => relationship.SpecialtyId,
@@ -53,7 +60,7 @@ internal sealed class DoctorMatchingRepository(
                     specialty.Code.Value))
             .ToArrayAsync(cancellationToken);
         var languages = await boundary.DoctorLanguages()
-            .Where(relationship => doctorIds.Contains(relationship.DoctorId))
+            .Where(relationship => eligibleDoctorIds.Contains(relationship.DoctorId))
             .Join(
                 boundary.Languages(),
                 relationship => relationship.LanguageId,
@@ -63,7 +70,7 @@ internal sealed class DoctorMatchingRepository(
                     language.Code.Value))
             .ToArrayAsync(cancellationToken);
         var insurance = await boundary.DoctorInsuranceParticipations()
-            .Where(relationship => doctorIds.Contains(relationship.DoctorId))
+            .Where(relationship => eligibleDoctorIds.Contains(relationship.DoctorId))
             .Join(
                 boundary.InsurancePlans(),
                 relationship => relationship.InsurancePlanId,
@@ -74,7 +81,7 @@ internal sealed class DoctorMatchingRepository(
             .ToArrayAsync(cancellationToken);
         var locations = await (
             from affiliation in boundary.DoctorAffiliations()
-            where doctorIds.Contains(affiliation.DoctorId) &&
+            where eligibleDoctorIds.Contains(affiliation.DoctorId) &&
                 affiliation.ClinicLocationId.HasValue
             join location in boundary.ClinicLocations()
                 on affiliation.ClinicLocationId!.Value equals location.Id
@@ -89,7 +96,7 @@ internal sealed class DoctorMatchingRepository(
         var languagesByDoctor = languages.ToLookup(value => value.DoctorId);
         var insuranceByDoctor = insurance.ToLookup(value => value.DoctorId);
         var locationsByDoctor = locations.ToLookup(value => value.DoctorId);
-        return doctorIds.Select(doctorId => new DoctorMatchCandidateSnapshot(
+        return eligibleDoctorIds.Select(doctorId => new DoctorMatchCandidateSnapshot(
                 doctorId,
                 specialtiesByDoctor[doctorId]
                     .Select(value => value.Code)

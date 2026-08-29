@@ -97,6 +97,51 @@ public sealed class DoctorDirectoryQueryTests(PostgreSqlContainerFixture postgre
         Assert.Contains("doctor_specialties", command, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task RankedSearch_AppliesHardFiltersBeforeExistingEngineAndBulkLoadsOnlyPage()
+    {
+        await EnsureImportedAsync();
+        await using (var importContext = CreateDbContext())
+        {
+            await new DoctorMatchRuleImporter(
+                    importContext,
+                    new DoctorMatchRulePackageValidator(),
+                    NullLogger<DoctorMatchRuleImporter>.Instance)
+                .ImportAsync(ProductApprovedDemoDoctorMatchRule.Create());
+        }
+
+        var interceptor = new CommandCaptureInterceptor();
+        await using var dbContext = CreateDbContext(interceptor);
+        var boundary = new PublicDirectoryQueryBoundary(dbContext);
+        var directoryRepository = new DoctorDirectoryReadRepository(boundary);
+        var useCase = new SearchDoctors(
+            directoryRepository,
+            new CalculateDoctorMatch(
+                new DoctorMatchingRepository(dbContext, boundary),
+                new DeterministicDoctorMatchEngine()));
+
+        var result = await useCase.ExecuteAsync(new SearchDoctorsQuery(
+            PageSize: 1,
+            SpecialtyCode: "demo-specialty-general",
+            LanguageCode: "demo-language-es",
+            Locality: "Demo Harbor",
+            AdministrativeArea: "Synthetic Demo Region",
+            Country: "Synthetic Demo Country",
+            InsurancePlanCode: "demo-plan-blue"));
+
+        var item = Assert.Single(result.Items);
+        Assert.Equal("demo-doctor-blue", item.Profile.Code);
+        Assert.Equal(100, item.Match!.MatchScore);
+        Assert.All(item.Match.Factors, factor =>
+            Assert.Equal(DoctorMatchFactorState.Matched, factor.State));
+        Assert.Null(result.NextCursor);
+        Assert.Equal(13, interceptor.Commands.Count);
+        Assert.Contains("doctor_specialties", interceptor.Commands[0],
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("WHERE", interceptor.Commands[7],
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     private async Task EnsureImportedAsync()
     {
         await using var dbContext = CreateDbContext();

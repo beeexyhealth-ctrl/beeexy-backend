@@ -6,7 +6,7 @@ namespace Beeexy.Infrastructure.DirectoryServices;
 public static class ProductApprovedDemoDoctorMatchRule
 {
     public const string PackageCode = "beeexy-demo-doctor-match-rules";
-    public const string Version = "2026.08.29-demo.1";
+    public const string Version = ProductApprovedDoctorMatchRule.Version;
     public const string ExpectedContentHash =
         "2aefb8bfb21fadef1ad4bede0d4545988ddfc7c66dc5f79332555773756fd926";
 

@@ -8,7 +8,8 @@ namespace Beeexy.Application.Directory;
 internal static class DirectoryCursorCodec
 {
     private const int CursorVersion = 1;
-    private const int MaximumEncodedLength = 1024;
+    private const int RankedDoctorCursorVersion = 2;
+    private const int MaximumEncodedLength = 4096;
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
@@ -129,6 +130,71 @@ internal static class DirectoryCursorCodec
         }
     }
 
+    public static string EncodeRankedDoctor(RankedDoctorDirectoryPageCursor cursor) =>
+        EncodePayload(new RankedDoctorCursorPayload(
+            RankedDoctorCursorVersion,
+            cursor.DoctorId.Value,
+            cursor.MatchScore,
+            cursor.RuleVersion,
+            cursor.Filter.SpecialtyCode,
+            cursor.Filter.LanguageCode,
+            cursor.Filter.Locality,
+            cursor.Filter.AdministrativeArea,
+            cursor.Filter.Country,
+            cursor.Filter.InsurancePlanCode));
+
+    public static RankedDoctorDirectoryPageCursor DecodeRankedDoctor(
+        string encoded,
+        DoctorDirectoryFilter expectedFilter,
+        string expectedRuleVersion)
+    {
+        EnsureEncodedCursorIsValid(encoded, CreateInvalidDoctorCursorException);
+
+        try
+        {
+            var bytes = DecodeBase64Url(encoded);
+            var payload = JsonSerializer.Deserialize<RankedDoctorCursorPayload>(
+                bytes,
+                SerializerOptions);
+            if (payload is null ||
+                payload.Version != RankedDoctorCursorVersion ||
+                payload.DoctorId == Guid.Empty ||
+                payload.MatchScore is < 0 or > 100 ||
+                payload.RuleVersion != expectedRuleVersion ||
+                EncodePayload(payload) != encoded)
+            {
+                throw CreateInvalidDoctorCursorException();
+            }
+
+            var payloadFilter = new DoctorDirectoryFilter(
+                payload.SpecialtyCode,
+                payload.LanguageCode,
+                payload.Locality,
+                payload.AdministrativeArea,
+                payload.Country,
+                payload.InsurancePlanCode);
+            if (payloadFilter != expectedFilter)
+            {
+                throw CreateInvalidDoctorCursorException();
+            }
+
+            return new RankedDoctorDirectoryPageCursor(
+                expectedFilter,
+                expectedRuleVersion,
+                payload.MatchScore,
+                EntityId.From(payload.DoctorId));
+        }
+        catch (RequestValidationException)
+        {
+            throw CreateInvalidDoctorCursorException();
+        }
+        catch (Exception exception) when (
+            exception is FormatException or JsonException or ArgumentException)
+        {
+            throw CreateInvalidDoctorCursorException();
+        }
+    }
+
     internal static RequestValidationException CreateInvalidClinicCursorException() =>
         new(
             "clinic_directory.cursor_invalid",
@@ -185,6 +251,18 @@ internal static class DirectoryCursorCodec
     private sealed record DoctorCursorPayload(
         [property: JsonPropertyName("v")] int Version,
         [property: JsonPropertyName("doctorId")] Guid DoctorId,
+        [property: JsonPropertyName("specialtyCode")] string? SpecialtyCode,
+        [property: JsonPropertyName("languageCode")] string? LanguageCode,
+        [property: JsonPropertyName("locality")] string? Locality,
+        [property: JsonPropertyName("administrativeArea")] string? AdministrativeArea,
+        [property: JsonPropertyName("country")] string? Country,
+        [property: JsonPropertyName("insurancePlanCode")] string? InsurancePlanCode);
+
+    private sealed record RankedDoctorCursorPayload(
+        [property: JsonPropertyName("v")] int Version,
+        [property: JsonPropertyName("doctorId")] Guid DoctorId,
+        [property: JsonPropertyName("matchScore")] int MatchScore,
+        [property: JsonPropertyName("ruleVersion")] string RuleVersion,
         [property: JsonPropertyName("specialtyCode")] string? SpecialtyCode,
         [property: JsonPropertyName("languageCode")] string? LanguageCode,
         [property: JsonPropertyName("locality")] string? Locality,

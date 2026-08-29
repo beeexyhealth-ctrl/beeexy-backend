@@ -14,6 +14,14 @@ public interface IDoctorDirectoryReadRepository
         int take,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<EntityId>> ListFilteredDoctorIdsAsync(
+        DoctorDirectoryFilter filter,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<DoctorDirectoryProfile>> GetManyAsync(
+        IReadOnlyList<EntityId> doctorIds,
+        CancellationToken cancellationToken = default);
+
     Task<DoctorDirectoryProfile?> GetAsync(
         EntityId doctorId,
         CancellationToken cancellationToken = default);
@@ -29,6 +37,12 @@ public sealed record DoctorDirectoryFilter(
 
 public sealed record DoctorDirectoryPageCursor(
     DoctorDirectoryFilter Filter,
+    EntityId DoctorId);
+
+public sealed record RankedDoctorDirectoryPageCursor(
+    DoctorDirectoryFilter Filter,
+    string RuleVersion,
+    int MatchScore,
     EntityId DoctorId);
 
 public sealed record DoctorDirectoryProfile(

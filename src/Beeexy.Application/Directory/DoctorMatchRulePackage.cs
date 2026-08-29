@@ -5,6 +5,11 @@ using Beeexy.Domain.Directory;
 
 namespace Beeexy.Application.Directory;
 
+public static class ProductApprovedDoctorMatchRule
+{
+    public const string Version = "2026.08.29-demo.1";
+}
+
 public static class DoctorMatchFactorCodes
 {
     public const string Specialty = "specialty_exact";
