@@ -23,7 +23,14 @@ public sealed class PublicDirectoryQueryBoundary(BeeexyDbContext dbContext)
                 clinic.Id == location.ClinicId && clinic.IsPublished));
 
     public IQueryable<Doctor> Doctors() =>
-        dbContext.Doctors.AsNoTracking().Where(value => value.IsPublished);
+        PublishedDoctors(dbContext.Doctors);
+
+    public IQueryable<Doctor> DoctorsAfter(EntityId doctorId) =>
+        PublishedDoctors(dbContext.Doctors.FromSqlInterpolated($"""
+            SELECT doctor.*
+            FROM directory.doctors AS doctor
+            WHERE doctor.id > {doctorId.Value}
+            """));
 
     public IQueryable<DoctorAffiliation> DoctorAffiliations() =>
         dbContext.DoctorAffiliations.AsNoTracking().Where(affiliation =>
@@ -44,6 +51,31 @@ public sealed class PublicDirectoryQueryBoundary(BeeexyDbContext dbContext)
             dbContext.Doctors.Any(doctor =>
                 doctor.Id == credential.DoctorId && doctor.IsPublished));
 
+    public IQueryable<DoctorSpecialty> DoctorSpecialties() =>
+        dbContext.DoctorSpecialties.AsNoTracking().Where(relationship =>
+            dbContext.Doctors.Any(doctor =>
+                doctor.Id == relationship.DoctorId && doctor.IsPublished));
+
+    public IQueryable<Specialty> Specialties() => dbContext.Specialties.AsNoTracking();
+
+    public IQueryable<DoctorLanguage> DoctorLanguages() =>
+        dbContext.DoctorLanguages.AsNoTracking().Where(relationship =>
+            dbContext.Doctors.Any(doctor =>
+                doctor.Id == relationship.DoctorId && doctor.IsPublished));
+
+    public IQueryable<Language> Languages() => dbContext.Languages.AsNoTracking();
+
+    public IQueryable<DoctorInsuranceParticipation> DoctorInsuranceParticipations() =>
+        dbContext.DoctorInsuranceParticipations.AsNoTracking().Where(relationship =>
+            dbContext.Doctors.Any(doctor =>
+                doctor.Id == relationship.DoctorId && doctor.IsPublished));
+
+    public IQueryable<InsurancePlan> InsurancePlans() =>
+        dbContext.InsurancePlans.AsNoTracking();
+
     private static IQueryable<Clinic> PublishedClinics(IQueryable<Clinic> clinics) =>
         clinics.AsNoTracking().Where(value => value.IsPublished);
+
+    private static IQueryable<Doctor> PublishedDoctors(IQueryable<Doctor> doctors) =>
+        doctors.AsNoTracking().Where(value => value.IsPublished);
 }

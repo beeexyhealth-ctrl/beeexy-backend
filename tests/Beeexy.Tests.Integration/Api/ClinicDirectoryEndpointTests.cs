@@ -146,7 +146,7 @@ public sealed class ClinicDirectoryEndpointTests(PostgreSqlContainerFixture post
         var detail = paths.GetProperty("/api/v1/clinics/{id}").GetProperty("get");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(34, paths.EnumerateObject().Count());
+        Assert.Equal(36, paths.EnumerateObject().Count());
         Assert.False(list.TryGetProperty("security", out _));
         Assert.False(detail.TryGetProperty("security", out _));
         Assert.Contains("synthetic demo", list.GetProperty("description").GetString()!,
@@ -161,7 +161,6 @@ public sealed class ClinicDirectoryEndpointTests(PostgreSqlContainerFixture post
         AssertResponseCodes(list, "200", "422", "500");
         AssertResponseCodes(detail, "200", "404", "500");
         Assert.DoesNotContain(paths.EnumerateObject(), path =>
-            path.Name.StartsWith("/api/v1/doctors", StringComparison.Ordinal) ||
             path.Name.Contains("search", StringComparison.OrdinalIgnoreCase) ||
             path.Name.Contains("match", StringComparison.OrdinalIgnoreCase));
 

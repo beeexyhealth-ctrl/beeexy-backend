@@ -1,5 +1,6 @@
 using Beeexy.Api.Configuration;
 using Beeexy.Api.ClinicDirectory;
+using Beeexy.Api.DoctorDirectory;
 using Beeexy.Api.Errors;
 using Beeexy.Api.Health;
 using Beeexy.Api.History;
@@ -104,6 +105,8 @@ if (builder.Environment.IsDevelopment())
 builder.Services.AddScoped<RequestEmailChallenge>();
 builder.Services.AddScoped<ListClinics>();
 builder.Services.AddScoped<GetClinic>();
+builder.Services.AddScoped<SearchDoctors>();
+builder.Services.AddScoped<GetDoctor>();
 builder.Services.AddScoped<ProvisionAccountAndPrimaryProfile>();
 builder.Services.AddScoped<ProvisionDemoGuest>();
 builder.Services.AddScoped<VerifyEmailChallenge>();
@@ -278,6 +281,7 @@ if (app.Environment.IsDevelopment())
 
 app.MapBeeexyHealthEndpoints();
 app.MapBeeexyClinicDirectoryEndpoints();
+app.MapBeeexyDoctorDirectoryEndpoints();
 app.MapBeeexyPrivateAccessEndpoints();
 app.MapBeeexyAuthenticationEndpoints();
 app.MapBeeexyPatientEndpoints();

@@ -48,6 +48,7 @@ public static class DependencyInjection
         services.AddScoped<IDirectoryImporter, DirectoryImporter>();
         services.AddScoped<PublicDirectoryQueryBoundary>();
         services.AddScoped<IClinicDirectoryReadRepository, ClinicDirectoryReadRepository>();
+        services.AddScoped<IDoctorDirectoryReadRepository, DoctorDirectoryReadRepository>();
         services.AddSingleton(emailChallengePolicy);
         services.AddSingleton(authenticationTokenPolicy);
         services.AddSingleton<IOneTimePasswordGenerator, CryptographicOneTimePasswordGenerator>();

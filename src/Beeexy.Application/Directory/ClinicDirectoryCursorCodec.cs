@@ -5,7 +5,7 @@ using Beeexy.Domain.Common;
 
 namespace Beeexy.Application.Directory;
 
-internal static class ClinicDirectoryCursorCodec
+internal static class DirectoryCursorCodec
 {
     private const int CursorVersion = 1;
     private const int MaximumEncodedLength = 1024;
@@ -15,7 +15,7 @@ internal static class ClinicDirectoryCursorCodec
         PropertyNamingPolicy = null
     };
 
-    public static string Encode(ClinicDirectoryPageCursor cursor) =>
+    public static string EncodeClinic(ClinicDirectoryPageCursor cursor) =>
         EncodePayload(new CursorPayload(
             CursorVersion,
             cursor.ClinicId.Value,
@@ -24,7 +24,7 @@ internal static class ClinicDirectoryCursorCodec
             cursor.Filter.AdministrativeArea,
             cursor.Filter.Country));
 
-    public static ClinicDirectoryPageCursor Decode(
+    public static ClinicDirectoryPageCursor DecodeClinic(
         string encoded,
         ClinicDirectoryFilter expectedFilter)
     {
@@ -33,7 +33,7 @@ internal static class ClinicDirectoryCursorCodec
             encoded.Any(character =>
                 !(char.IsAsciiLetterOrDigit(character) || character is '-' or '_')))
         {
-            throw CreateInvalidCursorException();
+            throw CreateInvalidClinicCursorException();
         }
 
         try
@@ -45,7 +45,7 @@ internal static class ClinicDirectoryCursorCodec
                 payload.ClinicId == Guid.Empty ||
                 EncodePayload(payload) != encoded)
             {
-                throw CreateInvalidCursorException();
+                throw CreateInvalidClinicCursorException();
             }
 
             var payloadFilter = new ClinicDirectoryFilter(
@@ -55,7 +55,7 @@ internal static class ClinicDirectoryCursorCodec
                 payload.Country);
             if (payloadFilter != expectedFilter)
             {
-                throw CreateInvalidCursorException();
+                throw CreateInvalidClinicCursorException();
             }
 
             return new ClinicDirectoryPageCursor(
@@ -64,19 +64,93 @@ internal static class ClinicDirectoryCursorCodec
         }
         catch (RequestValidationException)
         {
-            throw CreateInvalidCursorException();
+            throw CreateInvalidClinicCursorException();
         }
         catch (Exception exception) when (
             exception is FormatException or JsonException or ArgumentException)
         {
-            throw CreateInvalidCursorException();
+            throw CreateInvalidClinicCursorException();
         }
     }
 
-    internal static RequestValidationException CreateInvalidCursorException() =>
+    public static string EncodeDoctor(DoctorDirectoryPageCursor cursor) =>
+        EncodePayload(new DoctorCursorPayload(
+            CursorVersion,
+            cursor.DoctorId.Value,
+            cursor.Filter.SpecialtyCode,
+            cursor.Filter.LanguageCode,
+            cursor.Filter.Locality,
+            cursor.Filter.AdministrativeArea,
+            cursor.Filter.Country,
+            cursor.Filter.InsurancePlanCode));
+
+    public static DoctorDirectoryPageCursor DecodeDoctor(
+        string encoded,
+        DoctorDirectoryFilter expectedFilter)
+    {
+        EnsureEncodedCursorIsValid(encoded, CreateInvalidDoctorCursorException);
+
+        try
+        {
+            var bytes = DecodeBase64Url(encoded);
+            var payload = JsonSerializer.Deserialize<DoctorCursorPayload>(bytes, SerializerOptions);
+            if (payload is null ||
+                payload.Version != CursorVersion ||
+                payload.DoctorId == Guid.Empty ||
+                EncodePayload(payload) != encoded)
+            {
+                throw CreateInvalidDoctorCursorException();
+            }
+
+            var payloadFilter = new DoctorDirectoryFilter(
+                payload.SpecialtyCode,
+                payload.LanguageCode,
+                payload.Locality,
+                payload.AdministrativeArea,
+                payload.Country,
+                payload.InsurancePlanCode);
+            if (payloadFilter != expectedFilter)
+            {
+                throw CreateInvalidDoctorCursorException();
+            }
+
+            return new DoctorDirectoryPageCursor(
+                expectedFilter,
+                EntityId.From(payload.DoctorId));
+        }
+        catch (RequestValidationException)
+        {
+            throw CreateInvalidDoctorCursorException();
+        }
+        catch (Exception exception) when (
+            exception is FormatException or JsonException or ArgumentException)
+        {
+            throw CreateInvalidDoctorCursorException();
+        }
+    }
+
+    internal static RequestValidationException CreateInvalidClinicCursorException() =>
         new(
             "clinic_directory.cursor_invalid",
             "The clinic directory cursor is invalid for this request.");
+
+    internal static RequestValidationException CreateInvalidDoctorCursorException() =>
+        new(
+            "doctor_directory.cursor_invalid",
+            "The doctor directory cursor is invalid for this request.");
+
+    private static void EnsureEncodedCursorIsValid(
+        string encoded,
+        Func<RequestValidationException> createException)
+    {
+        if (string.IsNullOrWhiteSpace(encoded) ||
+            encoded.Length > MaximumEncodedLength ||
+            encoded.Any(character =>
+                !(char.IsAsciiLetterOrDigit(character) || character is '-' or '_')))
+        {
+            throw createException();
+        }
+    }
 
     private static byte[] DecodeBase64Url(string encoded)
     {
@@ -91,7 +165,7 @@ internal static class ClinicDirectoryCursorCodec
         return Convert.FromBase64String(base64);
     }
 
-    private static string EncodePayload(CursorPayload payload)
+    private static string EncodePayload<TPayload>(TPayload payload)
     {
         var bytes = JsonSerializer.SerializeToUtf8Bytes(payload, SerializerOptions);
         return Convert.ToBase64String(bytes)
@@ -107,4 +181,14 @@ internal static class ClinicDirectoryCursorCodec
         [property: JsonPropertyName("locality")] string? Locality,
         [property: JsonPropertyName("administrativeArea")] string? AdministrativeArea,
         [property: JsonPropertyName("country")] string? Country);
+
+    private sealed record DoctorCursorPayload(
+        [property: JsonPropertyName("v")] int Version,
+        [property: JsonPropertyName("doctorId")] Guid DoctorId,
+        [property: JsonPropertyName("specialtyCode")] string? SpecialtyCode,
+        [property: JsonPropertyName("languageCode")] string? LanguageCode,
+        [property: JsonPropertyName("locality")] string? Locality,
+        [property: JsonPropertyName("administrativeArea")] string? AdministrativeArea,
+        [property: JsonPropertyName("country")] string? Country,
+        [property: JsonPropertyName("insurancePlanCode")] string? InsurancePlanCode);
 }

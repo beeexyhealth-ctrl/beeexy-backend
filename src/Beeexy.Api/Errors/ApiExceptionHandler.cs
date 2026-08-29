@@ -192,6 +192,16 @@ internal sealed class ApiExceptionHandler(
             };
         }
 
+        if (exception is DoctorNotFoundException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Doctor not found.",
+                Detail = "The requested doctor could not be found."
+            };
+        }
+
         if (exception is FhirExportNotFoundException or
             FhirExportSourceNotFoundException)
         {
