@@ -16,6 +16,54 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
+    public async Task Phase72DirectoryImportMigration_IsAdditiveAndCanRollbackAndReapplyWithoutSeeds()
+    {
+        await EnsureMigratedAsync();
+        var options = CreateOptions();
+        var markerPatient = PatientProfile.Create(
+            BeeexyId.Create($"BXY-DIRECTORY-IMPORT-MIGRATION-{Guid.NewGuid():N}"),
+            DateTimeOffset.UtcNow);
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            dbContext.PatientProfiles.Add(markerPatient);
+            await dbContext.SaveChangesAsync();
+            await dbContext.GetService<IMigrator>()
+                .MigrateAsync("20260829012832_Phase71DirectoryFoundation");
+        }
+
+        await using (var connection = new NpgsqlConnection(postgres.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText =
+                "SELECT count(*) FROM information_schema.tables " +
+                "WHERE table_schema = 'directory' " +
+                "AND table_name = 'demo_directory_imports';";
+            Assert.Equal(0L, (long)(await command.ExecuteScalarAsync())!);
+        }
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            Assert.NotNull(await dbContext.PatientProfiles.AsNoTracking()
+                .SingleOrDefaultAsync(value => value.Id == markerPatient.Id));
+            Assert.Equal(12, await CountDirectoryTablesAsync(dbContext));
+            await dbContext.Database.MigrateAsync();
+            Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+            Assert.NotNull(await dbContext.PatientProfiles.AsNoTracking()
+                .SingleOrDefaultAsync(value => value.Id == markerPatient.Id));
+            Assert.Equal(13, await CountDirectoryTablesAsync(dbContext));
+        }
+
+        await using (var connection = new NpgsqlConnection(postgres.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT count(*) FROM directory.demo_directory_imports;";
+            Assert.Equal(0L, (long)(await command.ExecuteScalarAsync())!);
+        }
+    }
+
+    [Fact]
     public async Task Phase71DirectoryMigration_IsAdditiveAndCanRollbackAndReapplyWithoutSeeds()
     {
         await EnsureMigratedAsync();
@@ -61,6 +109,19 @@ public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
                 "(SELECT count(*) FROM directory.doctor_match_rule_versions);";
             Assert.Equal(0L, (long)(await command.ExecuteScalarAsync())!);
         }
+    }
+
+    private static async Task<int> CountDirectoryTablesAsync(BeeexyDbContext dbContext)
+    {
+        await using var command = dbContext.Database.GetDbConnection().CreateCommand();
+        if (command.Connection!.State != System.Data.ConnectionState.Open)
+        {
+            await command.Connection.OpenAsync();
+        }
+
+        command.CommandText =
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'directory';";
+        return Convert.ToInt32(await command.ExecuteScalarAsync());
     }
 
     [Fact]

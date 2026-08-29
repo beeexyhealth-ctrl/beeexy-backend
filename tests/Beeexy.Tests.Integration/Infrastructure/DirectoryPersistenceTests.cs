@@ -180,6 +180,7 @@ public sealed class DirectoryPersistenceTests(PostgreSqlContainerFixture postgre
             [
                 "clinic_locations",
                 "clinics",
+                "demo_directory_imports",
                 "doctor_affiliations",
                 "doctor_credentials",
                 "doctor_insurance_participations",

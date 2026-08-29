@@ -1,4 +1,6 @@
+using Beeexy.Application.Directory;
 using Beeexy.Application.Triage;
+using Beeexy.Infrastructure.DirectoryServices;
 using Beeexy.Infrastructure.Persistence;
 using Beeexy.Infrastructure.Triage;
 using Microsoft.EntityFrameworkCore;
@@ -6,8 +8,8 @@ using Microsoft.EntityFrameworkCore;
 namespace Beeexy.Api.Configuration;
 
 /// <summary>
-/// Creates the local schema and imports the explicitly non-clinical Phase 4 demo
-/// definitions. This service is registered only in the Development environment.
+/// Creates the local schema and imports the explicitly synthetic demo packages.
+/// This service is registered only in the Development environment.
 /// </summary>
 public sealed class DevelopmentDemoDefinitionsBootstrapper(
     IServiceScopeFactory scopeFactory,
@@ -28,10 +30,20 @@ public sealed class DevelopmentDemoDefinitionsBootstrapper(
             await importer.ImportAsync(package, cancellationToken);
         }
 
+        var directoryPackage = ProductApprovedSyntheticDirectory.Create();
+        var directoryImporter = scope.ServiceProvider.GetRequiredService<IDirectoryImporter>();
+        await directoryImporter.ImportAsync(directoryPackage, cancellationToken);
+
         logger.LogInformation(
             "Local demo definitions are available and active for {Packages}.",
             string.Join(", ", packages.Select(package =>
                 $"{package.Pathway.Value}@{package.Version.Value}")));
+        logger.LogInformation(
+            "Synthetic demo directory package {PackageCode}@{Version} is available with content " +
+            "hash {ContentHash}. Published and Verified values are demo-dataset states only.",
+            directoryPackage.PackageCode.Value,
+            directoryPackage.Version.Value,
+            directoryPackage.ContentHash);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

@@ -1,9 +1,11 @@
+using Beeexy.Application.Directory;
 using Beeexy.Application.Identity;
 using Beeexy.Application.History;
 using Beeexy.Application.Interoperability;
 using Beeexy.Application.Patients;
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
+using Beeexy.Infrastructure.DirectoryServices;
 using Beeexy.Infrastructure.Identity;
 using Beeexy.Infrastructure.History;
 using Beeexy.Infrastructure.Interoperability;
@@ -42,6 +44,9 @@ public static class DependencyInjection
         ArgumentNullException.ThrowIfNull(preTriageEducationalVideoOptions);
 
         services.AddSingleton<IClock, SystemClock>();
+        services.AddSingleton<DirectoryImportPackageValidator>();
+        services.AddScoped<IDirectoryImporter, DirectoryImporter>();
+        services.AddScoped<PublicDirectoryQueryBoundary>();
         services.AddSingleton(emailChallengePolicy);
         services.AddSingleton(authenticationTokenPolicy);
         services.AddSingleton<IOneTimePasswordGenerator, CryptographicOneTimePasswordGenerator>();
