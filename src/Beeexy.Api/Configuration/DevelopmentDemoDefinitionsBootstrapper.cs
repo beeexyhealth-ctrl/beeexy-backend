@@ -34,6 +34,10 @@ public sealed class DevelopmentDemoDefinitionsBootstrapper(
         var directoryImporter = scope.ServiceProvider.GetRequiredService<IDirectoryImporter>();
         await directoryImporter.ImportAsync(directoryPackage, cancellationToken);
 
+        var matchingPackage = ProductApprovedDemoDoctorMatchRule.Create();
+        var matchingImporter = scope.ServiceProvider.GetRequiredService<IDoctorMatchRuleImporter>();
+        await matchingImporter.ImportAsync(matchingPackage, cancellationToken);
+
         logger.LogInformation(
             "Local demo definitions are available and active for {Packages}.",
             string.Join(", ", packages.Select(package =>
@@ -44,6 +48,13 @@ public sealed class DevelopmentDemoDefinitionsBootstrapper(
             directoryPackage.PackageCode.Value,
             directoryPackage.Version.Value,
             directoryPackage.ContentHash);
+        logger.LogInformation(
+            "Demo-only doctor matching package {PackageCode}@{Version} is available with content " +
+            "hash {ContentHash}. Its deterministic weights are not clinically validated or " +
+            "production recommendation logic.",
+            matchingPackage.PackageCode.Value,
+            matchingPackage.Version.Value,
+            matchingPackage.ContentHash);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

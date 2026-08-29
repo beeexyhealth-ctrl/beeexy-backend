@@ -1,5 +1,4 @@
 using Beeexy.Application.Common;
-using Beeexy.Domain.Directory;
 
 namespace Beeexy.Application.Directory;
 
@@ -14,13 +13,14 @@ public sealed class SearchDoctors(IDoctorDirectoryReadRepository repository)
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        var filter = new DoctorDirectoryFilter(
-            NormalizeCode(query.SpecialtyCode, "specialtyCode"),
-            NormalizeCode(query.LanguageCode, "languageCode"),
-            NormalizeLocationPart(query.Locality, "locality"),
-            NormalizeLocationPart(query.AdministrativeArea, "administrativeArea"),
-            NormalizeLocationPart(query.Country, "country"),
-            NormalizeCode(query.InsurancePlanCode, "insurancePlanCode"));
+        var filter = DoctorDirectoryInputNormalizer.NormalizeFilter(
+            query.SpecialtyCode,
+            query.LanguageCode,
+            query.Locality,
+            query.AdministrativeArea,
+            query.Country,
+            query.InsurancePlanCode,
+            "doctor_directory.filter_invalid");
         var pageSize = query.PageSize ?? DefaultPageSize;
         if (pageSize is < 1 or > MaximumPageSize)
         {
@@ -54,43 +54,6 @@ public sealed class SearchDoctors(IDoctorDirectoryReadRepository repository)
         return new SearchDoctorsResult(items, nextCursor);
     }
 
-    private static string? NormalizeCode(string? value, string filterName)
-    {
-        if (value is null)
-        {
-            return null;
-        }
-
-        try
-        {
-            return DirectoryCode.Create(value).Value;
-        }
-        catch (ArgumentException)
-        {
-            throw InvalidFilter(filterName);
-        }
-    }
-
-    private static string? NormalizeLocationPart(string? value, string filterName)
-    {
-        if (value is null)
-        {
-            return null;
-        }
-
-        var candidate = value.Trim();
-        if (candidate.Length is 0 or > ClinicLocation.MaximumLocationPartLength)
-        {
-            throw InvalidFilter(filterName);
-        }
-
-        return candidate;
-    }
-
-    private static RequestValidationException InvalidFilter(string filterName) =>
-        new(
-            "doctor_directory.filter_invalid",
-            $"The {filterName} filter is invalid.");
 }
 
 public sealed record SearchDoctorsQuery(

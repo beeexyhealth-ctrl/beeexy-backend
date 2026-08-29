@@ -185,6 +185,7 @@ public sealed class DirectoryPersistenceTests(PostgreSqlContainerFixture postgre
                 "doctor_credentials",
                 "doctor_insurance_participations",
                 "doctor_languages",
+                "doctor_match_rule_configurations",
                 "doctor_match_rule_versions",
                 "doctor_specialties",
                 "doctors",
@@ -202,6 +203,7 @@ public sealed class DirectoryPersistenceTests(PostgreSqlContainerFixture postgre
         Assert.Contains("doctors.id", uuidColumns);
         Assert.Contains("doctor_affiliations.clinic_location_id", uuidColumns);
         Assert.Contains("doctor_insurance_participations.insurance_plan_id", uuidColumns);
+        Assert.Contains("doctor_match_rule_configurations.rule_version_id", uuidColumns);
 
         var indexes = await ReadStringsAsync(
             connection,
@@ -212,8 +214,9 @@ public sealed class DirectoryPersistenceTests(PostgreSqlContainerFixture postgre
             "'ix_doctor_credentials_doctor_status'," +
             "'ix_doctor_specialties_specialty_id'," +
             "'ix_doctor_languages_language_id','ix_doctor_insurance_plan_id'," +
+            "'ix_doctor_match_rule_configurations_package_code'," +
             "'ux_doctor_match_rule_versions_version') ORDER BY indexname;");
-        Assert.Equal(10, indexes.Count);
+        Assert.Equal(11, indexes.Count);
 
         await using var foreignKeyCommand = connection.CreateCommand();
         foreignKeyCommand.CommandText =
@@ -230,7 +233,7 @@ public sealed class DirectoryPersistenceTests(PostgreSqlContainerFixture postgre
             deleteRules.Add(reader.GetString(0));
         }
 
-        Assert.Equal(11, deleteRules.Count);
+        Assert.Equal(12, deleteRules.Count);
         Assert.All(deleteRules, rule => Assert.Equal("RESTRICT", rule));
     }
 

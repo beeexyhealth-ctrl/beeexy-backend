@@ -9,7 +9,7 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
-    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase72DirectoryImport()
+    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase75DoctorMatching()
     {
         var options = new DbContextOptionsBuilder<BeeexyDbContext>()
             .UseNpgsql(postgres.ConnectionString)
@@ -42,7 +42,8 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                     "20260828040441_EducationalVideoOfferWorkflow",
                     "20260828203109_DatabaseBackedPrivateAccess",
                     "20260829012832_Phase71DirectoryFoundation",
-                    "20260829040757_Phase72SyntheticDemoDirectoryImport"
+                    "20260829040757_Phase72SyntheticDemoDirectoryImport",
+                    "20260829070507_Phase75VersionedDoctorMatching"
                 ],
                 appliedMigrations);
             Assert.Empty(pendingMigrations);
@@ -74,6 +75,7 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                 "directory.doctor_credentials",
                 "directory.doctor_insurance_participations",
                 "directory.doctor_languages",
+                "directory.doctor_match_rule_configurations",
                 "directory.doctor_match_rule_versions",
                 "directory.doctor_specialties",
                 "directory.doctors",

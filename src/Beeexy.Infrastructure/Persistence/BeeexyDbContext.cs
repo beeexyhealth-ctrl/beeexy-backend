@@ -37,6 +37,9 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
     public DbSet<DoctorMatchRuleVersion> DoctorMatchRuleVersions =>
         Set<DoctorMatchRuleVersion>();
 
+    public DbSet<DoctorMatchRuleConfiguration> DoctorMatchRuleConfigurations =>
+        Set<DoctorMatchRuleConfiguration>();
+
     public DbSet<Account> Accounts => Set<Account>();
 
     public DbSet<EmailAuthenticationChallenge> EmailAuthenticationChallenges =>

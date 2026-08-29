@@ -51,7 +51,7 @@ public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
             Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
             Assert.NotNull(await dbContext.PatientProfiles.AsNoTracking()
                 .SingleOrDefaultAsync(value => value.Id == markerPatient.Id));
-            Assert.Equal(13, await CountDirectoryTablesAsync(dbContext));
+            Assert.Equal(14, await CountDirectoryTablesAsync(dbContext));
         }
 
         await using (var connection = new NpgsqlConnection(postgres.ConnectionString))
@@ -60,6 +60,46 @@ public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
             await using var command = connection.CreateCommand();
             command.CommandText = "SELECT count(*) FROM directory.demo_directory_imports;";
             Assert.Equal(0L, (long)(await command.ExecuteScalarAsync())!);
+        }
+    }
+
+    [Fact]
+    public async Task Phase75DoctorMatchingMigration_IsAdditiveAndCanRollbackAndReapplyWithoutRules()
+    {
+        await EnsureMigratedAsync();
+        var options = CreateOptions();
+        var markerPatient = PatientProfile.Create(
+            BeeexyId.Create($"BXY-DOCTOR-MATCH-MIGRATION-{Guid.NewGuid():N}"),
+            DateTimeOffset.UtcNow);
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            dbContext.PatientProfiles.Add(markerPatient);
+            await dbContext.SaveChangesAsync();
+            await dbContext.GetService<IMigrator>()
+                .MigrateAsync("20260829040757_Phase72SyntheticDemoDirectoryImport");
+        }
+
+        await using (var connection = new NpgsqlConnection(postgres.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText =
+                "SELECT count(*) FROM information_schema.tables " +
+                "WHERE table_schema = 'directory' " +
+                "AND table_name = 'doctor_match_rule_configurations';";
+            Assert.Equal(0L, (long)(await command.ExecuteScalarAsync())!);
+        }
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            Assert.NotNull(await dbContext.PatientProfiles.AsNoTracking()
+                .SingleOrDefaultAsync(value => value.Id == markerPatient.Id));
+            Assert.Equal(13, await CountDirectoryTablesAsync(dbContext));
+            await dbContext.Database.MigrateAsync();
+            Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+            Assert.Equal(14, await CountDirectoryTablesAsync(dbContext));
+            Assert.Empty(await dbContext.DoctorMatchRuleVersions.AsNoTracking().ToListAsync());
+            Assert.Empty(await dbContext.DoctorMatchRuleConfigurations.AsNoTracking().ToListAsync());
         }
     }
 

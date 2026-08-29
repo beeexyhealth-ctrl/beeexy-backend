@@ -441,3 +441,59 @@ internal sealed class DoctorMatchRuleVersionConfiguration
             .HasDatabaseName("ux_doctor_match_rule_versions_version");
     }
 }
+
+internal sealed class DoctorMatchRuleConfigurationConfiguration
+    : IEntityTypeConfiguration<DoctorMatchRuleConfiguration>
+{
+    public void Configure(EntityTypeBuilder<DoctorMatchRuleConfiguration> builder)
+    {
+        builder.ToTable("doctor_match_rule_configurations", DirectoryConfiguration.Schema, table =>
+        {
+            table.HasCheckConstraint(
+                "ck_doctor_match_rule_configurations_package_code",
+                "length(btrim(package_code)) > 0");
+            table.HasCheckConstraint(
+                "ck_doctor_match_rule_configurations_content_hash",
+                "content_hash ~ '^[0-9a-f]{64}$'");
+            table.HasCheckConstraint(
+                "ck_doctor_match_rule_configurations_weights",
+                "specialty_weight_points BETWEEN 1 AND 100 AND " +
+                "language_weight_points BETWEEN 1 AND 100 AND " +
+                "location_weight_points BETWEEN 1 AND 100 AND " +
+                "stored_insurance_weight_points BETWEEN 1 AND 100 AND " +
+                "specialty_weight_points + language_weight_points + " +
+                "location_weight_points + stored_insurance_weight_points = 100");
+        });
+        builder.HasKey(entity => entity.RuleVersionId)
+            .HasName("pk_doctor_match_rule_configurations");
+        DirectoryConfiguration.ConfigureForeignKey(
+            builder,
+            entity => entity.RuleVersionId,
+            "rule_version_id");
+        DirectoryConfiguration.ConfigureCode(builder, entity => entity.PackageCode, "package_code");
+        builder.Property(entity => entity.ContentHash)
+            .HasColumnName("content_hash")
+            .HasMaxLength(64)
+            .IsFixedLength()
+            .IsRequired();
+        builder.Property(entity => entity.SpecialtyWeightPoints)
+            .HasColumnName("specialty_weight_points")
+            .IsRequired();
+        builder.Property(entity => entity.LanguageWeightPoints)
+            .HasColumnName("language_weight_points")
+            .IsRequired();
+        builder.Property(entity => entity.LocationWeightPoints)
+            .HasColumnName("location_weight_points")
+            .IsRequired();
+        builder.Property(entity => entity.StoredInsuranceWeightPoints)
+            .HasColumnName("stored_insurance_weight_points")
+            .IsRequired();
+        builder.HasIndex(entity => entity.PackageCode)
+            .HasDatabaseName("ix_doctor_match_rule_configurations_package_code");
+        builder.HasOne<DoctorMatchRuleVersion>()
+            .WithOne()
+            .HasForeignKey<DoctorMatchRuleConfiguration>(entity => entity.RuleVersionId)
+            .OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("fk_doctor_match_rule_configurations_rule_versions");
+    }
+}

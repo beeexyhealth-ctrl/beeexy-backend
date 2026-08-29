@@ -41,6 +41,7 @@ public sealed class DirectoryImportTests(PostgreSqlContainerFixture postgres) : 
             package.DoctorInsuranceParticipations.Count,
             await verify.DoctorInsuranceParticipations.CountAsync());
         Assert.Empty(await verify.DoctorMatchRuleVersions.ToListAsync());
+        Assert.Empty(await verify.DoctorMatchRuleConfigurations.ToListAsync());
         Assert.Equal(1L, await CountImportRecordsAsync());
         Assert.Equal(
             package.Doctors.Select(value => value.Id).OrderBy(value => value.Value),
@@ -152,6 +153,7 @@ public sealed class DirectoryImportTests(PostgreSqlContainerFixture postgres) : 
         Assert.Single(await verify.Clinics.AsNoTracking().ToListAsync());
         Assert.Empty(await verify.Doctors.AsNoTracking().ToListAsync());
         Assert.Equal(0L, await CountImportRecordsAsync());
+        Assert.Equal(0L, await CountMatchRuleConfigurationsAsync());
     }
 
     [Fact]
@@ -225,6 +227,7 @@ public sealed class DirectoryImportTests(PostgreSqlContainerFixture postgres) : 
         }
 
         Assert.Equal(1L, await CountImportRecordsAsync());
+        Assert.Equal(1L, await CountMatchRuleConfigurationsAsync());
     }
 
     public async Task InitializeAsync()
@@ -253,7 +256,8 @@ public sealed class DirectoryImportTests(PostgreSqlContainerFixture postgres) : 
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
         command.CommandText =
-            "TRUNCATE directory.demo_directory_imports, directory.doctor_affiliations, " +
+            "TRUNCATE directory.doctor_match_rule_configurations, " +
+            "directory.demo_directory_imports, directory.doctor_affiliations, " +
             "directory.doctor_credentials, directory.doctor_insurance_participations, " +
             "directory.doctor_languages, directory.doctor_specialties, " +
             "directory.clinic_locations, directory.clinics, directory.doctors, " +
@@ -268,6 +272,16 @@ public sealed class DirectoryImportTests(PostgreSqlContainerFixture postgres) : 
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = "SELECT count(*) FROM directory.demo_directory_imports;";
+        return (long)(await command.ExecuteScalarAsync())!;
+    }
+
+    private async Task<long> CountMatchRuleConfigurationsAsync()
+    {
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT count(*) FROM directory.doctor_match_rule_configurations;";
         return (long)(await command.ExecuteScalarAsync())!;
     }
 

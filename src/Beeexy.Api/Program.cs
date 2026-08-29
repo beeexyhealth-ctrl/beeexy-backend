@@ -107,6 +107,8 @@ builder.Services.AddScoped<ListClinics>();
 builder.Services.AddScoped<GetClinic>();
 builder.Services.AddScoped<SearchDoctors>();
 builder.Services.AddScoped<GetDoctor>();
+builder.Services.AddSingleton<DeterministicDoctorMatchEngine>();
+builder.Services.AddScoped<CalculateDoctorMatch>();
 builder.Services.AddScoped<ProvisionAccountAndPrimaryProfile>();
 builder.Services.AddScoped<ProvisionDemoGuest>();
 builder.Services.AddScoped<VerifyEmailChallenge>();

@@ -46,9 +46,12 @@ public static class DependencyInjection
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<DirectoryImportPackageValidator>();
         services.AddScoped<IDirectoryImporter, DirectoryImporter>();
+        services.AddSingleton<DoctorMatchRulePackageValidator>();
+        services.AddScoped<IDoctorMatchRuleImporter, DoctorMatchRuleImporter>();
         services.AddScoped<PublicDirectoryQueryBoundary>();
         services.AddScoped<IClinicDirectoryReadRepository, ClinicDirectoryReadRepository>();
         services.AddScoped<IDoctorDirectoryReadRepository, DoctorDirectoryReadRepository>();
+        services.AddScoped<IDoctorMatchingRepository, DoctorMatchingRepository>();
         services.AddSingleton(emailChallengePolicy);
         services.AddSingleton(authenticationTokenPolicy);
         services.AddSingleton<IOneTimePasswordGenerator, CryptographicOneTimePasswordGenerator>();
