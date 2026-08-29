@@ -16,6 +16,54 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
+    public async Task Phase71DirectoryMigration_IsAdditiveAndCanRollbackAndReapplyWithoutSeeds()
+    {
+        await EnsureMigratedAsync();
+        var options = CreateOptions();
+        var markerPatient = PatientProfile.Create(
+            BeeexyId.Create($"BXY-DIRECTORY-MIGRATION-{Guid.NewGuid():N}"),
+            DateTimeOffset.UtcNow);
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            dbContext.PatientProfiles.Add(markerPatient);
+            await dbContext.SaveChangesAsync();
+            await dbContext.GetService<IMigrator>()
+                .MigrateAsync("20260828203109_DatabaseBackedPrivateAccess");
+        }
+
+        await using (var connection = new NpgsqlConnection(postgres.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText =
+                "SELECT count(*) FROM information_schema.tables " +
+                "WHERE table_schema = 'directory';";
+            Assert.Equal(0L, (long)(await command.ExecuteScalarAsync())!);
+        }
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            Assert.NotNull(await dbContext.PatientProfiles.AsNoTracking()
+                .SingleOrDefaultAsync(value => value.Id == markerPatient.Id));
+            await dbContext.Database.MigrateAsync();
+            Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+            Assert.NotNull(await dbContext.PatientProfiles.AsNoTracking()
+                .SingleOrDefaultAsync(value => value.Id == markerPatient.Id));
+        }
+
+        await using (var connection = new NpgsqlConnection(postgres.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText =
+                "SELECT (SELECT count(*) FROM directory.clinics) + " +
+                "(SELECT count(*) FROM directory.doctors) + " +
+                "(SELECT count(*) FROM directory.doctor_match_rule_versions);";
+            Assert.Equal(0L, (long)(await command.ExecuteScalarAsync())!);
+        }
+    }
+
+    [Fact]
     public async Task DatabasePrivateAccessMigration_IsAdditiveAndCanRollbackAndReapply()
     {
         await EnsureMigratedAsync();

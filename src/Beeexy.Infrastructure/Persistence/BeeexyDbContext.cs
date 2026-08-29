@@ -1,3 +1,4 @@
+using Beeexy.Domain.Directory;
 using Beeexy.Domain.Identity;
 using Beeexy.Domain.History;
 using Beeexy.Domain.Interoperability;
@@ -10,6 +11,32 @@ namespace Beeexy.Infrastructure.Persistence;
 public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
     : DbContext(options)
 {
+    public DbSet<Clinic> Clinics => Set<Clinic>();
+
+    public DbSet<ClinicLocation> ClinicLocations => Set<ClinicLocation>();
+
+    public DbSet<Doctor> Doctors => Set<Doctor>();
+
+    public DbSet<DoctorAffiliation> DoctorAffiliations => Set<DoctorAffiliation>();
+
+    public DbSet<DoctorCredential> DoctorCredentials => Set<DoctorCredential>();
+
+    public DbSet<Specialty> Specialties => Set<Specialty>();
+
+    public DbSet<DoctorSpecialty> DoctorSpecialties => Set<DoctorSpecialty>();
+
+    public DbSet<Language> Languages => Set<Language>();
+
+    public DbSet<DoctorLanguage> DoctorLanguages => Set<DoctorLanguage>();
+
+    public DbSet<InsurancePlan> InsurancePlans => Set<InsurancePlan>();
+
+    public DbSet<DoctorInsuranceParticipation> DoctorInsuranceParticipations =>
+        Set<DoctorInsuranceParticipation>();
+
+    public DbSet<DoctorMatchRuleVersion> DoctorMatchRuleVersions =>
+        Set<DoctorMatchRuleVersion>();
+
     public DbSet<Account> Accounts => Set<Account>();
 
     public DbSet<EmailAuthenticationChallenge> EmailAuthenticationChallenges =>

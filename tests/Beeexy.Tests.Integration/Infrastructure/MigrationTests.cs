@@ -40,7 +40,8 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                     "20260824202650_Phase61FhirExportPersistenceFoundation",
                     "20260826171318_Part31DurableIntakeIdempotency",
                     "20260828040441_EducationalVideoOfferWorkflow",
-                    "20260828203109_DatabaseBackedPrivateAccess"
+                    "20260828203109_DatabaseBackedPrivateAccess",
+                    "20260829012832_Phase71DirectoryFoundation"
                 ],
                 appliedMigrations);
             Assert.Empty(pendingMigrations);
@@ -65,6 +66,18 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(
             [
+                "directory.clinic_locations",
+                "directory.clinics",
+                "directory.doctor_affiliations",
+                "directory.doctor_credentials",
+                "directory.doctor_insurance_participations",
+                "directory.doctor_languages",
+                "directory.doctor_match_rule_versions",
+                "directory.doctor_specialties",
+                "directory.doctors",
+                "directory.insurance_plans",
+                "directory.languages",
+                "directory.specialties",
                 "history.clinical_amendments",
                 "history.clinical_history_events",
                 "history.pre_triage_projection_records",

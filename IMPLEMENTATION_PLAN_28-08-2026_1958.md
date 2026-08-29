@@ -1174,7 +1174,7 @@ All endpoints require bearer authentication plus source-patient authorization. E
 
 **Phase 6.7 metadata/download/privacy:** Metadata exposes only lifecycle status, truthful release/mapping versions, timestamps, and sanitized validation outcome/counts. Download permits only `Validated` exports matching the current R4 specification, reads the immutable artifact without regeneration, verifies SHA-256 before returning anything, and responds with the exact stored bytes as `application/fhir+json` and a technical export-ID filename. Pending, Generated, ValidationFailed, and historical release-neutral artifacts return `409`; historical metadata is not rewritten. Privacy-safe creation, validation-completion, successful-download, and integrity-rejection audit events contain no artifact JSON, raw answers/free text, token, storage path, or raw validator diagnostics. The existing Phase 6.1 schema fully supports these operations, so no migration or EF model change was added. See `docs/fhir/phase-6.7-export-api-and-acceptance.md`.
 
-**Phase 6 final acceptance status: COMPLETE — STATE A.** New exports are genuinely serialized and validated as base FHIR R4 4.0.1 collection Bundles containing exactly QuestionnaireResponse, Device, and Provenance. Invalid content cannot be reported or downloaded as Validated, source clinical records remain immutable, and RiskAssessment remains explicitly deferred because prediction/probability/mitigation inputs are unavailable. The earlier Phase 6.2–6.6 State B history and all immutable release-neutral artifacts remain truthful. Phase 7 has not started.
+**Phase 6 final acceptance status: COMPLETE — STATE A.** New exports are genuinely serialized and validated as base FHIR R4 4.0.1 collection Bundles containing exactly QuestionnaireResponse, Device, and Provenance. Invalid content cannot be reported or downloaded as Validated, source clinical records remain immutable, and RiskAssessment remains explicitly deferred because prediction/probability/mitigation inputs are unavailable. The earlier Phase 6.2–6.6 State B history and all immutable release-neutral artifacts remain truthful. Phase 7 had not started at the time of this Phase 6 acceptance.
 
 **Phase 6.7 verification:** The final Debug solution build completed with 0 warnings and 0 errors. All 13 focused Phase 6.7 access/error unit cases passed, all 90 Phase 6 unit regressions passed, and the complete unit suite passed 578/578. All 5 real authenticated Phase 6.7 API/PostgreSQL journeys passed, including owner/manager/revocation/IDOR concealment, sequential and concurrent idempotency, real R4 validation, exact-byte download, state/legacy gating, tamper rejection, safe validation failure, source immutability, and audit/privacy. All 40 focused FHIR, migration-behavior, and OpenAPI integration regressions, all 19 dedicated migration regressions, and all 13 repository-wide OpenAPI regressions passed. OpenAPI contains exactly 24 paths and adds only the three approved Phase 6 operations with Bearer security and `application/fhir+json` content. The complete integration suite ran 350 tests: 344 passed and exactly the same six pre-existing Phase 5 fixture/startup failures remained—the three `FreshDevelopmentDatabase_StartsSessionsForEveryDemoPathway` cases plus the three deliberately unavailable-database health/logging cases; no Phase 6.7 or FHIR test failed. EF reported no pending model changes, so no migration was added. Solution-wide formatting verification, static Domain/Application SDK inspection, and `git diff --check` passed.
 
@@ -1183,6 +1183,12 @@ All endpoints require bearer authentication plus source-patient authorization. E
 # Phase 7 — Clinic, Doctor Directory, and Deterministic Matching
 
 **Priority:** MVP CORE
+
+**Phase 7.1 status: COMPLETE (2026-08-28).** The directory domain and persistence foundation is implemented. Phase 7.2 and later Phase 7 work remain intentionally unimplemented.
+
+**Phase 7.1 implementation:** Added the neutral `Clinic`, `ClinicLocation`, `Doctor`, `DoctorAffiliation`, `DoctorCredential`, `Specialty`, `Language`, `InsurancePlan`, `DoctorInsuranceParticipation`, and standalone `DoctorMatchRuleVersion` foundations, plus normalized doctor-specialty and doctor-language relationships. Clinic locations require a domain-validated IANA timezone. Credential state is restricted to exactly `Submitted`, `PendingVerification`, `Verified`, and `Rejected`; the model stores claim/state metadata only and does not imply external credentialing. Migration `20260829012832_Phase71DirectoryFoundation` adds twelve normalized `directory` tables with UUID keys, unique clinic/doctor/catalog/version codes, restrictive foreign keys, a clinic/location-consistent affiliation key, normalized relationship uniqueness, status/timezone checks, and publication/location/specialty/language/insurance/credential indexes. No records are seeded. Match-rule versions are stored separately from doctors and contain no factor, weight, score, or configuration payload.
+
+**Phase 7.1 verification:** Restore completed with all projects up to date; solution formatting verification formatted 0 of 524 files; the Debug solution build succeeded with 0 warnings and 0 errors. Focused Phase 7.1 unit tests passed 16/16, focused real-PostgreSQL directory and migration tests passed 8/8, and the relevant migration/FK regression set passed 19/19. The complete unit suite passed 688/688. The complete integration suite was run twice and each run completed 450 tests with 449 passed, 1 failed, and 0 skipped; no Phase 7.1 test failed. The observed non-directory failure was order-dependent in an existing current-account audit assertion and passed 1/1 when rerun alone, so it is recorded rather than hidden or reclassified as a Phase 7.1 failure. The fresh migration chain, Phase 7.1 rollback/reapply, Phase 1--6 preservation, zero directory seed rows, UUID/FK/index/check inspection, and restrictive delete behavior passed against PostgreSQL. EF reported no pending model changes. OpenAPI remained at the pre-7.1 count of 32 paths and contains no clinic or doctor route. Static scope inspection found no directory FHIR `Practitioner`/`Organization`, endpoint, geocoding/distance, or scoring additions, and `git diff --check` passed.
 
 ## 1. Objective
 
@@ -1194,16 +1200,18 @@ Provide a public internal doctor directory with first-class clinics and an expla
 - Credential verification state and verified public claims.
 - Specialty, language, location, and stored insurance filters.
 - Versioned deterministic matching with factor explanations.
+- A product-approved synthetic/demo directory dataset; doctors, clinics, locations, specialties, languages, insurance, affiliations, and credentials may be generated for the demo and must not be presented as real, externally verified, or authoritative data.
 
 ## 3. Explicitly Out of Scope
 
-- Doctor/clinic onboarding portals, reviews/ratings, real-time eligibility, inferred credentials, AI scoring, and full tenant/branding configuration.
+- Doctor/clinic onboarding portals, reviews/ratings, real-time eligibility, inferred credentials, AI/LLM scoring, unapproved geocoding/distance logic, invented FHIR `Practitioner`/`Organization`, and full tenant/branding configuration.
+- Any claim that makes synthetic demo doctors, clinics, or their data appear real, externally verified, or authoritative.
 
 ## 4. Domain Model
 
 - Entities: `Clinic`, `ClinicLocation`, `Doctor`, `DoctorAffiliation`, `DoctorCredential`, `Specialty`, `Language`, `InsurancePlan`, `DoctorInsuranceParticipation`, `DoctorMatchRuleVersion`.
 - Credential status: `Submitted`, `PendingVerification`, `Verified`, `Rejected`.
-- Invariants: only published records/verified claims are public; match factors/version are explainable/auditable; stored insurance data is not represented as real-time verification.
+- Invariants: only published records/verified claims are public; match factors/version are explainable/auditable; stored insurance data is not represented as real-time verification. For the approved demo dataset, `Published` means approved for visibility within the demo experience, and `Verified` claims/credentials means verified within that dataset only; neither represents real credentialing, external verification, or production professional validation. Submitted, `PendingVerification`, rejected, and other unauthorized evidence remain non-public.
 
 ## 5. Database Changes
 
@@ -1225,7 +1233,7 @@ Provide a public internal doctor directory with first-class clinics and an expla
 ## 7. Application / Use Cases
 
 - `ListClinics`, `GetClinic`, `SearchDoctors`, `GetDoctor`, `CalculateDoctorMatch`.
-- Import/seed approved demo directory through deployment tooling, not patient APIs.
+- Import/seed the product-approved synthetic/demo directory dataset through deployment tooling, not patient-facing APIs.
 
 ## 8. Authentication and Authorization
 
@@ -1234,13 +1242,14 @@ Anonymous read is allowed only for approved public fields. No patient-specific r
 ## 9. Security and Privacy
 
 - Submitted/rejected credential evidence is never returned publicly.
-- No fabricated ratings or credentials.
+- No fabricated ratings or credentials represented as real or externally verified.
 - Match audit records contain factors/version, not unnecessary health details.
+- Public demo data and labels must not imply that synthetic professionals, clinics, claims, or credentials are real or externally verified.
 
 ## 10. External Integrations
 
 - **IMPLEMENT NOW:** none.
-- **INTERFACE/PLACEHOLDER:** future directory import/geocoding.
+- **INTERFACE/PLACEHOLDER:** future authoritative directory sources/import and approved geocoding.
 - **POST-MVP:** onboarding, real-time insurance, reviews.
 
 ## 11. FHIR Impact
@@ -1250,7 +1259,7 @@ None for MVP; no Practitioner/Organization mapping is invented.
 ## 12. Tests
 
 - Publication and credential-state visibility.
-- Deterministic score repeatability, factor weights, tie ordering, and explanations.
+- Deterministic score repeatability, versioned demo factor weights, tie ordering, and explanations; the same inputs and version produce the same result.
 - Specialty/language/location/insurance filters.
 - Explicit absence of reviews/ratings and real-time eligibility claims.
 - Pagination/index-backed query tests.
@@ -1258,19 +1267,19 @@ None for MVP; no Practitioner/Organization mapping is invented.
 
 ## 13. Acceptance Criteria
 
-- Anonymous users find/view only published verified data.
+- Anonymous users find/view only published verified data; for the demo dataset, `Published` and `Verified` retain their demo-only meanings and do not imply real credentialing or external verification.
 - Clinic is first-class.
-- Matching is deterministic, explainable, versioned, and contains no LLM decision.
+- Matching uses product-approved deterministic demo factors and weights, is explainable, auditable, versioned, repeatable for the same inputs/version, and contains no LLM decision; it is not clinically validated or production recommendation logic.
 - All tests pass.
 
 ## 14. Dependencies
 
 - Phase 1.
-- Authoritative doctor/clinic demo data and approved matching factors/weights.
+- Product approval of the synthetic/demo directory dataset before import and of deterministic demo matching factors and weights before use. The absence of authoritative real directory data or production matching factors/weights does not block the MVP/demo.
 
 ## 15. Deferred / TBD Items
 
-- Matching weights, distance/geocoding source, onboarding/verification workflows, credential-document retention, real-time network verification, reviews, and white-label configuration.
+- Authoritative real directory data and sources, real credentialing/external verification, production matching rules/weights and clinical/product validation, approved distance/geocoding source and logic, onboarding/verification workflows, credential-document retention, real-time network verification, reviews, and white-label configuration.
 
 ---
 
@@ -2080,7 +2089,7 @@ When a phase is explicitly authorized:
 
 - **Phase 2:** Final demographic requirements beyond the fields explicitly documented in `Backend/docs/fhir/` remain TBD.
 - **Phase 4:** medically approved questionnaire, urgency model, red flags, rules, and messages.
-- **Phase 7:** authoritative directory data and approved deterministic matching factors/weights.
+- **Phase 7:** product approval of a synthetic/demo directory dataset and deterministic demo matching factors/weights is required; authoritative real directory data, real credentialing, and production matching rules/validation do not block the MVP/demo.
 - **Phase 8:** final patient cancel/reschedule rules and approved demo scheduler identity/clinic assignments; advanced Doctor/Clinic authorization is POST-MVP and does not block the minimum confirm/reject mechanism.
 - **Phase 9:** approved follow-up rules, intervals, escalation actions, and Care Guide templates.
 - **Phase 10:** AI provider, prompt/safety policy, supported inputs, limits, and credentials.
