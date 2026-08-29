@@ -1,4 +1,5 @@
 using Beeexy.Application.Common;
+using Beeexy.Application.Directory;
 using Beeexy.Application.History;
 using Beeexy.Application.Identity;
 using Beeexy.Application.Interoperability;
@@ -178,6 +179,16 @@ internal sealed class ApiExceptionHandler(
                 Status = StatusCodes.Status404NotFound,
                 Title = "Patient profile not found.",
                 Detail = "The requested patient profile could not be found."
+            };
+        }
+
+        if (exception is ClinicNotFoundException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Clinic not found.",
+                Detail = "The requested clinic could not be found."
             };
         }
 

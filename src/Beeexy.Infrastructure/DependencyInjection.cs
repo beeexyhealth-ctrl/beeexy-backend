@@ -47,6 +47,7 @@ public static class DependencyInjection
         services.AddSingleton<DirectoryImportPackageValidator>();
         services.AddScoped<IDirectoryImporter, DirectoryImporter>();
         services.AddScoped<PublicDirectoryQueryBoundary>();
+        services.AddScoped<IClinicDirectoryReadRepository, ClinicDirectoryReadRepository>();
         services.AddSingleton(emailChallengePolicy);
         services.AddSingleton(authenticationTokenPolicy);
         services.AddSingleton<IOneTimePasswordGenerator, CryptographicOneTimePasswordGenerator>();

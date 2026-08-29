@@ -195,7 +195,7 @@ public sealed class DirectoryImportTests(PostgreSqlContainerFixture postgres) : 
     }
 
     [Fact]
-    public async Task Bootstrap_IsDevelopmentOnly_AndAddsNoDirectoryHttpRoutes()
+    public async Task Bootstrap_IsDevelopmentOnly_AndClinicRoutesDoNotExposeImportOperations()
     {
         using (var productionFactory = new BeeexyApiFactory(
             postgres.ConnectionString,
@@ -215,9 +215,10 @@ public sealed class DirectoryImportTests(PostgreSqlContainerFixture postgres) : 
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             var paths = document.RootElement.GetProperty("paths").EnumerateObject().ToArray();
-            Assert.Equal(32, paths.Length);
+            Assert.Equal(34, paths.Length);
+            Assert.Equal(2, paths.Count(value =>
+                value.Name.StartsWith("/api/v1/clinics", StringComparison.Ordinal)));
             Assert.DoesNotContain(paths, value =>
-                value.Name.StartsWith("/api/v1/clinics", StringComparison.Ordinal) ||
                 value.Name.StartsWith("/api/v1/doctors", StringComparison.Ordinal) ||
                 value.Name.Contains("directory-import", StringComparison.Ordinal));
         }

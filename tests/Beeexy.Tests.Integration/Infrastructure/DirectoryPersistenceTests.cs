@@ -281,7 +281,7 @@ public sealed class DirectoryPersistenceTests(PostgreSqlContainerFixture postgre
     }
 
     [Fact]
-    public async Task OpenApi_RemainsAtPrePhase71ScopeWithoutDirectoryRoutes()
+    public async Task OpenApi_AddsOnlyThePublicClinicDirectoryRoutes()
     {
         using var factory = new BeeexyApiFactory(postgres.ConnectionString);
         using var client = factory.CreateApiClient();
@@ -291,10 +291,9 @@ public sealed class DirectoryPersistenceTests(PostgreSqlContainerFixture postgre
         var paths = document.RootElement.GetProperty("paths");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(32, paths.EnumerateObject().Count());
-        Assert.DoesNotContain(
-            paths.EnumerateObject(),
-            path => path.Name.StartsWith("/api/v1/clinics", StringComparison.Ordinal));
+        Assert.Equal(34, paths.EnumerateObject().Count());
+        Assert.Equal(2, paths.EnumerateObject().Count(
+            path => path.Name.StartsWith("/api/v1/clinics", StringComparison.Ordinal)));
         Assert.DoesNotContain(
             paths.EnumerateObject(),
             path => path.Name.StartsWith("/api/v1/doctors", StringComparison.Ordinal));

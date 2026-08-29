@@ -1,3 +1,4 @@
+using Beeexy.Domain.Common;
 using Beeexy.Domain.Directory;
 using Beeexy.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -6,8 +7,14 @@ namespace Beeexy.Infrastructure.DirectoryServices;
 
 public sealed class PublicDirectoryQueryBoundary(BeeexyDbContext dbContext)
 {
-    public IQueryable<Clinic> Clinics() =>
-        dbContext.Clinics.AsNoTracking().Where(value => value.IsPublished);
+    public IQueryable<Clinic> Clinics() => PublishedClinics(dbContext.Clinics);
+
+    public IQueryable<Clinic> ClinicsAfter(EntityId clinicId) =>
+        PublishedClinics(dbContext.Clinics.FromSqlInterpolated($"""
+            SELECT clinic.*
+            FROM directory.clinics AS clinic
+            WHERE clinic.id > {clinicId.Value}
+            """));
 
     public IQueryable<ClinicLocation> ClinicLocations() =>
         dbContext.ClinicLocations.AsNoTracking().Where(location =>
@@ -36,4 +43,7 @@ public sealed class PublicDirectoryQueryBoundary(BeeexyDbContext dbContext)
             credential.Status == DoctorCredentialStatus.Verified &&
             dbContext.Doctors.Any(doctor =>
                 doctor.Id == credential.DoctorId && doctor.IsPublished));
+
+    private static IQueryable<Clinic> PublishedClinics(IQueryable<Clinic> clinics) =>
+        clinics.AsNoTracking().Where(value => value.IsPublished);
 }

@@ -1,4 +1,5 @@
 using Beeexy.Api.Configuration;
+using Beeexy.Api.ClinicDirectory;
 using Beeexy.Api.Errors;
 using Beeexy.Api.Health;
 using Beeexy.Api.History;
@@ -9,6 +10,7 @@ using Beeexy.Api.Patients;
 using Beeexy.Api.PrivateAccess;
 using Beeexy.Api.Triage;
 using Beeexy.Application.Identity;
+using Beeexy.Application.Directory;
 using Beeexy.Application.History;
 using Beeexy.Application.Interoperability;
 using Beeexy.Application.Patients;
@@ -100,6 +102,8 @@ if (builder.Environment.IsDevelopment())
     builder.Services.AddHostedService<DevelopmentDemoDefinitionsBootstrapper>();
 }
 builder.Services.AddScoped<RequestEmailChallenge>();
+builder.Services.AddScoped<ListClinics>();
+builder.Services.AddScoped<GetClinic>();
 builder.Services.AddScoped<ProvisionAccountAndPrimaryProfile>();
 builder.Services.AddScoped<ProvisionDemoGuest>();
 builder.Services.AddScoped<VerifyEmailChallenge>();
@@ -273,6 +277,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapBeeexyHealthEndpoints();
+app.MapBeeexyClinicDirectoryEndpoints();
 app.MapBeeexyPrivateAccessEndpoints();
 app.MapBeeexyAuthenticationEndpoints();
 app.MapBeeexyPatientEndpoints();
