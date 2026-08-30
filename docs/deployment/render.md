@@ -75,6 +75,20 @@ ASPNETCORE_ENVIRONMENT=Production dotnet ef database update \
 
 After the migration succeeds, keep the Render runtime variable set to the intended Neon runtime connection string. Do not add migration execution to the Docker command or application startup. The runtime image intentionally contains neither the SDK nor `dotnet-ef`.
 
+To import the repository's immutable Phase 7 synthetic demo directory and demo-only doctor
+matching packages, use the direct production database connection from a trusted workstation and
+run the dedicated one-shot command:
+
+```bash
+ASPNETCORE_ENVIRONMENT=Production dotnet run \
+  --project src/Beeexy.Api --configuration Release -- \
+  import-phase7-demo-directory
+```
+
+The command does not start the web host, apply migrations, or import clinical demo definitions.
+It validates and imports the exact packages embedded in the repository and reports `Imported` on
+the first successful execution or `AlreadyImported` on an identical rerun.
+
 For an existing Demo Guest deployment, migrate the configured guest after applying migrations and while authentication mode remains `Legacy`:
 
 ```bash

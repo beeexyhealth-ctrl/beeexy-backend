@@ -1,6 +1,7 @@
 using Beeexy.Api.Configuration;
 using Beeexy.Api.ClinicDirectory;
 using Beeexy.Api.DoctorDirectory;
+using Beeexy.Api.Operations;
 using Beeexy.Api.Errors;
 using Beeexy.Api.Health;
 using Beeexy.Api.History;
@@ -28,8 +29,20 @@ using System.Text;
 
 var databasePrivateAccessCommand = PrivateAccessCli.IsDatabaseCommand(args);
 var provisionDemoGuestCommand = PrivateAccessCli.IsProvisionDemoGuestCommand(args);
+var phase7DemoDirectoryCommand = Phase7DemoDirectoryCli.IsCommand(args);
 if (PrivateAccessCli.TryRun(args))
 {
+    return;
+}
+
+if (phase7DemoDirectoryCommand)
+{
+    var commandConfiguration = new ConfigurationManager();
+    commandConfiguration.AddEnvironmentVariables();
+    await Phase7DemoDirectoryCli.ExecuteAsync(
+        commandConfiguration,
+        commandConfiguration["ASPNETCORE_ENVIRONMENT"],
+        cancellationToken: CancellationToken.None);
     return;
 }
 
