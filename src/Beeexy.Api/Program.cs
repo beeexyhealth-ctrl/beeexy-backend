@@ -137,6 +137,8 @@ builder.Services.AddScoped<SearchDoctors>();
 builder.Services.AddScoped<GetDoctor>();
 builder.Services.AddScoped<ListAvailableSlots>();
 builder.Services.AddScoped<RequestAppointment>();
+builder.Services.AddScoped<ListAppointments>();
+builder.Services.AddScoped<GetAppointment>();
 builder.Services.AddSingleton<DeterministicDoctorMatchEngine>();
 builder.Services.AddScoped<CalculateDoctorMatch>();
 builder.Services.AddScoped<ProvisionAccountAndPrimaryProfile>();

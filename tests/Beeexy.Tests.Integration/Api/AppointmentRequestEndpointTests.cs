@@ -321,7 +321,7 @@ public sealed class AppointmentRequestEndpointTests(
         var paths = document.RootElement.GetProperty("paths");
         var operation = paths.GetProperty(Endpoint).GetProperty("post");
 
-        Assert.Equal(38, paths.EnumerateObject().Count());
+        Assert.Equal(39, paths.EnumerateObject().Count());
         Assert.True(operation.TryGetProperty("security", out _));
         Assert.Equal(
             ["200", "201", "400", "401", "404", "409", "422", "500"],

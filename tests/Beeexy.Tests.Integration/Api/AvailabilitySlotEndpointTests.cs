@@ -186,7 +186,7 @@ public sealed class AvailabilitySlotEndpointTests(
             .GetProperty("/api/v1/doctors/{doctorId}/slots")
             .GetProperty("get");
 
-        Assert.Equal(38, paths.EnumerateObject().Count());
+        Assert.Equal(39, paths.EnumerateObject().Count());
         Assert.False(operation.TryGetProperty("security", out _));
         Assert.Equal(
             ["doctorId", "from", "to"],

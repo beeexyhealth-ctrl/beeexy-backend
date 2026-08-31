@@ -429,7 +429,7 @@ public sealed class ManagedPatientUpdateEndpointTests(PostgreSqlContainerFixture
         var patch = detail.GetProperty("patch");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(38, paths.EnumerateObject().Count());
+        Assert.Equal(39, paths.EnumerateObject().Count());
         Assert.True(detail.TryGetProperty("get", out _));
         Assert.True(patch.TryGetProperty("requestBody", out _));
         Assert.Contains(
