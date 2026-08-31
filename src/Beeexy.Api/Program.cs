@@ -113,6 +113,8 @@ var preTriageEducationalVideoOptions =
 var privateAccessSettings = StartupConfiguration.GetPrivateAccessSettings(
     builder.Configuration,
     builder.Environment);
+var appointmentSchedulerAssignments =
+    StartupConfiguration.GetAppointmentSchedulerAssignments(builder.Configuration);
 
 builder.Services.AddInfrastructure(
     databaseConnectionString,
@@ -139,6 +141,9 @@ builder.Services.AddScoped<ListAvailableSlots>();
 builder.Services.AddScoped<RequestAppointment>();
 builder.Services.AddScoped<ListAppointments>();
 builder.Services.AddScoped<GetAppointment>();
+builder.Services.AddScoped<TransitionAppointment>();
+builder.Services.AddScoped<ConfirmAppointment>();
+builder.Services.AddScoped<RejectAppointment>();
 builder.Services.AddSingleton<DeterministicDoctorMatchEngine>();
 builder.Services.AddScoped<CalculateDoctorMatch>();
 builder.Services.AddScoped<ProvisionAccountAndPrimaryProfile>();
@@ -189,6 +194,7 @@ builder.Services.AddScoped<PreTriageCleanupService>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentSessionIdentity, HttpCurrentSessionIdentity>();
 builder.Services.AddSingleton(privateAccessSettings);
+builder.Services.AddSingleton(appointmentSchedulerAssignments);
 builder.Services.AddSingleton<PrivateAccessCredentialValidator>();
 builder.Services.AddSingleton<PrivateAccessSessionTokenService>();
 builder.Services.AddSingleton<InMemoryPrivateAccessRateLimiter>();

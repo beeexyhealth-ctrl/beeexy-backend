@@ -146,7 +146,7 @@ public sealed class ClinicDirectoryEndpointTests(PostgreSqlContainerFixture post
         var detail = paths.GetProperty("/api/v1/clinics/{id}").GetProperty("get");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(39, paths.EnumerateObject().Count());
+        Assert.Equal(41, paths.EnumerateObject().Count());
         Assert.False(list.TryGetProperty("security", out _));
         Assert.False(detail.TryGetProperty("security", out _));
         Assert.Contains("synthetic demo", list.GetProperty("description").GetString()!,

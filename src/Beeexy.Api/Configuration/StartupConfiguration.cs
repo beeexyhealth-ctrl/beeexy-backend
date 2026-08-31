@@ -1,5 +1,7 @@
 using System.Globalization;
 using Beeexy.Api.PrivateAccess;
+using Beeexy.Application.Scheduling;
+using Beeexy.Domain.Common;
 using Beeexy.Application.Identity;
 using Beeexy.Domain.Identity;
 using Beeexy.Domain.Patients;
@@ -25,6 +27,66 @@ internal static class StartupConfiguration
     private const string PreTriageEducationalVideosSectionKey =
         "PreTriageEducationalVideos";
     private const string PrivateAccessSectionKey = "PrivateAccess";
+    private const string SchedulerAssignmentsSectionKey =
+        "Scheduling:AppointmentSchedulers:Assignments";
+
+    public static AppointmentSchedulerAssignments GetAppointmentSchedulerAssignments(
+        IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        var configured = new List<AppointmentSchedulerAssignment>();
+        foreach (var entry in configuration
+            .GetSection(SchedulerAssignmentsSectionKey)
+            .GetChildren())
+        {
+            var keys = entry.GetChildren().Select(child => child.Key).ToHashSet(
+                StringComparer.OrdinalIgnoreCase);
+            if (!keys.SetEquals(["AccountId", "ClinicIds"]) ||
+                !Guid.TryParse(entry["AccountId"], out var accountId) ||
+                accountId == Guid.Empty)
+            {
+                throw InvalidSchedulerConfiguration();
+            }
+
+            var clinicValues = entry.GetSection("ClinicIds")
+                .GetChildren()
+                .Select(child => child.Value)
+                .ToArray();
+            var clinicIds = new List<EntityId>(clinicValues.Length);
+            foreach (var value in clinicValues)
+            {
+                if (!Guid.TryParse(value, out var clinicId) || clinicId == Guid.Empty)
+                {
+                    throw InvalidSchedulerConfiguration();
+                }
+
+                clinicIds.Add(EntityId.From(clinicId));
+            }
+
+            if (clinicIds.Count == 0 || clinicIds.Distinct().Count() != clinicIds.Count)
+            {
+                throw InvalidSchedulerConfiguration();
+            }
+
+            configured.Add(new AppointmentSchedulerAssignment(
+                EntityId.From(accountId),
+                clinicIds));
+        }
+
+        try
+        {
+            return AppointmentSchedulerAssignments.Create(configured);
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidSchedulerConfiguration(exception);
+        }
+    }
+
+    private static InvalidOperationException InvalidSchedulerConfiguration(
+        Exception? innerException = null) => new(
+        $"Configuration section '{SchedulerAssignmentsSectionKey}' is invalid.",
+        innerException);
 
     public static PrivateAccessSettings GetPrivateAccessSettings(
         IConfiguration configuration,

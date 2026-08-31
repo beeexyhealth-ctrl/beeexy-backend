@@ -239,6 +239,33 @@ internal sealed class ApiExceptionHandler(
             return problem;
         }
 
+        if (exception is AppointmentSchedulerForbiddenException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status403Forbidden,
+                Title = "Appointment scheduling forbidden.",
+                Detail = "The authenticated account cannot perform this scheduling operation."
+            };
+            problem.Extensions["errorCode"] =
+                "scheduling.appointment_scheduler_forbidden";
+            return problem;
+        }
+
+        if (exception is AppointmentTransitionConflictException or
+            AppointmentTransitionConcurrencyException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Appointment transition conflict.",
+                Detail = "The appointment cannot apply the requested status transition."
+            };
+            problem.Extensions["errorCode"] =
+                "scheduling.appointment_transition_conflict";
+            return problem;
+        }
+
         if (exception is FhirExportNotFoundException or
             FhirExportSourceNotFoundException)
         {

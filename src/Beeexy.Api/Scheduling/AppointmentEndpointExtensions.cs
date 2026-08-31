@@ -66,7 +66,55 @@ internal static class AppointmentEndpointExtensions
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
+        endpoints.MapPost("/api/v1/appointments/{id:guid}/confirm", ConfirmAsync)
+            .WithName("ConfirmAppointment")
+            .WithTags("Scheduling")
+            .WithDescription(
+                "Confirms a requested appointment when the authenticated account has " +
+                "the explicitly configured AppointmentScheduler permission for its " +
+                "clinic. An authorized repeated confirmation is idempotent.")
+            .RequireAuthorization()
+            .Produces<AppointmentSummaryResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        endpoints.MapPost("/api/v1/appointments/{id:guid}/reject", RejectAsync)
+            .WithName("RejectAppointment")
+            .WithTags("Scheduling")
+            .WithDescription(
+                "Rejects a requested appointment when the authenticated account has " +
+                "the explicitly configured AppointmentScheduler permission for its " +
+                "clinic. Rejection releases the slot and an authorized retry is idempotent.")
+            .RequireAuthorization()
+            .Produces<AppointmentSummaryResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
         return endpoints;
+    }
+
+    private static async Task<IResult> ConfirmAsync(
+        Guid id,
+        ConfirmAppointment useCase,
+        CancellationToken cancellationToken)
+    {
+        var result = await useCase.ExecuteAsync(EntityId.From(id), cancellationToken);
+        return Results.Ok(ToSummaryResponse(result.Appointment));
+    }
+
+    private static async Task<IResult> RejectAsync(
+        Guid id,
+        RejectAppointment useCase,
+        CancellationToken cancellationToken)
+    {
+        var result = await useCase.ExecuteAsync(EntityId.From(id), cancellationToken);
+        return Results.Ok(ToSummaryResponse(result.Appointment));
     }
 
     private static async Task<IResult> ListAsync(

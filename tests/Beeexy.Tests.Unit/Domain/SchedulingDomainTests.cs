@@ -147,6 +147,35 @@ public sealed class SchedulingDomainTests
     }
 
     [Fact]
+    public void OppositeAndCancelledSchedulerTransitions_DoNotMutateStateOrHistory()
+    {
+        var actor = EntityId.New();
+        var confirmed = CreateAppointment(reason: null);
+        confirmed.Confirm(actor, CreatedAt.AddMinutes(1));
+        var confirmedVersion = confirmed.Version;
+        var confirmedHistoryCount = confirmed.StatusHistory.Count;
+
+        Assert.Throws<InvalidOperationException>(() =>
+            confirmed.Reject(actor, CreatedAt.AddMinutes(2)));
+        Assert.Equal(confirmedVersion, confirmed.Version);
+        Assert.Equal(confirmedHistoryCount, confirmed.StatusHistory.Count);
+        Assert.True(confirmed.ReservesSlot);
+
+        var cancelled = CreateAppointment(reason: null);
+        cancelled.Cancel(actor, CreatedAt.AddMinutes(1));
+        var cancelledVersion = cancelled.Version;
+        var cancelledHistoryCount = cancelled.StatusHistory.Count;
+
+        Assert.Throws<InvalidOperationException>(() =>
+            cancelled.Confirm(actor, CreatedAt.AddMinutes(2)));
+        Assert.Throws<InvalidOperationException>(() =>
+            cancelled.Reject(actor, CreatedAt.AddMinutes(2)));
+        Assert.Equal(cancelledVersion, cancelled.Version);
+        Assert.Equal(cancelledHistoryCount, cancelled.StatusHistory.Count);
+        Assert.False(cancelled.ReservesSlot);
+    }
+
+    [Fact]
     public void AppointmentRequestFingerprint_RequiresCanonicalSha256Hex()
     {
         Assert.Equal(64, Fingerprint().Value.Length);
