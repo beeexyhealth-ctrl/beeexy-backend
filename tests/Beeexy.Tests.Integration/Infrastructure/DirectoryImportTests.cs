@@ -256,7 +256,9 @@ public sealed class DirectoryImportTests(PostgreSqlContainerFixture postgres) : 
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
         command.CommandText =
-            "TRUNCATE directory.doctor_match_rule_configurations, " +
+            "TRUNCATE scheduling.appointment_reschedule_history, " +
+            "scheduling.appointment_status_history, scheduling.appointments, " +
+            "scheduling.availability_slots, directory.doctor_match_rule_configurations, " +
             "directory.demo_directory_imports, directory.doctor_affiliations, " +
             "directory.doctor_credentials, directory.doctor_insurance_participations, " +
             "directory.doctor_languages, directory.doctor_specialties, " +

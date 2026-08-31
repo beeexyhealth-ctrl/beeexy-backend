@@ -1333,111 +1333,165 @@ None for MVP; no Practitioner/Organization mapping is invented.
 
 ## 1. Objective
 
-Allow authenticated patients to request Beeexy-managed appointment slots and minimally authorized clinic schedulers to confirm or reject requests, while making double booking database-impossible and retaining complete status history.
+Allow authenticated identities with authority over a PatientProfile to request and manage Beeexy-held appointment slots and minimally authorized clinic schedulers to confirm or reject requests, while making double booking database-impossible, preserving clinic-local scheduling semantics, and retaining complete immutable audit history.
 
 ## 2. Scope
 
-- Stored availability slots.
-- Patient booking as `REQUESTED`.
-- Minimal clinic-side backend confirmation/rejection for the MVP/demo, without a clinic portal or full clinic onboarding.
-- Appointment listing/detail, cancellation, and rescheduling.
-- Official status model and immutable transition history.
-- Clinic timezone handling and HTTP 409 conflict behavior.
+- Explicitly stored `AvailabilitySlot` records loaded through an idempotent seed/import mechanism that references the Doctor, Clinic, and Location directory entities from Phase 7.
+- Public discovery of published, future, currently unreserved slots, with explicit query ranges and a bounded default window.
+- Authenticated appointment booking that always creates the Appointment as `Requested`, immediately reserves its slot, and is idempotent within the authenticated-account boundary.
+- Appointment listing/detail, patient cancellation from `Requested` or `Confirmed`, and transactional rescheduling from `Requested` or `Confirmed` without changing Appointment identity or status.
+- Minimal clinic-side confirmation/rejection through the clinic-scoped `AppointmentScheduler` permission, without a clinic portal, clinic accounts, or full Doctor/Clinic RBAC.
+- Official status model, immutable append-only status history, separate auditable reschedule records, concurrency-safe mutations, and stable `ProblemDetails` errors.
+- Explicit clinic timezone and UTC-instant handling, `InPerson` and `Virtual` modalities, and database-enforced prevention of duplicate slot reservations.
 
 ## 3. Explicitly Out of Scope
 
-- Payments/copays, automatic Pre-Triage sharing, Google Meet implementation, clinic portal, clinic onboarding, intake-form replacement claims, full future Doctor/Clinic roles and permissions, and clinic transitions beyond the minimum confirm/reject mechanism.
+- Payments, copays, Stripe/payment-provider integration, Google Meet or other video-meeting implementation, Google Calendar, Outlook Calendar, external calendar synchronization, and automatic recurring slot generation.
+- Recurring availability management, availability-management APIs, clinic scheduling administration UI, clinic portal, clinic onboarding, clinic accounts, full Doctor/Clinic roles, general permission administration, and production permission-policy administration.
+- FHIR Appointment generation/export, automatic Pre-Triage sharing, Clinical History sharing, intake-form replacement, AI scheduling, and any scheduling-triggered clinical-data sharing or consent change.
+- Arbitrary time-range overlap scheduling, `Completed` transition API, `NoShow` transition API, and clinic transitions beyond the minimum confirm/reject mechanism.
+- Speculative infrastructure for deferred capabilities, including a video-meeting provider abstraction when no current domain boundary needs meeting metadata.
 
 ## 4. Domain Model
 
-- Entities: `AvailabilitySlot`, `Appointment`, `AppointmentStatusHistory`.
-- Statuses: `Requested`, `Confirmed`, `Cancelled`, `Completed`, `NoShow`, `Rejected`.
-- Value objects: appointment modality, clinic timezone, reason, idempotency key.
-- MVP transitions include `Requested -> Confirmed`, `Requested -> Rejected`, and `Confirmed -> Cancelled`; confirm/reject accept only `Requested` appointments, while a retry of the already-applied same transition is idempotent and any opposite/otherwise invalid transition returns `409`.
-- Invariants: new appointment is Requested; appointments are never deleted; cancelled/rejected rows remain; every transition records previous status, new status, actor, and timestamp in `AppointmentStatusHistory`; reschedule is transactional; booking shares no clinical data.
+- Entities: `AvailabilitySlot`, `Appointment`, immutable `AppointmentStatusHistory`, and an immutable append-only Appointment reschedule audit record. A reschedule audit record captures the Appointment, old and new slots, actor, and UTC timestamp; it does not manufacture a status transition.
+- Official statuses remain `Requested`, `Confirmed`, `Cancelled`, `Completed`, `NoShow`, and `Rejected`. `Completed` and `NoShow` belong to the domain model, but their transition APIs are deferred beyond Phase 8.
+- A new Appointment always starts as `Requested`. Allowed Phase 8 status transitions are `Requested -> Confirmed`, `Requested -> Rejected`, `Requested -> Cancelled`, and `Confirmed -> Cancelled`. Confirm/reject accept only `Requested`; cancellation accepts only `Requested` or `Confirmed`.
+- `Requested` and `Confirmed` reserve the selected slot. `Rejected` and `Cancelled` release it. Appointments and their audit/history records are never physically deleted.
+- An already successfully applied identical action is idempotent where appropriate, including same-action confirm/reject retries. An opposite or otherwise invalid transition returns `409 Conflict` and changes neither Appointment state nor history.
+- `Requested` and `Confirmed` appointments may be rescheduled without a maximum count or minimum time-before-appointment restriction. Rescheduling preserves Appointment identity and current status, and atomically reserves the target before releasing the old slot. Failure to reserve the target rolls the complete operation back, retains the old slot association, and returns `409 Conflict` for a reservation conflict.
+- `AvailabilitySlot` identifies or references its doctor, clinic, location, start instant, end instant, clinic timezone, supported modality, and publication/availability state. Only published, future, currently unreserved slots are discoverable or bookable; past and unpublished slots cannot be booked.
+- Demo seed slots use 30-minute durations unless existing Phase 7/demo data explicitly requires otherwise. Duration is represented by start/end instants, and the domain does not assume all future slots are 30 minutes. Interval calculations use half-open `[start, end)` semantics.
+- Clinic timezone is an explicit IANA identifier and is never inferred from server timezone, deployment region, patient device, or browser. Slot and Appointment instants use an unambiguous UTC representation while retaining clinic timezone for clinic-local interpretation/display. New York demo clinics use `America/New_York` unless their imported directory configuration supplies another correct timezone.
+- Appointment modality is an extensible value/enum with Phase 8 values `InPerson` and `Virtual`. The requested modality must equal the slot modality; mismatch is `422 Unprocessable Entity`. `Virtual` does not mean that Beeexy creates a video meeting.
+- Appointment reason is optional sensitive free text with a maximum length of 500 characters. It is not interpreted by AI, converted to a clinical category, or supplied to Pre-Triage.
+- Appointment request idempotency key is a client-supplied UUID scoped to authenticated account + idempotency key. Keys do not expire in Phase 8; an identical retry returns the original Appointment, while incompatible payload reuse returns `409 Conflict`.
+- Appointment creation appends an initial `AppointmentStatusHistory` entry with null/not-applicable previous status and new status `Requested`. Every applied status transition appends exactly one entry containing Appointment, previous/new status, actor, UTC timestamp, and an action/transition type where needed. Entries are ordered, immutable, and never updated or deleted.
+- The aggregate permits future stricter cancellation and rescheduling policies without redesign; Phase 8 has no minimum cancellation/rescheduling lead time, cancellation penalty, payment consequence, or reschedule limit.
 
 ## 5. Database Changes
 
-- `scheduling.availability_slots`, `appointments`, `appointment_status_history`.
-- UUID PKs; doctor/clinic/location/patient/slot FKs.
-- Unique partial index permits at most one reserving appointment per slot; cancelled/rejected records remain but release the slot.
-- Unique account/idempotency key.
-- Index patient/time/status, doctor/time, clinic/time.
-- Transactions and constraint-to-409 translation; future range overlap constraints deferred.
+- Add `scheduling.availability_slots`, `appointments`, `appointment_status_history`, and durable append-only reschedule-audit storage, using UUID primary keys and Doctor/Clinic/Location/PatientProfile/slot foreign keys as applicable.
+- Store appointment/slot instants as UTC instants and retain the slot's explicit IANA clinic timezone. API representations are unambiguous ISO-8601 values.
+- Enforce a PostgreSQL unique partial index/constraint (or equivalent database invariant) allowing at most one Appointment whose status is `Requested` or `Confirmed` for a slot. `Rejected` and `Cancelled` rows remain but do not reserve the slot; future arbitrary time-range overlap detection is deferred.
+- Enforce unique authenticated account + idempotency key, persist the UUID key and sufficient canonical request identity/fingerprint to distinguish identical retries from incompatible reuse, and retain these records without Phase 8 expiry.
+- Index patient/time/status, doctor/time, and clinic/time for the required availability and Appointment queries.
+- Use database transactions plus existing Beeexy/EF Core concurrency patterns for creation, status transitions, history append, cancellation, and rescheduling. Concurrent incompatible mutations such as confirm versus reject allow at most one valid transition; the loser returns `409` without duplicate history, corrupt slot ownership, or partial updates.
+- Translate the expected reservation/idempotency/concurrency constraint violations into stable scheduling `ProblemDetails` conflict responses. Two concurrent requests for one slot must yield exactly one successful Appointment and one `409`.
+- Preserve historical Appointment integrity when referenced directory records change or become unpublished: unpublishing never cascades to delete an Appointment. Do not add full Doctor/Clinic/Location snapshots unless an existing architectural requirement already mandates them.
 
 ## 6. API Endpoints
 
 | Method / route | Authentication | Authorization | Purpose | Response | Validation and errors |
 |---|---|---|---|---|---|
-| `GET /api/v1/doctors/{doctorId}/slots` | None | Public published inventory | List available future slots | `200` | Doctor `404`; invalid range `422` |
-| `POST /api/v1/appointments` | Bearer | Owner/active manager for patient | Request a slot | `201` Requested appointment | Slot conflict `409`; unauthorized patient `404`; expired/modality mismatch `422` |
-| `GET /api/v1/appointments` | Bearer | Accessible patients only | List appointments | `200` page | Invalid filter/cursor `422` |
-| `GET /api/v1/appointments/{id}` | Bearer | Appointment patient authority | Detail + status history | `200` | Concealed `404` |
-| `POST /api/v1/appointments/{id}/confirm` | Bearer | `AppointmentScheduler` permission for appointment clinic | Confirm a requested appointment | `200` Confirmed appointment | Repeat confirm idempotent; absent `404`; unauthorized `403`; invalid transition/concurrency `409` |
-| `POST /api/v1/appointments/{id}/reject` | Bearer | `AppointmentScheduler` permission for appointment clinic | Reject and retain a requested appointment | `200` Rejected appointment | Repeat reject idempotent; absent `404`; unauthorized `403`; invalid transition/concurrency `409` |
-| `POST /api/v1/appointments/{id}/cancel` | Bearer | Patient authority under current MVP rules | Cancel and retain | `200` | Invalid transition/concurrency `409`; `404` |
-| `POST /api/v1/appointments/{id}/reschedule` | Bearer | Patient authority under current MVP rules | Move request transactionally | `200` | Target slot conflict `409`; invalid state `409`; `404/422` |
+| `GET /api/v1/doctors/{doctorId}/slots` | None | Public published inventory | List only future, published, unreserved slots in an optional explicit time range; default next 30 days, maximum 90-day window | `200` | Unknown doctor `404`; invalid/over-limit range `422` |
+| `POST /api/v1/appointments` | Bearer | Existing authority over `patientId` PatientProfile | Request `{ patientId, slotId, modality, idempotencyKey, reason? }`; `reason` max 500; key is UUID | `201` Requested appointment; identical retry returns original Appointment | Concealed patient `404`; duplicate reservation or incompatible key reuse `409`; past/unpublished slot, modality mismatch, or domain validation `422` |
+| `GET /api/v1/appointments` | Bearer | Existing authority over returned PatientProfiles | Cursor-paginated list with patient, status, and relevant time-range/upcoming-versus-historical filters | `200` page, including cancelled/rejected records | Invalid filter/cursor `422`; inaccessible patient resources follow concealed `404` rules where applicable |
+| `GET /api/v1/appointments/{id}` | Bearer | Existing authority over Appointment PatientProfile | Scheduling detail plus complete ordered status history | `200` | Nonexistent or inaccessible Appointment `404`; no automatic Pre-Triage/Clinical History data |
+| `POST /api/v1/appointments/{id}/confirm` | Bearer | `AppointmentScheduler` for Appointment clinic | Apply `Requested -> Confirmed` | `200` Confirmed appointment | Repeat confirm idempotent; nonexistent `404`; missing/cross-clinic permission `403`; invalid transition/concurrency `409` |
+| `POST /api/v1/appointments/{id}/reject` | Bearer | `AppointmentScheduler` for Appointment clinic | Apply `Requested -> Rejected`, retain Appointment, release slot | `200` Rejected appointment | Repeat reject idempotent; nonexistent `404`; missing/cross-clinic permission `403`; invalid transition/concurrency `409` |
+| `POST /api/v1/appointments/{id}/cancel` | Bearer | Existing authority over Appointment PatientProfile | Apply `Requested/Confirmed -> Cancelled`, retain Appointment, release slot | `200` Cancelled appointment | Nonexistent/inaccessible `404`; repeat cancellation idempotent where appropriate; invalid transition/concurrency `409` |
+| `POST /api/v1/appointments/{id}/reschedule` | Bearer | Existing authority over Appointment PatientProfile | Transactionally move a `Requested` or `Confirmed` Appointment to a compatible target slot while preserving identity/status | `200` rescheduled appointment | Nonexistent/inaccessible `404`; unavailable target `409`; invalid state/concurrency `409`; past/unpublished target or modality/domain validation `422` |
+
+All eight endpoints use existing Beeexy `ProblemDetails` and stable machine-readable error codes: `401` for missing/invalid authentication; `403` for an authenticated scheduler without the required clinic scope; `404` for nonexistent or deliberately concealed inaccessible resources; `409` for double booking, concurrency conflict, incompatible idempotency reuse, or invalid transition; and `422` for a syntactically valid request that violates scheduling/domain validation. No second error envelope is introduced.
 
 ## 7. Application / Use Cases
 
 - `ListAvailableSlots`, `RequestAppointment`, `ListAppointments`, `GetAppointment`, `ConfirmAppointment`, `RejectAppointment`, `CancelAppointment`, `RescheduleAppointment`.
-- State machine, transition history, idempotency, and database-conflict mapping.
-- Future `IVideoMeetingProvider` contract is defined only if needed by the domain boundary.
+- Provide an idempotent availability seed/import path for demo inventory; do not add availability-management APIs. Seeded slots reference Phase 7 directory entities and use their configured clinic timezone.
+- `ListAvailableSlots` applies the future/published/unreserved rules, optional range, 30-day default, 90-day maximum, and half-open interval semantics.
+- `RequestAppointment` validates PatientProfile authority, required request fields, UUID idempotency key, modality equality, slot publication/future state, and optional reason length before atomically creating the `Requested` Appointment, initial history entry, and reservation. Booking invokes neither Pre-Triage nor any clinical-sharing flow.
+- State transitions validate the official state machine and actor, update state/reservation, and append exactly one immutable history entry in one transaction. Same-action success retries are idempotent; incompatible or losing concurrent transitions are `409` and do not mutate state/history.
+- Cancellation has no Phase 8 minimum lead time, penalty, or payment consequence and applies from `Requested` or `Confirmed`. Its policy boundary remains replaceable by stricter future rules.
+- Rescheduling has no Phase 8 minimum lead time or count limit, preserves identity/status, creates an immutable reschedule audit record, and reserves the target before releasing the old slot within one transaction. Any failure rolls back all changes.
+- Map expected database reservation, idempotency, and concurrency failures to stable `409` `ProblemDetails`; map scheduling validation failures to stable `422` codes.
+- Define `IVideoMeetingProvider` only if a genuine current domain boundary requires meeting metadata; otherwise introduce no placeholder or speculative infrastructure.
 
 ## 8. Authentication and Authorization
 
 - Slot discovery is anonymous.
-- Booking/history and patient cancellation/rescheduling require bearer authentication and patient authority.
-- Confirm/reject require bearer authentication and a narrow `AppointmentScheduler` permission scoped to the appointment's clinic. For the MVP/demo, this permission is assigned only to explicitly approved authenticated demo identities through deployment configuration/seed data and grants no patient-clinical-data access.
-- Full Doctor/Clinic role modeling, onboarding, permission administration, and portals remain POST-MVP/TBD.
+- Booking, Appointment listing/detail, cancellation, and rescheduling require bearer authentication and reuse the existing PatientProfile authority model; no scheduling-specific ownership model is created.
+- Patient authority includes the patient/profile owner and an active authorized manager/dependent relationship supported by the existing system. Revocation immediately removes the corresponding scheduling authority; booking never grants authority.
+- Use the existing concealed `404` behavior where required to hide inaccessible patient resources. Missing/invalid authentication is `401`.
+- Confirm/reject require bearer authentication and only the narrow `AppointmentScheduler` permission scoped by `clinicId`. A scheduler may act for multiple clinics only when explicitly assigned to each and may confirm/reject only Appointments for an assigned clinic.
+- Approved scheduler identities and clinic assignments are explicit deployment/demo seed configuration, not hard-coded domain rules or an architectural blocker. Authenticated identities missing the permission, including a scheduler for another clinic, receive `403`; nonexistent Appointment is `404`; invalid transition is `409`.
+- `AppointmentScheduler` grants no implicit access to Pre-Triage, Clinical History, FHIR exports, clinical profile information, or other patient clinical data. Full Doctor/Clinic RBAC, onboarding, permission administration, clinic accounts, and portals remain deferred.
 
 ## 9. Security and Privacy
 
-- Appointment reason is sensitive and excluded from logs.
-- Booking never grants doctor access to Pre-Triage or profile.
-- Confirmation, rejection, and cancellation are audited status transitions, never deletion.
+- Treat Appointment reason as sensitive: never log it, clinical text, or complete Appointment request payloads, and exclude reason from telemetry payloads. Non-sensitive operational identifiers and transition metadata may be logged only as required for audit/diagnostics.
+- Booking and confirmation do not share or expose Pre-Triage; booking does not expose Clinical History; scheduling does not alter clinical consent; and no Appointment operation implicitly shares Pre-Triage, Clinical History, FHIR exports, or other clinical information.
+- Booking never grants additional patient authority, and `AppointmentScheduler` never grants clinical-data access.
+- Creation, confirmation, rejection, cancellation, and rescheduling are durably audited. Status history and reschedule audit records are append-only and immutable; Appointments are never deleted.
 
 ## 10. External Integrations
 
 - **IMPLEMENT NOW:** none.
-- **INTERFACE/PLACEHOLDER:** `IVideoMeetingProvider` only if appointment model requires meeting metadata.
-- **POST-MVP:** Google Meet, payments, external calendars.
+- **INTERFACE/PLACEHOLDER:** none by default. Define `IVideoMeetingProvider` only if a genuine Phase 8 domain requirement for meeting metadata emerges; `Virtual` alone is not such a requirement.
+- **POST-MVP:** Google Meet or other video meetings, payments/copays, Google/Outlook Calendar, and other external-calendar synchronization.
 
 ## 11. FHIR Impact
 
-No FHIR is generated in Phase 8. Any later Appointment export in Phase 6 must follow `Backend/docs/fhir/beeexy-coleccion-recursos.md`; no appointment mapping is invented here.
+No FHIR Appointment is generated or exported in Phase 8, and scheduling never implicitly exposes existing FHIR exports. Any later Appointment mapping/export must follow `docs/fhir/beeexy-coleccion-recursos.md`; no mapping is invented here.
 
 ## 12. Tests
 
-- Two concurrent booking requests for one slot: exactly one success, one `409`.
-- Idempotent booking retry returns original appointment.
-- Initial status always Requested.
-- Authenticated/authorized `Requested -> Confirmed` and `Requested -> Rejected` API/integration tests, including same-action idempotent retries and exactly one status-history entry per applied transition.
-- Missing scheduling permission is rejected; cross-clinic permission cannot confirm/reject; opposite and other invalid transitions return `409` without changing history.
-- `Requested -> Confirmed -> Cancelled` and `Requested -> Rejected` retain the complete ordered status history; rejected appointments release the slot without deletion.
-- Allowed/invalid cancellation and reschedule transitions; transaction rollback.
-- Cancelled records/history retained and slot release behavior.
-- Clinic timezone and DST boundaries.
-- No implicit clinical sharing.
-- Mandatory endpoint test matrix for all eight endpoints, including API/integration coverage for confirm and reject.
+- Domain tests cover initial `Requested`, all allowed Phase 8 transitions, rejected invalid/opposite transitions, same-action idempotency, reservation/release rules, reason length, modality matching, and the lack of Phase 8 lead-time/reschedule-count restrictions.
+- Persistence/integration tests prove the partial unique reservation invariant, retained cancelled/rejected records, non-expiring account-scoped idempotency, identical retry response, incompatible-key reuse `409`, ordered immutable status history, exactly one history entry per applied transition, and separately auditable reschedules.
+- Concurrency integration tests issue two simultaneous bookings for one slot and require exactly one success and one `409`; concurrent confirm versus reject (and equivalent incompatible mutations) permit one winner, one `409`, one applied history entry, and consistent slot ownership.
+- Rescheduling tests cover both `Requested` and `Confirmed`, preserved identity/status, successful atomic target reservation/old-slot release, and complete rollback to the previous slot when target reservation fails.
+- Authorization tests cover patient owner, active manager/dependent authority, revoked authority, concealed `404`, unauthenticated `401`, missing scheduler permission `403`, cross-clinic scheduler `403`, multiple explicitly assigned clinic scopes, and absence of clinical-data access from scheduling permission.
+- Availability/API tests cover only future/published/unreserved results, past/unpublished booking rejection, unknown doctor `404`, default 30-day and maximum 90-day ranges, invalid range `422`, half-open boundaries, explicit IANA timezone round-trips, and DST boundary behavior.
+- Security tests or test-safe telemetry assertions prove reason and complete request payloads are absent from application logs/telemetry and that booking/confirmation do not invoke Pre-Triage, expose Clinical History/FHIR data, or alter consent.
+- Apply the mandatory endpoint matrix to all eight Phase 8 endpoints: success, validation, authentication, authorization/ownership, missing-resource, conflict/idempotency where applicable, persistence side effects, response contract, and regression coverage.
+- Run the complete existing test suite in addition to the Phase 8 domain, application, persistence, concurrency, security, and API/integration tests.
 
 ## 13. Acceptance Criteria
 
-- Database constraint prevents duplicate reservation under concurrency.
-- Appointments start Requested and support at least `Requested -> Confirmed`, `Requested -> Rejected`, and `Confirmed -> Cancelled`, retaining complete status history without deletion.
-- Only an authenticated identity with the clinic-scoped MVP/demo scheduling permission can confirm/reject, and invalid transitions return `409`.
-- Patient authorization and timezone behavior are verified.
-- All tests pass.
+1. All eight Phase 8 endpoints are implemented.
+2. Appointment creation always starts as `Requested` and creates its initial history entry.
+3. `Requested` immediately reserves the selected slot.
+4. Database constraints prevent duplicate reservations.
+5. Two concurrent booking attempts for one slot produce exactly one success and one `409`.
+6. An identical account-scoped booking retry returns the originally created Appointment without another reservation.
+7. Incompatible reuse of the same idempotency key returns `409`.
+8. `Requested -> Confirmed` works.
+9. `Requested -> Rejected` works.
+10. Patient cancellation works from both `Requested` and `Confirmed` without a Phase 8 lead-time rule, penalty, or deletion.
+11. Rejected and cancelled Appointments release their slots.
+12. Appointment records remain queryable and are never physically deleted.
+13. Complete ordered status history is immutable and contains the creation entry plus exactly one entry per applied transition.
+14. Same-action confirm/reject retries are idempotent.
+15. Opposite/invalid or losing concurrent transitions return `409` without changing Appointment state/history, duplicating history, or corrupting slot ownership.
+16. Rescheduling from `Requested` and `Confirmed` preserves Appointment identity/status and is transactional.
+17. A failed target-slot reservation returns the appropriate error, rolls back completely, and leaves the Appointment associated with its previous slot.
+18. Every successful reschedule is separately and immutably auditable without a fake status transition.
+19. Patient/profile-owner and active manager/dependent authority are enforced consistently for booking, list, detail, cancellation, and rescheduling.
+20. Revoked PatientProfile management authority is respected, and booking grants no new authority.
+21. `AppointmentScheduler` is clinic-scoped, with explicitly multi-clinic assignments limited to their configured clinics.
+22. Missing and cross-clinic scheduler permissions fail with `403`.
+23. Scheduler permission grants no clinical-data access.
+24. Clinic IANA timezone, UTC persistence/API representation, clinic-local display interpretation, and DST boundary behavior are verified without dependence on server/device/browser timezone.
+25. Appointment reason validation enforces optional free text up to 500 characters, and reason/complete request payload content is absent from application logs and telemetry.
+26. Booking/confirmation neither invoke nor share Pre-Triage, expose Clinical History/FHIR data, nor alter clinical consent.
+27. All eight endpoints pass the mandatory API/integration test matrix, including existing `ProblemDetails` and defined `401`/`403`/`404`/`409`/`422` semantics.
+28. The complete existing test suite remains green.
 
 ## 14. Dependencies
 
-- Phases 2 and 7 are required. Phase 3 is required only when appointment operations involve managed/dependent PatientProfiles.
-- Approved patient cancel/reschedule rules and seed availability.
-- Explicitly approved demo scheduler identities and their clinic assignments for the narrow `AppointmentScheduler` permission.
+- Phase 2 identity/authentication and existing PatientProfile authority.
+- Phase 7 Doctor, Clinic, and Location directory entities and imported configuration, which scheduling references rather than duplicates.
+- Phase 3 only for Appointment operations involving managed/dependent PatientProfiles.
+- Explicit deployment/demo selection and seed configuration of authenticated scheduler identities and clinic assignments for `AppointmentScheduler`. The exact email/account values are operational configuration supplied before the clinic-side demo, not an architectural or product-decision blocker.
 
 ## 15. Deferred / TBD Items
 
-- Completion/no-show and other clinic transition APIs, full Doctor/Clinic authorization and permission administration, onboarding/portal workflows, exact production permission windows, arbitrary range overlap, Google Meet, intake integration, payments, and billing.
+- Stricter production cancellation/rescheduling windows, penalties, limits, and broader clinic transition policy; `Completed` and `NoShow` transition APIs.
+- Recurring availability management/generation, clinic scheduling administration UI, availability-management APIs, arbitrary time-range overlap scheduling, and external calendar synchronization.
+- Clinic portal/accounts/onboarding, full Doctor/Clinic RBAC, general permission administration, and production scheduler-assignment workflows.
+- Google Meet or other video-meeting integration, Google/Outlook Calendar integration, payments, copays, billing, and payment providers.
+- FHIR Appointment generation/export, automatic Pre-Triage or Clinical History sharing, intake-form integration/replacement, and AI scheduling.
 
 ---
 
@@ -2134,7 +2188,6 @@ When a phase is explicitly authorized:
 - **Phase 2:** Final demographic requirements beyond the fields explicitly documented in `Backend/docs/fhir/` remain TBD.
 - **Phase 4:** medically approved questionnaire, urgency model, red flags, rules, and messages.
 - **Phase 7:** product approval of a synthetic/demo directory dataset and deterministic demo matching factors/weights is required; authoritative real directory data, real credentialing, and production matching rules/validation do not block the MVP/demo.
-- **Phase 8:** final patient cancel/reschedule rules and approved demo scheduler identity/clinic assignments; advanced Doctor/Clinic authorization is POST-MVP and does not block the minimum confirm/reject mechanism.
 - **Phase 9:** approved follow-up rules, intervals, escalation actions, and Care Guide templates.
 - **Phase 10:** AI provider, prompt/safety policy, supported inputs, limits, and credentials.
 - **Phase 11:** share duration defaults and frontend public share URL.

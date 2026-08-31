@@ -3,6 +3,7 @@ using Beeexy.Domain.Identity;
 using Beeexy.Domain.History;
 using Beeexy.Domain.Interoperability;
 using Beeexy.Domain.Patients;
+using Beeexy.Domain.Scheduling;
 using Beeexy.Domain.Triage;
 using Microsoft.EntityFrameworkCore;
 
@@ -58,6 +59,16 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
 
     public DbSet<CareRelationship> CareRelationships => Set<CareRelationship>();
 
+    public DbSet<AvailabilitySlot> AvailabilitySlots => Set<AvailabilitySlot>();
+
+    public DbSet<Appointment> Appointments => Set<Appointment>();
+
+    public DbSet<AppointmentStatusHistory> AppointmentStatusHistory =>
+        Set<AppointmentStatusHistory>();
+
+    public DbSet<AppointmentRescheduleHistory> AppointmentRescheduleHistory =>
+        Set<AppointmentRescheduleHistory>();
+
     public DbSet<UserPreference> UserPreferences => Set<UserPreference>();
 
     public DbSet<PreTriageSession> PreTriageSessions => Set<PreTriageSession>();
@@ -100,5 +111,40 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
     {
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(BeeexyDbContext).Assembly);
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        EnsureSchedulingAuditIsAppendOnly();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureSchedulingAuditIsAppendOnly();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void EnsureSchedulingAuditIsAppendOnly()
+    {
+        var auditMutation = ChangeTracker.Entries()
+            .FirstOrDefault(entry =>
+                (entry.Entity is AppointmentStatusHistory ||
+                 entry.Entity is AppointmentRescheduleHistory) &&
+                entry.State is EntityState.Modified or EntityState.Deleted);
+        if (auditMutation is not null)
+        {
+            throw new InvalidOperationException(
+                "Scheduling history records are append-only and cannot be changed or deleted.");
+        }
+
+        if (ChangeTracker.Entries<Appointment>()
+            .Any(entry => entry.State == EntityState.Deleted))
+        {
+            throw new InvalidOperationException(
+                "Appointments are historical records and cannot be deleted.");
+        }
     }
 }
