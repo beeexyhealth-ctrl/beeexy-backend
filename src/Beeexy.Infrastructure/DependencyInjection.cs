@@ -57,6 +57,7 @@ public static class DependencyInjection
         services.AddSingleton<AvailabilityImportPackageValidator>();
         services.AddScoped<IAvailabilityImporter, AvailabilityImporter>();
         services.AddScoped<IAvailabilitySlotReadRepository, AvailabilitySlotReadRepository>();
+        services.AddScoped<IAppointmentRequestTransaction, AppointmentRequestTransaction>();
         services.AddSingleton(emailChallengePolicy);
         services.AddSingleton(authenticationTokenPolicy);
         services.AddSingleton<IOneTimePasswordGenerator, CryptographicOneTimePasswordGenerator>();

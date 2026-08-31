@@ -4,6 +4,7 @@ using Beeexy.Application.History;
 using Beeexy.Application.Identity;
 using Beeexy.Application.Interoperability;
 using Beeexy.Application.Patients;
+using Beeexy.Application.Scheduling;
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
 using Microsoft.AspNetCore.Diagnostics;
@@ -200,6 +201,42 @@ internal sealed class ApiExceptionHandler(
                 Title = "Doctor not found.",
                 Detail = "The requested doctor could not be found."
             };
+        }
+
+        if (exception is AppointmentNotFoundException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Appointment request target not found.",
+                Detail = "The requested appointment target could not be found."
+            };
+            problem.Extensions["errorCode"] = "scheduling.appointment_target_not_found";
+            return problem;
+        }
+
+        if (exception is AppointmentSlotReservationConflictException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Availability slot conflict.",
+                Detail = "The selected availability slot is already reserved."
+            };
+            problem.Extensions["errorCode"] = "scheduling.slot_reserved";
+            return problem;
+        }
+
+        if (exception is AppointmentIdempotencyConflictException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Appointment request conflict.",
+                Detail = "The idempotency key was already used for a different appointment request."
+            };
+            problem.Extensions["errorCode"] = "scheduling.idempotency_key_reused";
+            return problem;
         }
 
         if (exception is FhirExportNotFoundException or
