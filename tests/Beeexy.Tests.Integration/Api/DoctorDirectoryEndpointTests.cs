@@ -371,7 +371,7 @@ public sealed class DoctorDirectoryEndpointTests(PostgreSqlContainerFixture post
         var detail = paths.GetProperty("/api/v1/doctors/{id}").GetProperty("get");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(41, paths.EnumerateObject().Count());
+        Assert.Equal(42, paths.EnumerateObject().Count());
         Assert.Equal(3, paths.EnumerateObject().Count(path =>
             path.Name.StartsWith("/api/v1/doctors", StringComparison.Ordinal)));
         Assert.False(search.TryGetProperty("security", out _));

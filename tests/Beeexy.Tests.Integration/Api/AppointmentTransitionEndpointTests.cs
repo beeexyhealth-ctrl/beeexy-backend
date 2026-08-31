@@ -198,14 +198,14 @@ public sealed class AppointmentTransitionEndpointTests(
     }
 
     [Fact]
-    public async Task OpenApiDocumentsBothBearerActionsAndFortyOnePaths()
+    public async Task OpenApiDocumentsBothBearerActionsAndFortyTwoPaths()
     {
         using var client = factory.CreateApiClient();
         using var response = await client.GetAsync("/swagger/v1/swagger.json");
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var paths = document.RootElement.GetProperty("paths");
 
-        Assert.Equal(41, paths.EnumerateObject().Count());
+        Assert.Equal(42, paths.EnumerateObject().Count());
         foreach (var action in new[] { "confirm", "reject" })
         {
             var operation = paths

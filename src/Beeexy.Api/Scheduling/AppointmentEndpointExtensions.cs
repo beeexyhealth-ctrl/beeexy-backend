@@ -96,6 +96,21 @@ internal static class AppointmentEndpointExtensions
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
+        endpoints.MapPost("/api/v1/appointments/{id:guid}/cancel", CancelAsync)
+            .WithName("CancelAppointment")
+            .WithTags("Scheduling")
+            .WithDescription(
+                "Cancels a requested or confirmed appointment when the authenticated " +
+                "account currently owns or actively manages its patient profile. " +
+                "Cancellation releases the slot without deleting appointment history, " +
+                "and an authorized repeated cancellation is idempotent.")
+            .RequireAuthorization()
+            .Produces<AppointmentSummaryResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
         return endpoints;
     }
 
@@ -111,6 +126,15 @@ internal static class AppointmentEndpointExtensions
     private static async Task<IResult> RejectAsync(
         Guid id,
         RejectAppointment useCase,
+        CancellationToken cancellationToken)
+    {
+        var result = await useCase.ExecuteAsync(EntityId.From(id), cancellationToken);
+        return Results.Ok(ToSummaryResponse(result.Appointment));
+    }
+
+    private static async Task<IResult> CancelAsync(
+        Guid id,
+        CancelAppointment useCase,
         CancellationToken cancellationToken)
     {
         var result = await useCase.ExecuteAsync(EntityId.From(id), cancellationToken);

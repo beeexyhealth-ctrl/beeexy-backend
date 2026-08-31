@@ -106,7 +106,9 @@ public sealed class TransitionAppointment(
         if (state.Appointment.Status == targetStatus)
         {
             await transaction.CommitAsync(cancellationToken);
-            return new AppointmentTransitionResult(ToSummary(state), NewlyApplied: false);
+            return new AppointmentTransitionResult(
+                AppointmentTransitionProjection.ToSummary(state),
+                NewlyApplied: false);
         }
 
         try
@@ -122,7 +124,9 @@ public sealed class TransitionAppointment(
         {
             await transaction.SaveAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            return new AppointmentTransitionResult(ToSummary(state), NewlyApplied: true);
+            return new AppointmentTransitionResult(
+                AppointmentTransitionProjection.ToSummary(state),
+                NewlyApplied: true);
         }
         catch (AppointmentTransitionConcurrencyException)
         {
@@ -134,7 +138,9 @@ public sealed class TransitionAppointment(
                 throw new AppointmentTransitionConflictException();
             }
 
-            return new AppointmentTransitionResult(ToSummary(reloaded), NewlyApplied: false);
+            return new AppointmentTransitionResult(
+                AppointmentTransitionProjection.ToSummary(reloaded),
+                NewlyApplied: false);
         }
     }
 
@@ -168,7 +174,11 @@ public sealed class TransitionAppointment(
         }
     }
 
-    private static AppointmentSummary ToSummary(AppointmentTransitionState state) => new(
+}
+
+internal static class AppointmentTransitionProjection
+{
+    public static AppointmentSummary ToSummary(AppointmentTransitionState state) => new(
         state.Appointment.Id,
         state.Appointment.PatientProfileId,
         state.Appointment.AvailabilitySlotId,

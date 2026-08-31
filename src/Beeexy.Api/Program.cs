@@ -144,6 +144,7 @@ builder.Services.AddScoped<GetAppointment>();
 builder.Services.AddScoped<TransitionAppointment>();
 builder.Services.AddScoped<ConfirmAppointment>();
 builder.Services.AddScoped<RejectAppointment>();
+builder.Services.AddScoped<CancelAppointment>();
 builder.Services.AddSingleton<DeterministicDoctorMatchEngine>();
 builder.Services.AddScoped<CalculateDoctorMatch>();
 builder.Services.AddScoped<ProvisionAccountAndPrimaryProfile>();

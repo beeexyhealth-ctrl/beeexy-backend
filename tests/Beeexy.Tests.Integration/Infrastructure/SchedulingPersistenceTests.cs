@@ -228,6 +228,64 @@ public sealed class SchedulingPersistenceTests(PostgreSqlContainerFixture postgr
         Assert.Equal(AppointmentStatusAction.Confirmation, history[1].Action);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task StaleCancellationCannotFollowConcurrentSchedulerTransition(
+        bool confirmWins)
+    {
+        await EnsureMigratedAsync();
+        var graph = CreateGraph(slotCount: 1);
+        var appointment = CreateAppointment(graph, graph.Slots[0]);
+        await using (var setup = CreateDbContext())
+        {
+            AddGraph(setup, graph);
+            setup.Appointments.Add(appointment);
+            await setup.SaveChangesAsync();
+        }
+
+        await using var cancellationContext = CreateDbContext();
+        await using var schedulerContext = CreateDbContext();
+        var staleCancellation = await cancellationContext.Appointments
+            .Include(value => value.StatusHistory)
+            .SingleAsync(value => value.Id == appointment.Id);
+        var schedulerTransition = await schedulerContext.Appointments
+            .Include(value => value.StatusHistory)
+            .SingleAsync(value => value.Id == appointment.Id);
+        staleCancellation.Cancel(graph.Account.Id, CreatedAt.AddMinutes(2));
+        if (confirmWins)
+        {
+            schedulerTransition.Confirm(graph.Account.Id, CreatedAt.AddMinutes(1));
+        }
+        else
+        {
+            schedulerTransition.Reject(graph.Account.Id, CreatedAt.AddMinutes(1));
+        }
+
+        await schedulerContext.SaveChangesAsync();
+        var losingException = await Assert.ThrowsAsync<DbUpdateException>(() =>
+            cancellationContext.SaveChangesAsync());
+        AssertUniqueViolation(
+            losingException,
+            "ux_appointment_status_history_appointment_sequence");
+
+        await using var verify = CreateDbContext();
+        var saved = await verify.Appointments.AsNoTracking()
+            .SingleAsync(value => value.Id == appointment.Id);
+        var history = await verify.AppointmentStatusHistory.AsNoTracking()
+            .Where(value => value.AppointmentId == appointment.Id)
+            .OrderBy(value => value.Sequence)
+            .ToListAsync();
+        var winningStatus = confirmWins
+            ? AppointmentStatus.Confirmed
+            : AppointmentStatus.Rejected;
+        Assert.Equal(winningStatus, saved.Status);
+        Assert.Equal(2, saved.Version);
+        Assert.Equal([1L, 2L], history.Select(value => value.Sequence));
+        Assert.Equal(winningStatus, history[1].NewStatus);
+        Assert.Equal(confirmWins, saved.ReservesSlot);
+    }
+
     [Fact]
     public async Task RestrictiveForeignKeys_PreserveAppointmentsAndHistory()
     {
