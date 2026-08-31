@@ -9,7 +9,7 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
-    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase81SchedulingFoundation()
+    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase82AvailabilityInventory()
     {
         var options = new DbContextOptionsBuilder<BeeexyDbContext>()
             .UseNpgsql(postgres.ConnectionString)
@@ -44,7 +44,8 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                     "20260829012832_Phase71DirectoryFoundation",
                     "20260829040757_Phase72SyntheticDemoDirectoryImport",
                     "20260829070507_Phase75VersionedDoctorMatching",
-                    "20260831165338_Phase81SchedulingFoundation"
+                    "20260831165338_Phase81SchedulingFoundation",
+                    "20260831183703_Phase82AvailabilityInventory"
                 ],
                 appliedMigrations);
             Assert.Empty(pendingMigrations);
@@ -103,6 +104,7 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                 "scheduling.appointment_status_history",
                 "scheduling.appointments",
                 "scheduling.availability_slots",
+                "scheduling.demo_availability_imports",
                 "triage.answers",
                 "triage.clinical_assessments",
                 "triage.clinical_findings",

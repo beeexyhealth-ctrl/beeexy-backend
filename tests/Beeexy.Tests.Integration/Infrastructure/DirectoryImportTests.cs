@@ -217,10 +217,10 @@ public sealed class DirectoryImportTests(PostgreSqlContainerFixture postgres) : 
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             var paths = document.RootElement.GetProperty("paths").EnumerateObject().ToArray();
-            Assert.Equal(36, paths.Length);
+            Assert.Equal(37, paths.Length);
             Assert.Equal(2, paths.Count(value =>
                 value.Name.StartsWith("/api/v1/clinics", StringComparison.Ordinal)));
-            Assert.Equal(2, paths.Count(value =>
+            Assert.Equal(3, paths.Count(value =>
                 value.Name.StartsWith("/api/v1/doctors", StringComparison.Ordinal)));
             Assert.DoesNotContain(paths, value =>
                 value.Name.Contains("directory-import", StringComparison.Ordinal));
@@ -258,7 +258,8 @@ public sealed class DirectoryImportTests(PostgreSqlContainerFixture postgres) : 
         command.CommandText =
             "TRUNCATE scheduling.appointment_reschedule_history, " +
             "scheduling.appointment_status_history, scheduling.appointments, " +
-            "scheduling.availability_slots, directory.doctor_match_rule_configurations, " +
+            "scheduling.availability_slots, scheduling.demo_availability_imports, " +
+            "directory.doctor_match_rule_configurations, " +
             "directory.demo_directory_imports, directory.doctor_affiliations, " +
             "directory.doctor_credentials, directory.doctor_insurance_participations, " +
             "directory.doctor_languages, directory.doctor_specialties, " +

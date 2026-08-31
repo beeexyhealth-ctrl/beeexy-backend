@@ -16,7 +16,7 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
-    public async Task Phase81SchedulingMigration_IsAdditiveAndCanRollbackAndReapply()
+    public async Task Phase8SchedulingMigrations_AreAdditiveAndCanRollbackAndReapply()
     {
         await EnsureMigratedAsync();
         var options = CreateOptions();
@@ -58,7 +58,7 @@ public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
             command.CommandText =
                 "SELECT count(*) FROM information_schema.tables " +
                 "WHERE table_schema = 'scheduling';";
-            Assert.Equal(4L, (long)(await command.ExecuteScalarAsync())!);
+            Assert.Equal(5L, (long)(await command.ExecuteScalarAsync())!);
         }
     }
 

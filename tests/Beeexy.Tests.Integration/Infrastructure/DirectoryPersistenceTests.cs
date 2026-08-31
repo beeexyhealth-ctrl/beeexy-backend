@@ -294,10 +294,10 @@ public sealed class DirectoryPersistenceTests(PostgreSqlContainerFixture postgre
         var paths = document.RootElement.GetProperty("paths");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(36, paths.EnumerateObject().Count());
+        Assert.Equal(37, paths.EnumerateObject().Count());
         Assert.Equal(2, paths.EnumerateObject().Count(
             path => path.Name.StartsWith("/api/v1/clinics", StringComparison.Ordinal)));
-        Assert.Equal(2, paths.EnumerateObject().Count(
+        Assert.Equal(3, paths.EnumerateObject().Count(
             path => path.Name.StartsWith("/api/v1/doctors", StringComparison.Ordinal)));
     }
 

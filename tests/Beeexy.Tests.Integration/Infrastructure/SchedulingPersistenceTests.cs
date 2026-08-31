@@ -319,7 +319,8 @@ public sealed class SchedulingPersistenceTests(PostgreSqlContainerFixture postgr
                 "appointment_reschedule_history",
                 "appointment_status_history",
                 "appointments",
-                "availability_slots"
+                "availability_slots",
+                "demo_availability_imports"
             ],
             tables);
 
@@ -545,6 +546,7 @@ public sealed class SchedulingPersistenceTests(PostgreSqlContainerFixture postgr
         command.CommandText =
             """
             TRUNCATE TABLE
+                scheduling.demo_availability_imports,
                 scheduling.appointment_reschedule_history,
                 scheduling.appointment_status_history,
                 scheduling.appointments,

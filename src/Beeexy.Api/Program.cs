@@ -10,12 +10,14 @@ using Beeexy.Api.Interoperability;
 using Beeexy.Api.Middleware;
 using Beeexy.Api.Patients;
 using Beeexy.Api.PrivateAccess;
+using Beeexy.Api.Scheduling;
 using Beeexy.Api.Triage;
 using Beeexy.Application.Identity;
 using Beeexy.Application.Directory;
 using Beeexy.Application.History;
 using Beeexy.Application.Interoperability;
 using Beeexy.Application.Patients;
+using Beeexy.Application.Scheduling;
 using Beeexy.Application.Triage;
 using Beeexy.Infrastructure;
 using Beeexy.Infrastructure.Identity;
@@ -30,6 +32,7 @@ using System.Text;
 var databasePrivateAccessCommand = PrivateAccessCli.IsDatabaseCommand(args);
 var provisionDemoGuestCommand = PrivateAccessCli.IsProvisionDemoGuestCommand(args);
 var phase7DemoDirectoryCommand = Phase7DemoDirectoryCli.IsCommand(args);
+var phase8DemoAvailabilityCommand = Phase8DemoAvailabilityCli.IsCommand(args);
 if (PrivateAccessCli.TryRun(args))
 {
     return;
@@ -40,6 +43,18 @@ if (phase7DemoDirectoryCommand)
     var commandConfiguration = new ConfigurationManager();
     commandConfiguration.AddEnvironmentVariables();
     await Phase7DemoDirectoryCli.ExecuteAsync(
+        commandConfiguration,
+        commandConfiguration["ASPNETCORE_ENVIRONMENT"],
+        cancellationToken: CancellationToken.None);
+    return;
+}
+
+if (phase8DemoAvailabilityCommand)
+{
+    var commandConfiguration = new ConfigurationManager();
+    commandConfiguration.AddEnvironmentVariables();
+    await Phase8DemoAvailabilityCli.ExecuteAsync(
+        args,
         commandConfiguration,
         commandConfiguration["ASPNETCORE_ENVIRONMENT"],
         cancellationToken: CancellationToken.None);
@@ -120,6 +135,7 @@ builder.Services.AddScoped<ListClinics>();
 builder.Services.AddScoped<GetClinic>();
 builder.Services.AddScoped<SearchDoctors>();
 builder.Services.AddScoped<GetDoctor>();
+builder.Services.AddScoped<ListAvailableSlots>();
 builder.Services.AddSingleton<DeterministicDoctorMatchEngine>();
 builder.Services.AddScoped<CalculateDoctorMatch>();
 builder.Services.AddScoped<ProvisionAccountAndPrimaryProfile>();
@@ -297,6 +313,7 @@ if (app.Environment.IsDevelopment())
 app.MapBeeexyHealthEndpoints();
 app.MapBeeexyClinicDirectoryEndpoints();
 app.MapBeeexyDoctorDirectoryEndpoints();
+app.MapBeeexyAvailabilityEndpoints();
 app.MapBeeexyPrivateAccessEndpoints();
 app.MapBeeexyAuthenticationEndpoints();
 app.MapBeeexyPatientEndpoints();
