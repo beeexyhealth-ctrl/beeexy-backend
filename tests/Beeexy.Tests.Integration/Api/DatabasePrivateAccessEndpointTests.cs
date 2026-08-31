@@ -63,7 +63,9 @@ public sealed class DatabasePrivateAccessEndpointTests(PostgreSqlContainerFixtur
 
         await using var db = CreateDbContext();
         Assert.Equal(2, await db.PrivateAccessSessions.CountAsync(value =>
-            value.Status == PrivateAccessSessionStatus.Active));
+            value.Status == PrivateAccessSessionStatus.Active &&
+            (value.CredentialId == testerA.CredentialId ||
+             value.CredentialId == testerB.CredentialId)));
         Assert.Equal(2, await db.RefreshSessions.CountAsync(value =>
             value.Status == RefreshSessionStatus.Active &&
             (value.AccountId == testerA.AccountId || value.AccountId == testerB.AccountId)));

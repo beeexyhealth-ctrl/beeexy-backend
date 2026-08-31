@@ -11,7 +11,7 @@ using Npgsql;
 namespace Beeexy.Tests.Integration.Infrastructure;
 
 [Collection(PostgreSqlCollection.Name)]
-public sealed class SchedulingPersistenceTests(PostgreSqlContainerFixture postgres)
+public sealed class SchedulingPersistenceTests(PostgreSqlContainerFixture postgres) : IAsyncLifetime
 {
     private static readonly DateTimeOffset CreatedAt =
         new(2026, 8, 31, 15, 0, 0, TimeSpan.Zero);
@@ -94,7 +94,7 @@ public sealed class SchedulingPersistenceTests(PostgreSqlContainerFixture postgr
         await EnsureMigratedAsync();
         var graph = CreateGraph(slotCount: 0);
         var otherClinic = Clinic.Create(
-            DirectoryCode.Create($"clinic-{Guid.NewGuid():N}"),
+            DirectoryCode.Create($"scheduling-clinic-{Guid.NewGuid():N}"),
             DirectoryName.Create("Other synthetic scheduling clinic"),
             true,
             CreatedAt);
@@ -451,7 +451,7 @@ public sealed class SchedulingPersistenceTests(PostgreSqlContainerFixture postgr
             CreatedAt,
             account.Id);
         var clinic = Clinic.Create(
-            DirectoryCode.Create($"clinic-{suffix}"),
+            DirectoryCode.Create($"scheduling-clinic-{suffix}"),
             DirectoryName.Create("Synthetic scheduling clinic"),
             true,
             CreatedAt);
@@ -465,7 +465,7 @@ public sealed class SchedulingPersistenceTests(PostgreSqlContainerFixture postgr
             true,
             CreatedAt);
         var doctor = Doctor.Create(
-            DirectoryCode.Create($"doctor-{suffix}"),
+            DirectoryCode.Create($"scheduling-doctor-{suffix}"),
             DirectoryName.Create("Synthetic scheduling doctor"),
             true,
             CreatedAt);
@@ -527,6 +527,50 @@ public sealed class SchedulingPersistenceTests(PostgreSqlContainerFixture postgr
     {
         await using var dbContext = CreateDbContext();
         await dbContext.Database.MigrateAsync();
+    }
+
+    public async Task InitializeAsync()
+    {
+        await EnsureMigratedAsync();
+        await DeleteSchedulingFixturesAsync();
+    }
+
+    public Task DisposeAsync() => DeleteSchedulingFixturesAsync();
+
+    private async Task DeleteSchedulingFixturesAsync()
+    {
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            TRUNCATE TABLE
+                scheduling.appointment_reschedule_history,
+                scheduling.appointment_status_history,
+                scheduling.appointments,
+                scheduling.availability_slots;
+
+            DELETE FROM directory.doctor_affiliations
+            WHERE doctor_id IN (
+                SELECT id FROM directory.doctors WHERE code LIKE 'scheduling-doctor-%');
+
+            DELETE FROM directory.doctors WHERE code LIKE 'scheduling-doctor-%';
+
+            DELETE FROM directory.clinic_locations
+            WHERE clinic_id IN (
+                SELECT id FROM directory.clinics WHERE code LIKE 'scheduling-clinic-%');
+
+            DELETE FROM directory.clinics WHERE code LIKE 'scheduling-clinic-%';
+
+            DELETE FROM patients.patient_profiles
+            WHERE account_id IN (
+                SELECT id FROM identity.accounts
+                WHERE normalized_email LIKE 'scheduling-%@example.test');
+
+            DELETE FROM identity.accounts
+            WHERE normalized_email LIKE 'scheduling-%@example.test';
+            """;
+        await command.ExecuteNonQueryAsync();
     }
 
     private sealed record SchedulingGraph(

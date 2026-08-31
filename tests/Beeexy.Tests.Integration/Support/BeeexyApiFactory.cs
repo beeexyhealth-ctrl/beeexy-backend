@@ -33,6 +33,7 @@ internal sealed class BeeexyApiFactory : WebApplicationFactory<Program>
         var overrides = new Dictionary<string, string?>
         {
             ["PrivateAccess:Enabled"] = "false",
+            ["PrivateAccess:AuthenticationMode"] = "Legacy",
             ["PrivateAccess:DemoGuest:Enabled"] = "false",
             ["Authentication:EmailChallenge:OtpHashingKey"] =
                 "integration-test-only-hmac-key-with-at-least-32-bytes",
