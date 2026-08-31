@@ -164,6 +164,46 @@ public sealed class Appointment
             occurredAt);
     }
 
+    public AppointmentRescheduleHistory? Reschedule(
+        AvailabilitySlot targetSlot,
+        EntityId actorAccountId,
+        DateTimeOffset occurredAt)
+    {
+        ArgumentNullException.ThrowIfNull(targetSlot);
+        if (Status is not (AppointmentStatus.Requested or AppointmentStatus.Confirmed))
+        {
+            throw new InvalidOperationException(
+                $"An appointment in {Status} status cannot be rescheduled.");
+        }
+
+        if (targetSlot.Id == AvailabilitySlotId)
+        {
+            return null;
+        }
+
+        if (targetSlot.Modality != Modality)
+        {
+            throw new ArgumentException(
+                "The target slot modality must match the appointment modality.",
+                nameof(targetSlot));
+        }
+
+        EnsureNonEmpty(targetSlot.Id, nameof(targetSlot));
+        EnsureNonEmpty(actorAccountId, nameof(actorAccountId));
+        InstantGuard.EnsureNotBefore(occurredAt, CreatedAt, nameof(occurredAt));
+        var previousSlotId = AvailabilitySlotId;
+        Version = checked(Version + 1);
+        AvailabilitySlotId = targetSlot.Id;
+        ScheduledStartAt = targetSlot.StartsAt;
+        UpdatedAt = occurredAt;
+        return AppointmentRescheduleHistory.Create(
+            Id,
+            previousSlotId,
+            targetSlot.Id,
+            actorAccountId,
+            occurredAt);
+    }
+
     private bool Transition(
         AppointmentStatus requiredStatus,
         AppointmentStatus newStatus,

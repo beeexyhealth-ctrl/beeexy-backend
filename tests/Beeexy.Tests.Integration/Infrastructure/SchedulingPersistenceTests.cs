@@ -286,6 +286,74 @@ public sealed class SchedulingPersistenceTests(PostgreSqlContainerFixture postgr
         Assert.Equal(confirmWins, saved.ReservesSlot);
     }
 
+    [Theory]
+    [InlineData("cancel", AppointmentStatus.Cancelled)]
+    [InlineData("confirm", AppointmentStatus.Confirmed)]
+    [InlineData("reject", AppointmentStatus.Rejected)]
+    public async Task StaleRescheduleCannotOverwriteConcurrentStatusMutation(
+        string winningAction,
+        AppointmentStatus winningStatus)
+    {
+        await EnsureMigratedAsync();
+        var graph = CreateGraph(slotCount: 2);
+        var appointment = CreateAppointment(graph, graph.Slots[0]);
+        await using (var setup = CreateDbContext())
+        {
+            AddGraph(setup, graph);
+            setup.Appointments.Add(appointment);
+            await setup.SaveChangesAsync();
+        }
+
+        await using var rescheduleContext = CreateDbContext();
+        await using var transitionContext = CreateDbContext();
+        var staleReschedule = await rescheduleContext.Appointments
+            .Include(value => value.StatusHistory)
+            .SingleAsync(value => value.Id == appointment.Id);
+        var concurrentTransition = await transitionContext.Appointments
+            .Include(value => value.StatusHistory)
+            .SingleAsync(value => value.Id == appointment.Id);
+        var audit = staleReschedule.Reschedule(
+            graph.Slots[1],
+            graph.Account.Id,
+            CreatedAt.AddMinutes(2));
+        Assert.NotNull(audit);
+        rescheduleContext.AppointmentRescheduleHistory.Add(audit);
+        switch (winningAction)
+        {
+            case "cancel":
+                concurrentTransition.Cancel(graph.Account.Id, CreatedAt.AddMinutes(1));
+                break;
+            case "confirm":
+                concurrentTransition.Confirm(graph.Account.Id, CreatedAt.AddMinutes(1));
+                break;
+            case "reject":
+                concurrentTransition.Reject(graph.Account.Id, CreatedAt.AddMinutes(1));
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(winningAction));
+        }
+
+        await transitionContext.SaveChangesAsync();
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() =>
+            rescheduleContext.SaveChangesAsync());
+
+        await using var verify = CreateDbContext();
+        var saved = await verify.Appointments.AsNoTracking()
+            .SingleAsync(value => value.Id == appointment.Id);
+        var statusHistory = await verify.AppointmentStatusHistory.AsNoTracking()
+            .Where(value => value.AppointmentId == appointment.Id)
+            .OrderBy(value => value.Sequence)
+            .ToListAsync();
+        var rescheduleCount = await verify.AppointmentRescheduleHistory.AsNoTracking()
+            .CountAsync(value => value.AppointmentId == appointment.Id);
+        Assert.Equal(winningStatus, saved.Status);
+        Assert.Equal(graph.Slots[0].Id, saved.AvailabilitySlotId);
+        Assert.Equal(2, saved.Version);
+        Assert.Equal([1L, 2L], statusHistory.Select(value => value.Sequence));
+        Assert.Equal(0, rescheduleCount);
+        Assert.Equal(winningStatus == AppointmentStatus.Confirmed, saved.ReservesSlot);
+    }
+
     [Fact]
     public async Task RestrictiveForeignKeys_PreserveAppointmentsAndHistory()
     {

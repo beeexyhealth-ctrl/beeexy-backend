@@ -207,6 +207,67 @@ public sealed class SchedulingDomainTests
             CreatedAt.AddMinutes(1)));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AppointmentReschedule_PreservesIdentityStatusAndStatusHistory(bool confirmed)
+    {
+        var appointment = CreateAppointment(reason: null);
+        var actor = EntityId.New();
+        if (confirmed)
+        {
+            appointment.Confirm(actor, CreatedAt.AddMinutes(1));
+        }
+
+        var originalId = appointment.Id;
+        var originalSlotId = appointment.AvailabilitySlotId;
+        var originalStatus = appointment.Status;
+        var originalStatusHistoryCount = appointment.StatusHistory.Count;
+        var originalVersion = appointment.Version;
+        var target = CreateSlot(AppointmentModality.InPerson, TimeSpan.FromMinutes(45));
+
+        var audit = appointment.Reschedule(target, actor, CreatedAt.AddMinutes(2));
+
+        Assert.NotNull(audit);
+        Assert.Equal(originalId, appointment.Id);
+        Assert.Equal(originalStatus, appointment.Status);
+        Assert.Equal(target.Id, appointment.AvailabilitySlotId);
+        Assert.Equal(target.StartsAt, appointment.ScheduledStartAt);
+        Assert.Equal(originalVersion + 1, appointment.Version);
+        Assert.Equal(originalStatusHistoryCount, appointment.StatusHistory.Count);
+        Assert.Equal(originalSlotId, audit.PreviousSlotId);
+        Assert.Equal(target.Id, audit.NewSlotId);
+        Assert.Equal(actor, audit.ActorAccountId);
+    }
+
+    [Fact]
+    public void SameSlotReschedule_IsNoOpAndModalityMismatchIsRejected()
+    {
+        var appointment = CreateAppointment(reason: null);
+        var version = appointment.Version;
+        var historyCount = appointment.StatusHistory.Count;
+        var currentSlot = CreateSlot(AppointmentModality.InPerson, TimeSpan.FromMinutes(30));
+        typeof(Appointment)
+            .GetProperty(nameof(Appointment.AvailabilitySlotId))!
+            .SetValue(appointment, currentSlot.Id);
+
+        Assert.Null(appointment.Reschedule(
+            currentSlot,
+            EntityId.New(),
+            CreatedAt.AddMinutes(1)));
+        Assert.Equal(version, appointment.Version);
+        Assert.Equal(historyCount, appointment.StatusHistory.Count);
+
+        var virtualTarget = CreateSlot(
+            AppointmentModality.Virtual,
+            TimeSpan.FromMinutes(30));
+        Assert.Throws<ArgumentException>(() => appointment.Reschedule(
+            virtualTarget,
+            EntityId.New(),
+            CreatedAt.AddMinutes(1)));
+        Assert.Equal(version, appointment.Version);
+    }
+
     private static Appointment CreateAppointment(AppointmentReason? reason)
     {
         return Appointment.Create(

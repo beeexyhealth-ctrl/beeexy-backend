@@ -260,7 +260,7 @@ public sealed class AppointmentQueryEndpointTests(
     }
 
     [Fact]
-    public async Task OpenApiDocumentsBothAuthenticatedReadOperationsAndFortyTwoPaths()
+    public async Task OpenApiDocumentsBothAuthenticatedReadOperationsAndFortyThreePaths()
     {
         using var client = factory.CreateApiClient();
 
@@ -270,7 +270,7 @@ public sealed class AppointmentQueryEndpointTests(
         var collection = paths.GetProperty("/api/v1/appointments");
         var detail = paths.GetProperty("/api/v1/appointments/{id}").GetProperty("get");
 
-        Assert.Equal(42, paths.EnumerateObject().Count());
+        Assert.Equal(43, paths.EnumerateObject().Count());
         Assert.True(collection.TryGetProperty("post", out _));
         Assert.True(collection.TryGetProperty("get", out var list));
         Assert.True(list.TryGetProperty("security", out _));

@@ -1,6 +1,8 @@
 using System.Data;
 using Beeexy.Application.Scheduling;
 using Beeexy.Domain.Common;
+using Beeexy.Domain.Scheduling;
+using Beeexy.Infrastructure.DirectoryServices;
 using Beeexy.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -8,11 +10,15 @@ using Npgsql;
 
 namespace Beeexy.Infrastructure.Scheduling;
 
-internal sealed class AppointmentTransitionTransaction(BeeexyDbContext dbContext)
-    : IAppointmentTransitionTransaction
+internal sealed class AppointmentTransitionTransaction(
+    BeeexyDbContext dbContext,
+    PublicDirectoryQueryBoundary publicDirectory)
+    : IAppointmentTransitionTransaction, IAppointmentRescheduleTransaction
 {
     private const string HistorySequenceConstraint =
         "ux_appointment_status_history_appointment_sequence";
+    private const string ReservingSlotConstraint =
+        "ux_appointments_reserving_slot";
 
     private IDbContextTransaction? transaction;
 
@@ -49,6 +55,11 @@ internal sealed class AppointmentTransitionTransaction(BeeexyDbContext dbContext
             await RollbackAndClearAsync(cancellationToken);
             throw new AppointmentTransitionConcurrencyException(exception);
         }
+        catch (DbUpdateException exception) when (IsReservationRace(exception))
+        {
+            await RollbackAndClearAsync(cancellationToken);
+            throw new AppointmentSlotReservationConflictException();
+        }
         catch (DbUpdateException exception) when (IsHistorySequenceRace(exception))
         {
             await RollbackAndClearAsync(cancellationToken);
@@ -79,6 +90,42 @@ internal sealed class AppointmentTransitionTransaction(BeeexyDbContext dbContext
         }
 
         return LoadCoreAsync(appointmentId, tracked: false, cancellationToken);
+    }
+
+    public async Task<AppointmentRescheduleTargetState?> FindTargetSlotAsync(
+        EntityId slotId,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureTransactionActive();
+        var publicClinics = publicDirectory.Clinics();
+        var publicLocations = publicDirectory.ClinicLocations();
+        var publicDoctors = publicDirectory.Doctors();
+        var publicAffiliations = publicDirectory.DoctorAffiliations();
+        return await dbContext.AvailabilitySlots
+            .AsNoTracking()
+            .Where(slot => slot.Id == slotId)
+            .Select(slot => new AppointmentRescheduleTargetState(
+                slot,
+                publicDoctors.Any(doctor => doctor.Id == slot.DoctorId) &&
+                publicClinics.Any(clinic => clinic.Id == slot.ClinicId) &&
+                publicLocations.Any(location =>
+                    location.Id == slot.ClinicLocationId &&
+                    location.ClinicId == slot.ClinicId) &&
+                publicAffiliations.Any(affiliation =>
+                    affiliation.DoctorId == slot.DoctorId &&
+                    affiliation.ClinicId == slot.ClinicId &&
+                    affiliation.ClinicLocationId == slot.ClinicLocationId),
+                dbContext.Appointments.Any(appointment =>
+                    appointment.AvailabilitySlotId == slot.Id &&
+                    (appointment.Status == AppointmentStatus.Requested ||
+                     appointment.Status == AppointmentStatus.Confirmed))))
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    public void Add(AppointmentRescheduleHistory history)
+    {
+        EnsureTransactionActive();
+        dbContext.AppointmentRescheduleHistory.Add(history);
     }
 
     public async ValueTask DisposeAsync()
@@ -142,5 +189,12 @@ internal sealed class AppointmentTransitionTransaction(BeeexyDbContext dbContext
         {
             SqlState: PostgresErrorCodes.UniqueViolation,
             ConstraintName: HistorySequenceConstraint
+        };
+
+    private static bool IsReservationRace(DbUpdateException exception) =>
+        exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            ConstraintName: ReservingSlotConstraint
         };
 }

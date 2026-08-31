@@ -266,6 +266,19 @@ internal sealed class ApiExceptionHandler(
             return problem;
         }
 
+        if (exception is AppointmentRescheduleConflictException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Appointment reschedule conflict.",
+                Detail = "The appointment cannot apply the requested reschedule operation."
+            };
+            problem.Extensions["errorCode"] =
+                "scheduling.appointment_reschedule_conflict";
+            return problem;
+        }
+
         if (exception is FhirExportNotFoundException or
             FhirExportSourceNotFoundException)
         {

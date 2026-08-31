@@ -248,7 +248,7 @@ public sealed class AppointmentCancellationEndpointTests(
     }
 
     [Fact]
-    public async Task OpenApiDocumentsPatientCancellationAndFortyTwoPaths()
+    public async Task OpenApiDocumentsPatientCancellationAndFortyThreePaths()
     {
         using var client = factory.CreateApiClient();
         using var response = await client.GetAsync("/swagger/v1/swagger.json");
@@ -258,7 +258,7 @@ public sealed class AppointmentCancellationEndpointTests(
             .GetProperty("/api/v1/appointments/{id}/cancel")
             .GetProperty("post");
 
-        Assert.Equal(42, paths.EnumerateObject().Count());
+        Assert.Equal(43, paths.EnumerateObject().Count());
         Assert.True(operation.TryGetProperty("security", out _));
         Assert.Equal(
             ["200", "401", "404", "409", "500"],

@@ -111,6 +111,24 @@ internal static class AppointmentEndpointExtensions
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
+        endpoints.MapPost("/api/v1/appointments/{id:guid}/reschedule", RescheduleAsync)
+            .WithName("RescheduleAppointment")
+            .WithTags("Scheduling")
+            .WithDescription(
+                "Moves a requested or confirmed appointment to one authoritative " +
+                "published future slot when the authenticated account currently owns " +
+                "or actively manages its patient profile. Identity, status, and status " +
+                "history are preserved; the slot transfer and separate audit are atomic.")
+            .RequireAuthorization()
+            .Accepts<RescheduleAppointmentRequest>("application/json")
+            .Produces<AppointmentSummaryResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
         return endpoints;
     }
 
@@ -138,6 +156,33 @@ internal static class AppointmentEndpointExtensions
         CancellationToken cancellationToken)
     {
         var result = await useCase.ExecuteAsync(EntityId.From(id), cancellationToken);
+        return Results.Ok(ToSummaryResponse(result.Appointment));
+    }
+
+    private static async Task<IResult> RescheduleAsync(
+        Guid id,
+        RescheduleAppointmentRequest request,
+        RescheduleAppointment useCase,
+        CancellationToken cancellationToken)
+    {
+        if (request.AdditionalFields is { Count: > 0 })
+        {
+            throw new RequestValidationException(
+                "scheduling.unsupported_field",
+                "The appointment reschedule request contains an unsupported field.");
+        }
+
+        if (request.SlotId == Guid.Empty)
+        {
+            throw new RequestValidationException(
+                "scheduling.identifiers_required",
+                "A target slot identifier is required.");
+        }
+
+        var result = await useCase.ExecuteAsync(
+            EntityId.From(id),
+            EntityId.From(request.SlotId),
+            cancellationToken);
         return Results.Ok(ToSummaryResponse(result.Appointment));
     }
 
@@ -345,6 +390,14 @@ internal sealed record RequestAppointmentRequest
     public string? Reason { get; init; }
 
     public Guid IdempotencyKey { get; init; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? AdditionalFields { get; init; }
+}
+
+internal sealed record RescheduleAppointmentRequest
+{
+    public Guid SlotId { get; init; }
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? AdditionalFields { get; init; }
