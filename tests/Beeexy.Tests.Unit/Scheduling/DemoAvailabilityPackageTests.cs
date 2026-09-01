@@ -3,6 +3,7 @@ using Beeexy.Infrastructure.Scheduling;
 
 namespace Beeexy.Tests.Unit.Scheduling;
 
+[Trait("Category", "Phase8Acceptance")]
 public sealed class DemoAvailabilityPackageTests
 {
     private static readonly DateOnly ReferenceDate = new(2026, 8, 31);

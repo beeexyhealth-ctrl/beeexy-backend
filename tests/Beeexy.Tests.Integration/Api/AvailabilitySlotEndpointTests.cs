@@ -16,6 +16,7 @@ using Npgsql;
 namespace Beeexy.Tests.Integration.Api;
 
 [Collection(PostgreSqlCollection.Name)]
+[Trait("Category", "Phase8Acceptance")]
 public sealed class AvailabilitySlotEndpointTests(
     PostgreSqlContainerFixture postgres) : IAsyncLifetime
 {
@@ -175,6 +176,34 @@ public sealed class AvailabilitySlotEndpointTests(
     }
 
     [Fact]
+    public async Task NewYorkFallBack_PreservesBothAmbiguousLocalInstants()
+    {
+        using var context = CreateApiContext();
+        var from = new DateTimeOffset(2026, 11, 1, 5, 0, 0, TimeSpan.Zero);
+        var to = new DateTimeOffset(2026, 11, 1, 8, 0, 0, TimeSpan.Zero);
+
+        using var response = await context.Client.GetAsync(
+            $"/api/v1/doctors/{_graph.Doctor.Id.Value:D}/slots" +
+            $"?from={Uri.EscapeDataString(from.ToString("O"))}" +
+            $"&to={Uri.EscapeDataString(to.ToString("O"))}");
+        var items = await response.Content.ReadFromJsonAsync<SlotResponse[]>();
+        var first = Assert.Single(
+            items!, value => value.SlotId == _graph.FallBackFirstSlot.Id.Value);
+        var second = Assert.Single(
+            items!, value => value.SlotId == _graph.FallBackSecondSlot.Id.Value);
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("America/New_York");
+        var firstLocal = TimeZoneInfo.ConvertTime(first.StartsAt, zone);
+        var secondLocal = TimeZoneInfo.ConvertTime(second.StartsAt, zone);
+
+        Assert.Equal(new DateTime(2026, 11, 1, 1, 30, 0), firstLocal.DateTime);
+        Assert.Equal(new DateTime(2026, 11, 1, 1, 30, 0), secondLocal.DateTime);
+        Assert.Equal(TimeSpan.FromHours(-4), firstLocal.Offset);
+        Assert.Equal(TimeSpan.FromHours(-5), secondLocal.Offset);
+        Assert.Equal("America/New_York", first.ClinicTimeZone);
+        Assert.Equal("America/New_York", second.ClinicTimeZone);
+    }
+
+    [Fact]
     public async Task OpenApi_DocumentsSingleAnonymousAvailabilityPathAndStableContract()
     {
         using var context = CreateApiContext();
@@ -314,6 +343,8 @@ public sealed class AvailabilitySlotEndpointTests(
         var past = Slot(Now);
         var beforeDst = Slot(new(2026, 3, 8, 6, 30, 0, TimeSpan.Zero));
         var afterDst = Slot(new(2026, 3, 8, 7, 30, 0, TimeSpan.Zero));
+        var fallBackFirst = Slot(new(2026, 11, 1, 5, 30, 0, TimeSpan.Zero));
+        var fallBackSecond = Slot(new(2026, 11, 1, 6, 30, 0, TimeSpan.Zero));
         var tieSecond = Slot(Now.AddDays(1), id: EntityId.From(
             Guid.Parse("82000000-0000-4000-8000-000000000002")));
         var tieFirst = Slot(Now.AddDays(1), id: EntityId.From(
@@ -359,8 +390,9 @@ public sealed class AvailabilitySlotEndpointTests(
             hiddenLocationAffiliation,
             hiddenDoctorAffiliation,
             emptyDoctorAffiliation,
-            [past, beforeDst, afterDst, tieSecond, tieFirst, unpublished, hiddenRelation,
-                requested, confirmed, cancelled, rejected, dayForty, hiddenDoctorSlot],
+            [past, beforeDst, afterDst, fallBackFirst, fallBackSecond, tieSecond, tieFirst,
+                unpublished, hiddenRelation, requested, confirmed, cancelled, rejected,
+                dayForty, hiddenDoctorSlot],
             [beforeDst, afterDst, tieFirst, tieSecond, cancelled, rejected],
             requested,
             confirmed,
@@ -368,6 +400,8 @@ public sealed class AvailabilitySlotEndpointTests(
             rejected,
             beforeDst,
             afterDst,
+            fallBackFirst,
+            fallBackSecond,
             dayForty,
             [requestedAppointment, confirmedAppointment, cancelledAppointment,
                 rejectedAppointment]);
@@ -439,6 +473,8 @@ public sealed class AvailabilitySlotEndpointTests(
         AvailabilitySlot RejectedSlot,
         AvailabilitySlot BeforeDstSlot,
         AvailabilitySlot AfterDstSlot,
+        AvailabilitySlot FallBackFirstSlot,
+        AvailabilitySlot FallBackSecondSlot,
         AvailabilitySlot DayFortySlot,
         Appointment[] Appointments);
 

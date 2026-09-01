@@ -13,6 +13,7 @@ using Npgsql;
 namespace Beeexy.Tests.Integration.Infrastructure;
 
 [Collection(PostgreSqlCollection.Name)]
+[Trait("Category", "Phase8Acceptance")]
 public sealed class AvailabilityImportTests(PostgreSqlContainerFixture postgres) : IAsyncLifetime
 {
     private static readonly DateOnly ReferenceDate = new(2026, 8, 31);
@@ -106,6 +107,29 @@ public sealed class AvailabilityImportTests(PostgreSqlContainerFixture postgres)
 
         await using var verify = CreateDbContext();
         Assert.Equal(original.Slots.Count, await verify.AvailabilitySlots.CountAsync());
+        Assert.Equal(1L, await CountImportRecordsAsync());
+    }
+
+    [Fact]
+    public async Task ConcurrentIdenticalImports_AreSerializedAndConvergeIdempotently()
+    {
+        await ImportDirectoryAsync();
+        var package = ProductApprovedSyntheticAvailability.Create(ReferenceDate);
+        await using var first = CreateDbContext();
+        await using var second = CreateDbContext();
+
+        var results = await Task.WhenAll(
+            CreateImporter(first).ImportAsync(package),
+            CreateImporter(second).ImportAsync(package));
+
+        Assert.Single(results, value => value.Outcome == AvailabilityImportOutcome.Imported);
+        Assert.Single(
+            results,
+            value => value.Outcome == AvailabilityImportOutcome.AlreadyImported);
+        await using var verify = CreateDbContext();
+        Assert.Equal(
+            ProductApprovedSyntheticAvailability.SlotCount,
+            await verify.AvailabilitySlots.CountAsync());
         Assert.Equal(1L, await CountImportRecordsAsync());
     }
 

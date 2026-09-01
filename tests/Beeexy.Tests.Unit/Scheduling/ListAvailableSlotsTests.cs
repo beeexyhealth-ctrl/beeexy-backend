@@ -6,6 +6,7 @@ using Beeexy.Domain.Scheduling;
 
 namespace Beeexy.Tests.Unit.Scheduling;
 
+[Trait("Category", "Phase8Acceptance")]
 public sealed class ListAvailableSlotsTests
 {
     private static readonly DateTimeOffset Now =

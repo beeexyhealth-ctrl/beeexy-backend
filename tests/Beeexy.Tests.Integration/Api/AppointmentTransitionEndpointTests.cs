@@ -18,6 +18,7 @@ using Npgsql;
 namespace Beeexy.Tests.Integration.Api;
 
 [Collection(PostgreSqlCollection.Name)]
+[Trait("Category", "Phase8Acceptance")]
 public sealed class AppointmentTransitionEndpointTests(
     PostgreSqlContainerFixture postgres) : IAsyncLifetime
 {
@@ -34,6 +35,7 @@ public sealed class AppointmentTransitionEndpointTests(
     [Fact]
     public async Task Confirm_IsPersistentIdempotentSafeAndVisibleInPatientDetail()
     {
+        var clinicalCounts = await ReadClinicalCountsAsync();
         using var scheduler = Client(schedulerToken);
 
         using var first = await scheduler.PostAsync(Action("confirm"), null);
@@ -73,6 +75,7 @@ public sealed class AppointmentTransitionEndpointTests(
             "appointmentScheduler",
             projectedHistory[1].GetProperty("actorType").GetString());
         Assert.False(projectedHistory[1].TryGetProperty("actorAccountId", out _));
+        Assert.Equal(clinicalCounts, await ReadClinicalCountsAsync());
     }
 
     [Fact]
@@ -403,6 +406,15 @@ public sealed class AppointmentTransitionEndpointTests(
             .Where(value => value.AppointmentId == graph.Appointment.Id)
             .OrderBy(value => value.Sequence)
             .ToListAsync();
+    }
+
+    private async Task<(int PreTriage, int ClinicalHistory, int Fhir)> ReadClinicalCountsAsync()
+    {
+        await using var dbContext = CreateDbContext();
+        return (
+            await dbContext.PreTriageEpisodes.CountAsync(),
+            await dbContext.ClinicalHistoryEvents.CountAsync(),
+            await dbContext.FhirExports.CountAsync());
     }
 
     private async Task<Guid[]> AvailableSlotIdsAsync(HttpClient client)

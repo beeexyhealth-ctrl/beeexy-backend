@@ -15,6 +15,7 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 [Collection(PostgreSqlCollection.Name)]
 public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
 {
+    [Trait("Category", "Phase8Acceptance")]
     [Fact]
     public async Task Phase8SchedulingMigrations_AreAdditiveAndCanRollbackAndReapply()
     {

@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Beeexy.Tests.Integration.Infrastructure;
 
+[Trait("Category", "Phase8Acceptance")]
 public sealed class AvailabilityQuerySqlTests
 {
     [Fact]

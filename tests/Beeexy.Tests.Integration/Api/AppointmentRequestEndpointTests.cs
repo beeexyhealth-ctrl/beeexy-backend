@@ -19,6 +19,7 @@ using Npgsql;
 namespace Beeexy.Tests.Integration.Api;
 
 [Collection(PostgreSqlCollection.Name)]
+[Trait("Category", "Phase8Acceptance")]
 public sealed class AppointmentRequestEndpointTests(
     PostgreSqlContainerFixture postgres) : IAsyncLifetime
 {
@@ -27,6 +28,7 @@ public sealed class AppointmentRequestEndpointTests(
     private DateTimeOffset now;
     private FixtureGraph graph = null!;
     private BeeexyApiFactory factory = null!;
+    private InMemoryLoggerProvider loggerProvider = null!;
     private string accessToken = null!;
     private string secondAccessToken = null!;
 
@@ -77,6 +79,27 @@ public sealed class AppointmentRequestEndpointTests(
         var history = Assert.Single(appointment.StatusHistory);
         Assert.Equal(AppointmentStatusAction.Creation, history.Action);
         Assert.Equal(AppointmentActorType.PatientAuthority, history.ActorType);
+    }
+
+    [Fact]
+    public async Task SensitiveReasonAndRequestIdentity_AreNotLoggedOrSharedClinically()
+    {
+        const string sensitiveReason = "private-appointment-reason-8f63d4";
+        var idempotencyKey = Guid.NewGuid();
+        var before = await ReadClinicalCountsAsync();
+        using var client = CreateAuthenticatedClient();
+
+        using var response = await client.PostAsJsonAsync(
+            Endpoint,
+            Request(graph.Slots[0], idempotencyKey, sensitiveReason));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(before, await ReadClinicalCountsAsync());
+        var logs = string.Join(Environment.NewLine, loggerProvider.Messages);
+        Assert.NotEmpty(loggerProvider.Messages);
+        Assert.DoesNotContain(sensitiveReason, logs, StringComparison.Ordinal);
+        Assert.DoesNotContain(idempotencyKey.ToString("D"), logs, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(accessToken, logs, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -362,8 +385,10 @@ public sealed class AppointmentRequestEndpointTests(
         dbContext.AvailabilitySlots.AddRange(graph.Slots);
         await dbContext.SaveChangesAsync();
 
+        loggerProvider = new InMemoryLoggerProvider();
         factory = new BeeexyApiFactory(
             postgres.ConnectionString,
+            loggerProvider: loggerProvider,
             configureServices: services =>
             {
                 services.RemoveAll<IClock>();
@@ -381,6 +406,7 @@ public sealed class AppointmentRequestEndpointTests(
     public async Task DisposeAsync()
     {
         factory.Dispose();
+        loggerProvider.Dispose();
         await CleanupAsync();
     }
 
@@ -533,6 +559,15 @@ public sealed class AppointmentRequestEndpointTests(
         await using var dbContext = CreateDbContext();
         return await dbContext.Appointments.CountAsync(value =>
             value.RequestingAccountId == graph.Account.Id);
+    }
+
+    private async Task<(int PreTriage, int ClinicalHistory, int Fhir)> ReadClinicalCountsAsync()
+    {
+        await using var dbContext = CreateDbContext();
+        return (
+            await dbContext.PreTriageEpisodes.CountAsync(),
+            await dbContext.ClinicalHistoryEvents.CountAsync(),
+            await dbContext.FhirExports.CountAsync());
     }
 
     private async Task CleanupAsync()

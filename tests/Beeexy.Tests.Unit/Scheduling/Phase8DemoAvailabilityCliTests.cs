@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 
 namespace Beeexy.Tests.Unit.Scheduling;
 
+[Trait("Category", "Phase8Acceptance")]
 public sealed class Phase8DemoAvailabilityCliTests
 {
     [Fact]

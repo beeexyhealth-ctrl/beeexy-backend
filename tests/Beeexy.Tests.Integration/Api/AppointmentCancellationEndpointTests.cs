@@ -18,6 +18,7 @@ using Npgsql;
 namespace Beeexy.Tests.Integration.Api;
 
 [Collection(PostgreSqlCollection.Name)]
+[Trait("Category", "Phase8Acceptance")]
 public sealed class AppointmentCancellationEndpointTests(
     PostgreSqlContainerFixture postgres) : IAsyncLifetime
 {

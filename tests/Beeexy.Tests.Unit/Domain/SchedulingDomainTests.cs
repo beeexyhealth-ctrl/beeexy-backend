@@ -4,6 +4,7 @@ using Beeexy.Domain.Scheduling;
 
 namespace Beeexy.Tests.Unit.Domain;
 
+[Trait("Category", "Phase8Acceptance")]
 public sealed class SchedulingDomainTests
 {
     private static readonly DateTimeOffset CreatedAt =

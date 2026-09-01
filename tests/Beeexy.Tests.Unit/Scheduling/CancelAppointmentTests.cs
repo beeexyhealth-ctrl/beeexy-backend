@@ -9,6 +9,7 @@ using Beeexy.Tests.Unit.Patients;
 
 namespace Beeexy.Tests.Unit.Scheduling;
 
+[Trait("Category", "Phase8Acceptance")]
 public sealed class CancelAppointmentTests
 {
     private static readonly DateTimeOffset Now =

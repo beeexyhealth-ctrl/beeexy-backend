@@ -11,6 +11,7 @@ using Npgsql;
 namespace Beeexy.Tests.Integration.Infrastructure;
 
 [Collection(PostgreSqlCollection.Name)]
+[Trait("Category", "Phase8Acceptance")]
 public sealed class SchedulingPersistenceTests(PostgreSqlContainerFixture postgres) : IAsyncLifetime
 {
     private static readonly DateTimeOffset CreatedAt =
@@ -457,9 +458,14 @@ public sealed class SchedulingPersistenceTests(PostgreSqlContainerFixture postgr
                 "WHERE schemaname = 'scheduling' AND indexname IN " +
                 "('ux_appointments_reserving_slot'," +
                 "'ux_appointments_account_idempotency_key'," +
+                "'ux_appointment_status_history_appointment_sequence'," +
                 "'ix_appointments_patient_start_status'," +
+                "'ix_appointments_slot_status'," +
+                "'ix_appointments_status'," +
                 "'ix_availability_slots_doctor_published_start'," +
-                "'ix_availability_slots_clinic_published_start') " +
+                "'ix_availability_slots_clinic_published_start'," +
+                "'ix_availability_slots_location_start'," +
+                "'ix_appointment_reschedule_history_appointment_occurred_id') " +
                 "ORDER BY indexname;";
             var indexes = new Dictionary<string, string>();
             await using var reader = await indexCommand.ExecuteReaderAsync();
@@ -468,13 +474,19 @@ public sealed class SchedulingPersistenceTests(PostgreSqlContainerFixture postgr
                 indexes.Add(reader.GetString(0), reader.GetString(1));
             }
 
-            Assert.Equal(5, indexes.Count);
+            Assert.Equal(10, indexes.Count);
             Assert.Contains("UNIQUE", indexes["ux_appointments_reserving_slot"]);
             Assert.Contains(
                 "WHERE ((status)::text = ANY ((ARRAY['requested'::character varying, " +
                 "'confirmed'::character varying])::text[]))",
                 indexes["ux_appointments_reserving_slot"]);
             Assert.Contains("UNIQUE", indexes["ux_appointments_account_idempotency_key"]);
+            Assert.Contains(
+                "UNIQUE",
+                indexes["ux_appointment_status_history_appointment_sequence"]);
+            Assert.Contains(
+                "appointment_id, occurred_at, id",
+                indexes["ix_appointment_reschedule_history_appointment_occurred_id"]);
         }
 
         await using var foreignKeyCommand = connection.CreateCommand();
