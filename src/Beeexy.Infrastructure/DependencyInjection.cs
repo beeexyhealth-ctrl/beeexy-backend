@@ -22,6 +22,23 @@ namespace Beeexy.Infrastructure;
 
 public static class DependencyInjection
 {
+    public static IServiceCollection AddAppointmentOperationsInfrastructure(
+        this IServiceCollection services,
+        string connectionString)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
+        services.AddSingleton<IClock, SystemClock>();
+        services.AddScoped<PublicDirectoryQueryBoundary>();
+        services.AddScoped<IAppointmentTransitionTransaction, AppointmentTransitionTransaction>();
+        services.AddScoped<
+            IAppointmentOperationsReadRepository,
+            AppointmentOperationsReadRepository>();
+        services.AddDbContext<BeeexyDbContext>(options => options.UseNpgsql(
+            connectionString,
+            npgsql => npgsql.MigrationsAssembly(typeof(BeeexyDbContext).Assembly.FullName)));
+        return services;
+    }
+
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services,
         string connectionString,
@@ -61,6 +78,9 @@ public static class DependencyInjection
         services.AddScoped<IAppointmentTransitionTransaction, AppointmentTransitionTransaction>();
         services.AddScoped<IAppointmentRescheduleTransaction, AppointmentTransitionTransaction>();
         services.AddScoped<IAppointmentReadRepository, AppointmentReadRepository>();
+        services.AddScoped<
+            IAppointmentOperationsReadRepository,
+            AppointmentOperationsReadRepository>();
         services.AddSingleton(emailChallengePolicy);
         services.AddSingleton(authenticationTokenPolicy);
         services.AddSingleton<IOneTimePasswordGenerator, CryptographicOneTimePasswordGenerator>();

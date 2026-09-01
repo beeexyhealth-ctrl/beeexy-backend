@@ -76,16 +76,85 @@ public sealed class RejectAppointment(TransitionAppointment transition)
             cancellationToken);
 }
 
-public sealed class TransitionAppointment(
+public sealed class ConfirmAppointmentForOperations(AppointmentTransitionEngine transition)
+{
+    public Task<AppointmentTransitionResult> ExecuteAsync(
+        EntityId appointmentId,
+        string operationalActor,
+        CancellationToken cancellationToken = default) =>
+        transition.ExecuteAsync(
+            appointmentId,
+            AppointmentStatus.Confirmed,
+            AppointmentActor.BeeexyOperations(operationalActor),
+            authorizeClinic: null,
+            cancellationToken);
+}
+
+public sealed class RejectAppointmentForOperations(AppointmentTransitionEngine transition)
+{
+    public Task<AppointmentTransitionResult> ExecuteAsync(
+        EntityId appointmentId,
+        string operationalActor,
+        CancellationToken cancellationToken = default) =>
+        transition.ExecuteAsync(
+            appointmentId,
+            AppointmentStatus.Rejected,
+            AppointmentActor.BeeexyOperations(operationalActor),
+            authorizeClinic: null,
+            cancellationToken);
+}
+
+public sealed class TransitionAppointment
+{
+    private readonly CurrentAccountProfileResolver currentAccountResolver;
+    private readonly AppointmentSchedulerAssignments schedulerAssignments;
+    private readonly AppointmentTransitionEngine transition;
+
+    public TransitionAppointment(
+        IClock clock,
+        CurrentAccountProfileResolver currentAccountResolver,
+        AppointmentSchedulerAssignments schedulerAssignments,
+        IAppointmentTransitionTransaction transaction)
+    {
+        this.currentAccountResolver = currentAccountResolver;
+        this.schedulerAssignments = schedulerAssignments;
+        transition = new AppointmentTransitionEngine(clock, transaction);
+    }
+
+    public async Task<AppointmentTransitionResult> ExecuteAsync(
+        EntityId appointmentId,
+        AppointmentStatus targetStatus,
+        CancellationToken cancellationToken = default)
+    {
+        var current = await currentAccountResolver.ResolveAsync(cancellationToken);
+        var actor = AppointmentActor.AppointmentScheduler(current.Account.Id);
+        return await transition.ExecuteAsync(
+            appointmentId,
+            targetStatus,
+            actor,
+            clinicId => EnsureAuthorized(current.Account.Id, clinicId),
+            cancellationToken);
+    }
+
+    private void EnsureAuthorized(EntityId accountId, EntityId clinicId)
+    {
+        if (!schedulerAssignments.HasAppointmentSchedulerPermission(accountId, clinicId))
+        {
+            throw new AppointmentSchedulerForbiddenException();
+        }
+    }
+}
+
+public sealed class AppointmentTransitionEngine(
     IClock clock,
-    CurrentAccountProfileResolver currentAccountResolver,
-    AppointmentSchedulerAssignments schedulerAssignments,
     IAppointmentTransitionTransaction transaction)
 {
     public async Task<AppointmentTransitionResult> ExecuteAsync(
         EntityId appointmentId,
         AppointmentStatus targetStatus,
-        CancellationToken cancellationToken = default)
+        AppointmentActor actor,
+        Action<EntityId>? authorizeClinic,
+        CancellationToken cancellationToken)
     {
         if (appointmentId.Value == Guid.Empty)
         {
@@ -97,11 +166,10 @@ public sealed class TransitionAppointment(
             throw new ArgumentOutOfRangeException(nameof(targetStatus));
         }
 
-        var current = await currentAccountResolver.ResolveAsync(cancellationToken);
         await transaction.BeginAsync(cancellationToken);
         var state = await transaction.LoadAsync(appointmentId, cancellationToken)
             ?? throw new AppointmentNotFoundException();
-        EnsureAuthorized(current.Account.Id, state.Slot.ClinicId);
+        authorizeClinic?.Invoke(state.Slot.ClinicId);
 
         if (state.Appointment.Status == targetStatus)
         {
@@ -113,7 +181,7 @@ public sealed class TransitionAppointment(
 
         try
         {
-            Apply(state.Appointment, targetStatus, current.Account.Id, UtcNow());
+            Apply(state.Appointment, targetStatus, actor, UtcNow());
         }
         catch (InvalidOperationException)
         {
@@ -132,7 +200,7 @@ public sealed class TransitionAppointment(
         {
             var reloaded = await transaction.ReloadAsync(appointmentId, cancellationToken)
                 ?? throw new AppointmentTransitionConflictException();
-            EnsureAuthorized(current.Account.Id, reloaded.Slot.ClinicId);
+            authorizeClinic?.Invoke(reloaded.Slot.ClinicId);
             if (reloaded.Appointment.Status != targetStatus)
             {
                 throw new AppointmentTransitionConflictException();
@@ -141,14 +209,6 @@ public sealed class TransitionAppointment(
             return new AppointmentTransitionResult(
                 AppointmentTransitionProjection.ToSummary(reloaded),
                 NewlyApplied: false);
-        }
-    }
-
-    private void EnsureAuthorized(EntityId accountId, EntityId clinicId)
-    {
-        if (!schedulerAssignments.HasAppointmentSchedulerPermission(accountId, clinicId))
-        {
-            throw new AppointmentSchedulerForbiddenException();
         }
     }
 
@@ -161,16 +221,16 @@ public sealed class TransitionAppointment(
     private static void Apply(
         Appointment appointment,
         AppointmentStatus targetStatus,
-        EntityId actorAccountId,
+        AppointmentActor actor,
         DateTimeOffset occurredAt)
     {
         if (targetStatus == AppointmentStatus.Confirmed)
         {
-            appointment.Confirm(actorAccountId, occurredAt);
+            appointment.Confirm(actor, occurredAt);
         }
         else
         {
-            appointment.Reject(actorAccountId, occurredAt);
+            appointment.Reject(actor, occurredAt);
         }
     }
 

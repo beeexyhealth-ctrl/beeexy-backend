@@ -47,6 +47,7 @@ internal static class SchedulingPersistence
     {
         AppointmentActorType.PatientAuthority => "patient_authority",
         AppointmentActorType.AppointmentScheduler => "appointment_scheduler",
+        AppointmentActorType.BeeexyOperations => "beeexy_operations",
         _ => throw new ArgumentOutOfRangeException(nameof(actorType))
     };
 
@@ -54,6 +55,7 @@ internal static class SchedulingPersistence
     {
         "patient_authority" => AppointmentActorType.PatientAuthority,
         "appointment_scheduler" => AppointmentActorType.AppointmentScheduler,
+        "beeexy_operations" => AppointmentActorType.BeeexyOperations,
         _ => throw new InvalidOperationException("The stored appointment actor type is unsupported.")
     };
 

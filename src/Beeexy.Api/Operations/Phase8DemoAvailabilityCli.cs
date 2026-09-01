@@ -1,10 +1,12 @@
 using System.Globalization;
+using System.Net;
 using Beeexy.Api.Configuration;
 using Beeexy.Application.Scheduling;
 using Beeexy.Domain.Common;
 using Beeexy.Infrastructure.Persistence;
 using Beeexy.Infrastructure.Scheduling;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Beeexy.Api.Operations;
 
@@ -24,13 +26,19 @@ internal static class Phase8DemoAvailabilityCli
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(configuration);
-        if (!string.Equals(
+        var isDevelopment = string.Equals(
+            environmentName,
+            Environments.Development,
+            StringComparison.OrdinalIgnoreCase);
+        var isProduction = string.Equals(
             environmentName,
             Environments.Production,
-            StringComparison.OrdinalIgnoreCase))
+            StringComparison.OrdinalIgnoreCase);
+        if (!isDevelopment && !isProduction)
         {
             throw new InvalidOperationException(
-                $"The '{Command}' command requires ASPNETCORE_ENVIRONMENT=Production.");
+                $"The '{Command}' command requires ASPNETCORE_ENVIRONMENT to be explicitly " +
+                $"set to Development or Production.");
         }
 
         if (args.Length != 2 || !DateOnly.TryParseExact(
@@ -44,8 +52,9 @@ internal static class Phase8DemoAvailabilityCli
                 $"Usage: {Command} <reference-date:yyyy-MM-dd>.");
         }
 
-        var connectionString = StartupConfiguration.GetRequiredDatabaseConnectionString(
-            configuration);
+        var connectionString = GetRequiredCommandConnectionString(
+            configuration,
+            isDevelopment);
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<AvailabilityImportPackageValidator>();
@@ -61,6 +70,41 @@ internal static class Phase8DemoAvailabilityCli
             referenceDate,
             output ?? Console.Out,
             cancellationToken);
+    }
+
+    internal static string GetRequiredCommandConnectionString(
+        IConfiguration configuration,
+        bool isDevelopment)
+    {
+        var connectionString = StartupConfiguration.GetRequiredDatabaseConnectionString(
+            configuration);
+        if (!isDevelopment)
+        {
+            return connectionString;
+        }
+
+        NpgsqlConnectionStringBuilder builder;
+        try
+        {
+            builder = new NpgsqlConnectionStringBuilder(connectionString);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new InvalidOperationException(
+                "The Development database connection string is invalid.",
+                exception);
+        }
+
+        var hosts = (builder.Host ?? string.Empty).Split(
+            ',',
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (hosts.Length == 0 || hosts.Any(host => !IsLocalHost(host)))
+        {
+            throw new InvalidOperationException(
+                $"The '{Command}' command may only use a local database in Development.");
+        }
+
+        return connectionString;
     }
 
     internal static async Task RunAsync(
@@ -84,5 +128,13 @@ internal static class Phase8DemoAvailabilityCli
     private sealed class CommandClock(DateTimeOffset utcNow) : IClock
     {
         public DateTimeOffset UtcNow { get; } = utcNow.ToUniversalTime();
+    }
+
+    private static bool IsLocalHost(string host)
+    {
+        var normalizedHost = host.Trim('[', ']');
+        return string.Equals(normalizedHost, "localhost", StringComparison.OrdinalIgnoreCase) ||
+            (IPAddress.TryParse(normalizedHost, out var address) && IPAddress.IsLoopback(address)) ||
+            normalizedHost.StartsWith('/');
     }
 }

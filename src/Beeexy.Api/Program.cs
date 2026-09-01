@@ -33,6 +33,7 @@ var databasePrivateAccessCommand = PrivateAccessCli.IsDatabaseCommand(args);
 var provisionDemoGuestCommand = PrivateAccessCli.IsProvisionDemoGuestCommand(args);
 var phase7DemoDirectoryCommand = Phase7DemoDirectoryCli.IsCommand(args);
 var phase8DemoAvailabilityCommand = Phase8DemoAvailabilityCli.IsCommand(args);
+var appointmentAdministrationCommand = AppointmentAdministrationCli.IsCommand(args);
 if (PrivateAccessCli.TryRun(args))
 {
     return;
@@ -51,12 +52,53 @@ if (phase7DemoDirectoryCommand)
 
 if (phase8DemoAvailabilityCommand)
 {
-    var commandConfiguration = new ConfigurationManager();
-    commandConfiguration.AddEnvironmentVariables();
+    var environmentConfiguration = new ConfigurationManager();
+    environmentConfiguration.AddEnvironmentVariables();
+    var commandEnvironmentName = environmentConfiguration["ASPNETCORE_ENVIRONMENT"];
+    IConfiguration commandConfiguration = environmentConfiguration;
+    if (string.Equals(
+        commandEnvironmentName,
+        Environments.Development,
+        StringComparison.OrdinalIgnoreCase))
+    {
+        var developmentCommandBuilder = WebApplication.CreateBuilder(
+            new WebApplicationOptions
+            {
+                Args = [],
+                EnvironmentName = commandEnvironmentName
+            });
+        commandConfiguration = developmentCommandBuilder.Configuration;
+    }
+
     await Phase8DemoAvailabilityCli.ExecuteAsync(
         args,
         commandConfiguration,
-        commandConfiguration["ASPNETCORE_ENVIRONMENT"],
+        commandEnvironmentName,
+        cancellationToken: CancellationToken.None);
+    return;
+}
+
+if (appointmentAdministrationCommand)
+{
+    var environmentConfiguration = new ConfigurationManager();
+    environmentConfiguration.AddEnvironmentVariables();
+    var commandEnvironmentName = environmentConfiguration["ASPNETCORE_ENVIRONMENT"];
+    IConfiguration commandConfiguration = environmentConfiguration;
+    if (AppointmentAdministrationCli.IsAllowedEnvironment(commandEnvironmentName))
+    {
+        var developmentCommandBuilder = WebApplication.CreateBuilder(
+            new WebApplicationOptions
+            {
+                Args = [],
+                EnvironmentName = commandEnvironmentName
+            });
+        commandConfiguration = developmentCommandBuilder.Configuration;
+    }
+
+    Environment.ExitCode = await AppointmentAdministrationCli.ExecuteAsync(
+        args,
+        commandConfiguration,
+        commandEnvironmentName,
         cancellationToken: CancellationToken.None);
     return;
 }

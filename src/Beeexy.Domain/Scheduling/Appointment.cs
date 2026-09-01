@@ -112,6 +112,9 @@ public sealed class Appointment
     }
 
     public bool Confirm(EntityId actorAccountId, DateTimeOffset occurredAt)
+        => Confirm(AppointmentActor.AppointmentScheduler(actorAccountId), occurredAt);
+
+    public bool Confirm(AppointmentActor actor, DateTimeOffset occurredAt)
     {
         if (Status == AppointmentStatus.Confirmed)
         {
@@ -121,13 +124,15 @@ public sealed class Appointment
         return Transition(
             AppointmentStatus.Requested,
             AppointmentStatus.Confirmed,
-            actorAccountId,
-            AppointmentActorType.AppointmentScheduler,
+            actor,
             AppointmentStatusAction.Confirmation,
             occurredAt);
     }
 
     public bool Reject(EntityId actorAccountId, DateTimeOffset occurredAt)
+        => Reject(AppointmentActor.AppointmentScheduler(actorAccountId), occurredAt);
+
+    public bool Reject(AppointmentActor actor, DateTimeOffset occurredAt)
     {
         if (Status == AppointmentStatus.Rejected)
         {
@@ -137,8 +142,7 @@ public sealed class Appointment
         return Transition(
             AppointmentStatus.Requested,
             AppointmentStatus.Rejected,
-            actorAccountId,
-            AppointmentActorType.AppointmentScheduler,
+            actor,
             AppointmentStatusAction.Rejection,
             occurredAt);
     }
@@ -158,8 +162,7 @@ public sealed class Appointment
 
         return ApplyTransition(
             AppointmentStatus.Cancelled,
-            actorAccountId,
-            AppointmentActorType.PatientAuthority,
+            AppointmentActor.PatientAuthority(actorAccountId),
             AppointmentStatusAction.Cancellation,
             occurredAt);
     }
@@ -207,8 +210,7 @@ public sealed class Appointment
     private bool Transition(
         AppointmentStatus requiredStatus,
         AppointmentStatus newStatus,
-        EntityId actorAccountId,
-        AppointmentActorType actorType,
+        AppointmentActor actor,
         AppointmentStatusAction action,
         DateTimeOffset occurredAt)
     {
@@ -218,17 +220,24 @@ public sealed class Appointment
                 $"An appointment in {Status} status cannot transition to {newStatus}.");
         }
 
-        return ApplyTransition(newStatus, actorAccountId, actorType, action, occurredAt);
+        return ApplyTransition(newStatus, actor, action, occurredAt);
     }
 
     private bool ApplyTransition(
         AppointmentStatus newStatus,
-        EntityId actorAccountId,
-        AppointmentActorType actorType,
+        AppointmentActor actor,
         AppointmentStatusAction action,
         DateTimeOffset occurredAt)
     {
-        EnsureNonEmpty(actorAccountId, nameof(actorAccountId));
+        ArgumentNullException.ThrowIfNull(actor);
+        if (newStatus is AppointmentStatus.Confirmed or AppointmentStatus.Rejected &&
+            actor.Type is not (AppointmentActorType.AppointmentScheduler or
+                AppointmentActorType.BeeexyOperations))
+        {
+            throw new ArgumentException(
+                "Confirmation and rejection require a scheduling actor.",
+                nameof(actor));
+        }
         InstantGuard.EnsureNotBefore(occurredAt, CreatedAt, nameof(occurredAt));
         var previousStatus = Status;
         Version = checked(Version + 1);
@@ -239,8 +248,7 @@ public sealed class Appointment
             Version,
             previousStatus,
             newStatus,
-            actorAccountId,
-            actorType,
+            actor,
             action,
             occurredAt));
         return true;

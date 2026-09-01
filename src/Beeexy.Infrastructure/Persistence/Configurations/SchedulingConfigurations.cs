@@ -270,7 +270,14 @@ internal sealed class AppointmentStatusHistoryConfiguration
                 "new_status IN ('requested','confirmed','cancelled','completed','no_show','rejected')");
             table.HasCheckConstraint(
                 "ck_appointment_status_history_actor_type",
-                "actor_type IN ('patient_authority','appointment_scheduler')");
+                "actor_type IN ('patient_authority','appointment_scheduler','beeexy_operations')");
+            table.HasCheckConstraint(
+                "ck_appointment_status_history_actor_identity",
+                "(actor_type = 'beeexy_operations' AND actor_account_id IS NULL " +
+                "AND operational_actor_identifier IS NOT NULL " +
+                "AND length(btrim(operational_actor_identifier)) > 0) OR " +
+                "(actor_type <> 'beeexy_operations' AND actor_account_id IS NOT NULL " +
+                "AND operational_actor_identifier IS NULL)");
             table.HasCheckConstraint(
                 "ck_appointment_status_history_action",
                 "action IN ('creation','confirmation','rejection','cancellation','completion','no_show')");
@@ -307,10 +314,14 @@ internal sealed class AppointmentStatusHistoryConfiguration
                 value => SchedulingPersistence.LoadStatus(value))
             .HasMaxLength(16)
             .IsRequired();
-        SchedulingConfiguration.ConfigureId(
-            builder,
-            history => history.ActorAccountId,
-            "actor_account_id");
+        builder.Property(history => history.ActorAccountId)
+            .HasColumnName("actor_account_id")
+            .HasConversion(
+                value => value.HasValue ? value.Value.Value : (Guid?)null,
+                value => value.HasValue ? EntityId.From(value.Value) : null);
+        builder.Property(history => history.OperationalActorIdentifier)
+            .HasColumnName("operational_actor_identifier")
+            .HasMaxLength(AppointmentActor.MaximumOperationalIdentifierLength);
         builder.Property(history => history.ActorType)
             .HasColumnName("actor_type")
             .HasConversion(

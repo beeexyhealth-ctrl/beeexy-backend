@@ -14,8 +14,7 @@ public sealed class AppointmentStatusHistory
         long sequence,
         AppointmentStatus? previousStatus,
         AppointmentStatus newStatus,
-        EntityId actorAccountId,
-        AppointmentActorType actorType,
+        AppointmentActor actor,
         AppointmentStatusAction action,
         DateTimeOffset occurredAt)
     {
@@ -24,8 +23,9 @@ public sealed class AppointmentStatusHistory
         Sequence = sequence;
         PreviousStatus = previousStatus;
         NewStatus = newStatus;
-        ActorAccountId = actorAccountId;
-        ActorType = actorType;
+        ActorAccountId = actor.AccountId;
+        OperationalActorIdentifier = actor.OperationalIdentifier;
+        ActorType = actor.Type;
         Action = action;
         OccurredAt = occurredAt;
     }
@@ -40,7 +40,9 @@ public sealed class AppointmentStatusHistory
 
     public AppointmentStatus NewStatus { get; private set; }
 
-    public EntityId ActorAccountId { get; private set; }
+    public EntityId? ActorAccountId { get; private set; }
+
+    public string? OperationalActorIdentifier { get; private set; }
 
     public AppointmentActorType ActorType { get; private set; }
 
@@ -58,8 +60,7 @@ public sealed class AppointmentStatusHistory
             1,
             null,
             AppointmentStatus.Requested,
-            actorAccountId,
-            AppointmentActorType.PatientAuthority,
+            AppointmentActor.PatientAuthority(actorAccountId),
             AppointmentStatusAction.Creation,
             occurredAt);
     }
@@ -69,8 +70,7 @@ public sealed class AppointmentStatusHistory
         long sequence,
         AppointmentStatus previousStatus,
         AppointmentStatus newStatus,
-        EntityId actorAccountId,
-        AppointmentActorType actorType,
+        AppointmentActor actor,
         AppointmentStatusAction action,
         DateTimeOffset occurredAt)
     {
@@ -79,8 +79,7 @@ public sealed class AppointmentStatusHistory
             sequence,
             previousStatus,
             newStatus,
-            actorAccountId,
-            actorType,
+            actor,
             action,
             occurredAt);
     }
@@ -90,13 +89,12 @@ public sealed class AppointmentStatusHistory
         long sequence,
         AppointmentStatus? previousStatus,
         AppointmentStatus newStatus,
-        EntityId actorAccountId,
-        AppointmentActorType actorType,
+        AppointmentActor actor,
         AppointmentStatusAction action,
         DateTimeOffset occurredAt)
     {
         EnsureNonEmpty(appointmentId, nameof(appointmentId));
-        EnsureNonEmpty(actorAccountId, nameof(actorAccountId));
+        ArgumentNullException.ThrowIfNull(actor);
         if (sequence <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(sequence));
@@ -108,9 +106,9 @@ public sealed class AppointmentStatusHistory
             throw new ArgumentOutOfRangeException(nameof(newStatus));
         }
 
-        if (!Enum.IsDefined(actorType))
+        if (!Enum.IsDefined(actor.Type))
         {
-            throw new ArgumentOutOfRangeException(nameof(actorType));
+            throw new ArgumentOutOfRangeException(nameof(actor));
         }
 
         if (!Enum.IsDefined(action))
@@ -125,8 +123,7 @@ public sealed class AppointmentStatusHistory
             sequence,
             previousStatus,
             newStatus,
-            actorAccountId,
-            actorType,
+            actor,
             action,
             occurredAt);
     }

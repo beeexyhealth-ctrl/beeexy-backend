@@ -322,6 +322,7 @@ internal static class AppointmentEndpointExtensions
     {
         AppointmentActorType.PatientAuthority => "patientAuthority",
         AppointmentActorType.AppointmentScheduler => "appointmentScheduler",
+        AppointmentActorType.BeeexyOperations => "beeexyOperations",
         _ => throw new ArgumentOutOfRangeException(nameof(value))
     };
 
