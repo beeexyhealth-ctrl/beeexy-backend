@@ -1595,104 +1595,428 @@ No mapping is invented. Future resources depend on Andrea's materials.
 
 **Priority:** MVP SHOULD-HAVE
 
-## 1. Objective
+## Phase-wide objective
 
 Add one replaceable AI provider with Beeexy safety validation, immutable result snapshots, temporary documents, full execution traceability, and history separate from Clinical History.
 
-## 2. Scope
+The complete phase covers authenticated free AI conversations, Second Opinion from supported non-OCR inputs, temporary uploads with a maximum 24-hour retention period, provider/prompt/model/timing/status/failure/safety metadata, safe failure, and immutable regeneration. AI is supplemental and informational. Wherever Beeexy's deterministic clinical rules apply, the deterministic clinical assessment remains authoritative.
 
-- Free AI conversations.
-- Second Opinion from supported non-OCR inputs.
-- Temporary uploads with 24-hour deletion.
-- Provider/prompt/model/timing/status/failure/safety metadata.
-- Safe failure and immutable regeneration.
+## Phase-wide boundaries
 
-## 3. Explicitly Out of Scope
+The following are out of scope across Phase 10: three-model execution; multi-provider orchestration as a product feature; AI authority over deterministic clinical rules; AI-generated authoritative urgency, care instructions, questionnaire definitions, or deterministic Pre-Triage decisions; OCR; unsupported multimodal extraction; automatic AI-to-Clinical-History promotion; automatic FHIR generation from AI conversations or results; and editing an existing AI result snapshot in place. AI must never diagnose definitively, prescribe, or become a clinical authority.
 
-- Three-model execution, AI authority over clinical rules, AI-generated urgency/questions/care instructions, OCR, automatic clinical-history promotion, and editing a snapshot in place.
+All Phase 10 capabilities require bearer authentication. Account ownership governs conversations and uploads; Phase 3's shared patient-authority decision governs patient-scoped context and analysis. A UUID, Beeexy ID, conversation ID, document ID, analysis ID, or result ID alone grants no authority. Missing and unauthorized patient-scoped resources use concealed `404` behavior where specified.
 
-## 4. Domain Model
+AI conversations and results remain non-clinical AI History. They do not automatically create Clinical History records or FHIR resources. Execution provenance may be retained for a future mapping only if Andrea later defines and approves it; that mapping is deferred and does not block Phase 10.
 
-- Entities: `AiConversation`, `AiMessage`, `AiAnalysisRequest`, `AiResultSnapshot`, `AiExecution`, `AiUploadedDocument`, `AiSafetyValidation`.
-- Statuses: `Pending`, `Running`, `Succeeded`, `Failed`, `Rejected`.
-- Invariants: one configured provider call per execution; safety validation before display; regeneration creates a new snapshot; AI failure never invalidates deterministic assessment; AI history is non-clinical.
+## Implementation sequence and dependency graph
 
-## 5. Database Changes
+Baseline dependency chain: `10.1 -> 10.2 -> 10.3`.
 
-- `ai.ai_conversations`, `ai_messages`, `ai_analysis_requests`, `ai_result_snapshots`, `ai_executions`, `ai_uploaded_documents`, `ai_safety_validations`.
-- UUID PKs/FKs; provider/model/prompt version; timestamps/latency/status; sanitized failure category; safety result; artifact URI/expiry/deletion state.
-- Index account/patient/time/status and document expiry.
-- Raw health content is not duplicated in technical execution rows.
+After 10.3, Phase 10.4 (conversations) and Phase 10.5 (temporary documents) are architecturally parallelizable. Phase 10.6 depends on 10.1–10.3 and additionally uses 10.5 when a document is supplied. Phase 10.7 follows 10.6, and Phase 10.8 closes the complete phase. The practical sequential implementation order is `10.1 -> 10.2 -> 10.3 -> 10.4 -> 10.5 -> 10.6 -> 10.7 -> 10.8`.
 
-## 6. API Endpoints
+Phase 10 does not depend on Phase 9. It reuses Phase 2 authentication/account ownership, Phase 3 patient authority, Phase 4's provider-neutral AI and application-owned deterministic safety boundaries, and Phase 5's Clinical History separation and immutable-source concepts.
 
-| Method / route | Authentication | Authorization | Purpose | Response | Validation and errors |
+## Phase 10.1 — AI Platform Domain + Persistence Foundation
+
+### Objective
+
+Establish the provider-neutral Phase 10 domain and persistence foundation required by all later Phase 10 capabilities, without implementing user-facing AI behavior.
+
+### Scope
+
+- Define `AiConversation`, `AiMessage`, `AiAnalysisRequest`, `AiResultSnapshot`, `AiExecution`, `AiUploadedDocument`, and `AiSafetyValidation`, plus the minimum value objects and reference types needed to preserve their invariants.
+- Preserve execution statuses `Pending`, `Running`, `Succeeded`, `Failed`, and `Rejected`, with valid, explicit state transitions.
+- Represent account ownership; optional patient association where applicable; conversation/message relationships; analysis requests; immutable original analysis-input provenance and result snapshots; executions and immutable regenerated snapshots; provider/model/prompt-version metadata; timestamps and latency; sanitized failure categories; safety category/result and user-display eligibility; restricted-audit retention of rejected output; document metadata and expiry/physical-deletion state; provenance/reference relationships; and logical deletion needed by Phase 10.4.
+- Use UUID primary and foreign keys and existing Beeexy creation/update/concurrency conventions. Technical execution rows must reference content-bearing records and must not unnecessarily duplicate raw health content.
+
+### Out of Scope
+
+Actual provider calls, final prompt content, user-facing conversation execution, document binary storage, Second Opinion execution, regeneration, final safety rules, and public Phase 10 endpoints.
+
+### Domain / Persistence / API Impact
+
+- Map `ai.ai_conversations`, `ai.ai_messages`, `ai.ai_analysis_requests`, `ai.ai_result_snapshots`, `ai.ai_executions`, `ai.ai_uploaded_documents`, and `ai.ai_safety_validations` in the `ai` persistence boundary.
+- Add required ownership, relationship, status/time, patient/time, execution/status, provenance, and document-expiry indexes; use restrictive foreign-key behavior where deletion could destroy audit or result history.
+- Model `AiResultSnapshot` as append-only/immutable. Model logical conversation deletion with a deletion timestamp/state while retaining internal audit data.
+- Preserve enough analysis-input provenance for later immutable regeneration while separating content records from technical execution metadata and minimizing PHI duplication.
+- No public API surface is added in 10.1.
+
+### Dependencies
+
+Phase 2 authentication/account foundation; Phase 3 patient-authority concepts where reused; Phase 4 AI architecture and safety boundaries where reusable; Phase 5 Clinical History separation; and existing Beeexy persistence conventions. Phase 10.1 does not depend on Phase 9.
+
+### Implementation Deliverables
+
+Phase 10 domain entities, value objects and statuses; persistence mappings; `ai` schema/table mappings; indexes and constraints; repository/persistence boundaries where needed; migration(s); and focused domain/persistence tests.
+
+### Tests
+
+- Entity invariants, relationship integrity, UUID ownership/reference integrity, execution-state validity, and optional patient association.
+- Immutable snapshot constraints and logical-deletion representation.
+- Persistence round trips, indexes/constraints where testable, restrictive deletion behavior, and migration rollback/reapply/pending-model checks.
+- AI History/Clinical History separation and absence of inappropriate raw PHI duplication in technical execution records.
+
+### Definition of Done
+
+10.1 is complete when the Phase 10 domain can persist all later AI workflows without provider-specific concepts or user-facing AI execution.
+
+## Phase 10.2 — Provider-Neutral AI Execution Pipeline
+
+### Objective
+
+Define the reusable provider-neutral execution pipeline through which Phase 10 AI workloads run.
+
+### Scope
+
+- Inspect Phase 4's `IClinicalAiProvider` and related boundaries first; reuse or adapt them where the contract is genuinely shared instead of creating parallel provider abstractions. Phase 4's deterministic questionnaire and safety authority must remain unchanged.
+- Define `IAiProvider` (or an appropriately generalized reused Phase 4 boundary), provider-neutral execution request/response contracts, a provider-neutral prompt-building boundary, and structured result-schema validation.
+- Reuse or adapt the existing configured `NvidiaClinicalAiProvider` and `ClinicalAiProviderOptions` as the concrete Phase 10 integration behind the provider-neutral boundary. Preserve the credential-free unavailable fallback and do not expose NVIDIA concepts in the Domain or public contracts.
+- Define distinct versioned provider-neutral prompt/safety contracts for free AI conversation, Second Opinion, and applicable safety/fallback behavior. Do not embed full production prompts in this plan or technical logs.
+- Record provider/model identification, the exact applicable prompt-contract version, execution lifecycle, timestamps, latency, timeout, cancellation, and normalized transient/permanent failure categories.
+- Make exactly one configured provider call per execution. The Phase 10 Domain must not depend on NVIDIA, OpenAI, Anthropic, or any other concrete provider.
+
+### Out of Scope
+
+Final free-chat behavior, the final Second Opinion prompt, document extraction, OCR, final safety-policy implementation beyond its pipeline hook, multi-provider orchestration, and three-model execution.
+
+### Domain / Persistence / API Impact
+
+- Add application/infrastructure execution contracts and an orchestrator that writes complete neutral metadata, including the workload/prompt-contract version, to `AiExecution` without logging prompts or provider payloads.
+- Validate the provider response against the workload's structured schema before it can enter the safety/display pipeline. A technically successful call can still become `Rejected` due to malformed schema or later safety validation.
+- Concrete adapters remain Infrastructure/configuration concerns; no provider-specific field enters public or Domain contracts.
+- No public API is added in 10.2.
+
+### Dependencies
+
+Phase 10.1; the existing Phase 4 provider-neutral abstractions; and the repository's configured NVIDIA adapter. Deployment credentials/configuration are required only for live integration acceptance; missing credentials must select the safe unavailable fallback.
+
+### Implementation Deliverables
+
+Provider-neutral contracts; execution orchestrator; separately versioned free-conversation, Second Opinion, and safety/fallback contracts; prompt-version metadata handling; structured result-schema validator boundary; timeout, cancellation, and failure normalization; reuse/adaptation of the existing NVIDIA adapter; and execution metadata persistence.
+
+### Tests
+
+- Exactly one provider call for success, timeout, cancellation, malformed structured output, and transient/permanent failure paths.
+- Execution metadata completeness and valid lifecycle transitions.
+- The exact conversation or Second Opinion prompt-contract version and applicable safety-policy version are traceable for each execution without logging prompt bodies.
+- No provider-specific leakage into Domain/public contracts and no prompt/provider payload logging.
+- Deterministic clinical assessment and Phase 4's explicit structured path remain independent of provider availability or output.
+
+### Definition of Done
+
+10.2 is complete when a Phase 10 workload can execute through one replaceable provider and produce validated provider-neutral execution metadata without exposing unsafe output.
+
+## Phase 10.3 — AI Safety Validation + Execution Traceability
+
+### Objective
+
+Introduce Beeexy's application-level AI safety boundary and make every AI execution auditable before output becomes display-eligible.
+
+### Scope
+
+- Implement the pipeline around `IAiSafetyValidator` and `AiSafetyValidation` with baseline categories `Approved`, `UnsafeMedicalAdvice`, `Diagnosis`, `Prescription`, `Unsupported`, and `Malformed`. Later categories may be additive but must not change these baseline meanings; `Malformed` is the only spelling used.
+- Reject definitive diagnoses; prescriptions; instructions to start or stop medication; instructions to change medication or dosage; AI-authoritative urgency classifications; unrestricted AI-authored emergency instructions; and numerical/percentage disease probabilities.
+- Keep four distinct recorded decisions: (1) provider execution success/failure; (2) output-schema validation; (3) Beeexy safety validation; and (4) user-display eligibility. A technically successful provider call does not imply schema validity, safety approval, or display eligibility.
+- Never return rejected output through normal user APIs. Return a generic safe fallback, keep the rejection internally traceable, and retain rejected raw output only behind restricted audit controls under the approved retention/access policy.
+- In the Second Opinion contract, possible causes or considerations are allowed only in neutral, non-diagnostic language such as “Possible considerations include...” or “One possibility that could be discussed with a physician is...”. Assertions equivalent to “You have X”, “Your diagnosis is X”, or a numerical disease probability are rejected.
+- Treat the general disclaimer as versioned/configurable product content, referenced rather than scattered through business logic, with this required semantic content: “Esta respuesta ha sido generada por inteligencia artificial y no sustituye una evaluación médica. Consulta siempre con un profesional de salud certificado.”
+- Route potentially critical content to a fixed Beeexy-controlled fallback with this baseline meaning: “La información proporcionada podría requerir atención médica. Si crees que puedes estar ante una emergencia o tus síntomas son graves, busca atención médica de inmediato.” This is Beeexy safety copy, not model output or a deterministic AI urgency classification.
+
+### Out of Scope
+
+Replacing deterministic Pre-Triage rules, allowing AI to determine Beeexy urgency, full conversation UX, Second Opinion, and document lifecycle.
+
+### Domain / Persistence / API Impact
+
+- Persist the safety category, validator/policy version, applicable disclaimer/fallback content version, timestamps, display-eligibility decision, and linkage to the execution/result candidate.
+- Separate restricted rejected-output audit material from normal result retrieval and technical logs; keep ordinary execution metadata non-PHI-heavy.
+- Define generic provider/schema/safety failure responses without leaking raw output, prompt content, provider internals, or secrets.
+- No public product endpoint is introduced in 10.3; later endpoints must consume this boundary.
+
+### Dependencies
+
+Phases 10.1 and 10.2; Phase 4 clinical-AI boundaries; and approved safety/disclaimer decisions.
+
+### Implementation Deliverables
+
+Safety validator and categories; display-eligibility decision; generic fallback behavior; restricted rejected-output audit handling; execution/safety traceability; disclaimer version/reference handling; and the critical-safety fallback boundary.
+
+### Tests
+
+- Approved output and rejection of definitive diagnosis, prescription, medication advice, disease probability, AI-authoritative urgency, malformed output, and unsupported output.
+- Rejected output is never displayed; generic fallback is returned; restricted audit retention and access are enforced; safety metadata is persisted.
+- Fixed Beeexy safety copy remains distinguishable from model output, and deterministic Pre-Triage remains independent.
+- Logs contain neither raw rejected output nor prompts/provider payloads.
+
+### Definition of Done
+
+10.3 is complete when no Phase 10 result can become user-displayable without schema and safety approval, and every execution has sufficient privacy-conscious traceability.
+
+## Phase 10.4 — AI Conversations + Conversation History
+
+### Objective
+
+Deliver authenticated informational AI conversations with persistent AI History that remains separate from Clinical History.
+
+### Scope
+
+- Allow general health questions, explanations of health/medical terminology, non-diagnostic discussion of symptoms, and preparation of questions for a healthcare professional.
+- Reject requests to manufacture illicit substances, facilitate serious harm, bypass Beeexy's role/safety constraints through jailbreak or prompt injection, or pursue topics unrelated to health.
+- Make each conversation account-owned and optionally patient-associated. When associated, assemble only authorized patient context, which may include Pre-Triage, Clinical History, and demographics, through Phase 3 patient authority.
+- Keep four concepts distinct: source references/context assembled for an execution; AI conversation messages; immutable AI result/execution artifacts; and authoritative Clinical History records. Do not copy patient source records into technical execution rows for convenience, and never project messages or results automatically.
+- Enforce a maximum of 50 user/assistant messages per conversation and a configurable provider/context token budget; reject further submission gracefully when the configured limit is reached, never send unbounded history to the provider, and never place provider-specific token limits in the Domain.
+- Soft-delete conversations: hide them from normal history while retaining them under internal audit controls using Beeexy's deletion timestamp/state convention.
+- Treat the conversation-start disclaimer as configurable/versioned product content with this required semantic content: “Toda la información generada es por IA. Recuerda acudir siempre a un profesional médico certificado.”
+
+### Out of Scope
+
+Automatic Clinical History promotion, anonymous chat, diagnostic chat, unlimited provider context, Second Opinion, and document upload.
+
+### Domain / Persistence / API Impact
+
+| Method / route | Authentication | Authorization | Purpose | Success | Validation and errors |
 |---|---|---|---|---|---|
-| `POST /api/v1/ai/conversations` | Bearer | Current account | Start free consultation | `201` | Invalid purpose `422` |
-| `GET /api/v1/ai/conversations` | Bearer | Owner only | List separate AI history | `200` | `401` |
-| `GET /api/v1/ai/conversations/{id}` | Bearer | Conversation owner | Get messages/snapshots | `200` | `404` |
-| `POST /api/v1/ai/conversations/{id}/messages` | Bearer | Conversation owner | Submit message | `202` execution | Concurrent execution `409`; unsafe input `422`; `404` |
-| `POST /api/v1/ai/documents` | Bearer | Uploader | Store temporary upload | `201` metadata | Type/size/malware `413/415/422` |
-| `DELETE /api/v1/ai/documents/{id}` | Bearer | Uploader | Delete early | `204` | Concealed `404`; repeat idempotent |
-| `POST /api/v1/ai/second-opinions` | Bearer | Owner/active manager for patient | Start analysis | `202` | Unsupported/missing input `422`; patient `404` |
-| `GET /api/v1/ai/second-opinions/{id}` | Bearer | Patient authority | Safe result/status | `200` | `404`; rejected raw output never returned |
-| `POST /api/v1/ai/second-opinions/{id}/regenerate` | Bearer | Patient authority | Create new execution/snapshot | `202` | Already running `409`; `404` |
+| `POST /api/v1/ai/conversations` | Bearer | Current account; patient authority if associated | Create conversation | `201` | Invalid purpose/context `422`; patient concealed `404` |
+| `GET /api/v1/ai/conversations` | Bearer | Owner only | List non-deleted AI History | `200` | `401` |
+| `GET /api/v1/ai/conversations/{id}` | Bearer | Conversation owner | Get messages/snapshots | `200` | Concealed `404` |
+| `POST /api/v1/ai/conversations/{id}/messages` | Bearer | Conversation owner and current patient authority when patient context is requested | Submit message | `202` execution | Configured message/context limit or invalid/unsafe input `422`; concurrent execution `409`; concealed `404` |
+| `DELETE /api/v1/ai/conversations/{id}` | Bearer | Conversation owner | Soft-delete conversation | `204` | Concealed `404`; repeated owner deletion is idempotent `204` |
 
-## 7. Application / Use Cases
+The original Phase 10 API listed no operation capable of satisfying its soft-deletion requirement. The additive `DELETE /api/v1/ai/conversations/{id}` contract above is the smallest API-contract addition and must be included in 10.8 acceptance; it performs no hard deletion.
 
-- Conversation create/list/get/send.
-- `UploadAiDocument`, `DeleteAiDocument`, `ExpireAiDocuments`.
-- `RequestSecondOpinion`, `ExecuteAiAnalysis`, `ValidateAiSafety`, `GetSecondOpinion`, `RegenerateSecondOpinion`.
-- Provider-neutral prompt builder and result-schema validator.
+### Dependencies
 
-## 8. Authentication and Authorization
+Phases 10.1–10.3; Phase 2 authentication; Phase 3 patient authority; Phase 4 Pre-Triage context when referenced; and Phase 5 Clinical History when referenced.
 
-All AI capabilities require bearer authentication. Conversations are account-owned; patient analyses require patient authority. Anonymous access is prohibited.
+### Implementation Deliverables
 
-## 9. Security and Privacy
+Conversation create/list/get; message submission; account ownership; optional patient association; authorized patient-context assembly; bounded context/history; soft deletion; disclaimer; and execution/safety integration.
 
-- Private object storage, short-lived access, type/size/malware validation.
-- Documents deleted no later than 24 hours.
-- Prompts/provider payloads not logged.
-- Unsafe/incomplete output never displayed; generic fallback returned.
+### Tests
 
-## 10. External Integrations
+- Authenticated creation, anonymous rejection, account ownership, optional patient association, patient authority, and authorized patient-context retrieval.
+- Off-topic, harmful/illicit, and jailbreak rejection; successful message execution; concurrent execution conflict.
+- 50-message limit, graceful limit rejection, and configurable context-budget behavior without provider-specific Domain limits.
+- Soft-deleted conversation hidden from user history but retained for restricted audit; repeated owner deletion; concealed cross-account access.
+- AI History remains separate from Clinical History and creates neither Clinical History nor FHIR artifacts.
 
-- **IMPLEMENT NOW:** one selected `IAiProvider`, `IAiSafetyValidator`, private `IBlobStore`.
-- **INTERFACE/PLACEHOLDER:** OCR/multimodal extraction.
-- **POST-MVP:** additional providers/OCR.
+### Definition of Done
 
-## 11. FHIR Impact
+10.4 is complete when an authenticated user can safely create and use a bounded AI conversation, optionally with authorized patient context, while AI History remains a separate non-clinical record.
 
-AI conversations do not automatically produce FHIR or Clinical History. Execution provenance remains available if Andrea later defines a mapping.
+## Phase 10.5 — Temporary Documents + 24h Retention
 
-## 12. Tests
+### Objective
 
-- Exactly one provider call per execution.
-- Success, timeout, malformed response, unsafe rejection, transient/permanent failure.
-- Generic failure and deterministic-assessment independence.
-- Execution metadata completeness without PHI log duplication.
-- Immutable regeneration and conversation/clinical-history separation.
-- Upload ownership/type/size checks and manual/automatic 24-hour deletion.
-- Concurrent message/regeneration conflicts and idempotency.
-- Mandatory endpoint test matrix for all nine endpoints.
+Deliver private temporary document ingestion for Phase 10 analysis with strict validation and physical deletion no later than 24 hours.
 
-## 13. Acceptance Criteria
+### Scope
 
-- Only safety-approved AI output is displayed.
-- AI is provider-replaceable and never authoritative over deterministic rules.
-- AI history remains separate and snapshots immutable.
-- Document retention is enforced and tested.
-- All tests pass.
+- Support text-native PDF and TXT only, with a maximum size of exactly 25 MiB (26,214,400 bytes) per document and at most one document per Second Opinion. The byte limit is configurable and validated at byte level; display units are not the enforcement mechanism.
+- Validate declared content type, actual signature/type where applicable, size, malware/security status, ownership, and useful extractable text.
+- Extract text from supported files; reject scanned/image-only PDFs and nominally valid files with no useful extractable text. Do not perform OCR, do not invoke the provider with empty/meaningless document content, and return a safe validation response asking for another supported document.
+- Store the blob privately with only short-lived authorized access, support early manual deletion, and physically delete it automatically no later than 24 hours after upload. Manual deletion is idempotent for an owner when minimal lifecycle metadata remains.
+- Retain only the minimum lifecycle/deletion metadata needed for audit. A result or durable normalized analysis-input snapshot must never extend the temporary blob's retention.
+- Manual or automatic source-document deletion never mutates an already-created immutable Second Opinion result snapshot.
 
-## 14. Dependencies
+### Out of Scope
 
-- Phases 2-5.
-- Selected AI provider/credentials; approved prompt versions, safety policy, disclaimers, input formats, and limits.
+OCR, scanned-PDF extraction, JPG/PNG, DOCX, permanent medical-document storage, automatic Clinical History ingestion, and more than one document per Second Opinion.
 
-## 15. Deferred / TBD Items
+### Domain / Persistence / API Impact
 
-- Provider selection, file formats/limits, text-native PDF handling, rejected-output retention, OCR/multimodal processing, and clinical promotion workflow.
+| Method / route | Authentication | Authorization | Purpose | Success | Validation and errors |
+|---|---|---|---|---|---|
+| `POST /api/v1/ai/documents` | Bearer | Current account/uploader | Upload temporary document | `201` metadata | Too large `413`; unsupported/spoofed media `415`; malware, unusable text, or semantic validation `422` |
+| `DELETE /api/v1/ai/documents/{id}` | Bearer | Uploader | Delete blob early | `204` | Absent/foreign concealed `404`; repeated owner deletion `204` when lifecycle metadata identifies the prior deletion |
+
+- Integrate a private `IBlobStore`, PDF/TXT extraction, upload validation, `AiUploadedDocument` lifecycle metadata, and an `ExpireAiDocuments` worker/job/use case.
+- Mark deletion/expiry atomically and make cleanup retry-safe. The blob URI/key is private and never acts as authorization.
+
+### Dependencies
+
+Phase 10.1; Phase 10.3 security boundaries where applicable; a private `IBlobStore`; and malware/file-validation infrastructure. Phase 10.5 does not require Phase 10.4 and can proceed in parallel after shared prerequisites.
+
+### Implementation Deliverables
+
+Private blob-store abstraction/integration; upload validation; PDF/TXT text extraction; ownership enforcement; metadata persistence; manual deletion; expiry worker/job/use case; and deletion-state traceability.
+
+### Tests
+
+- Valid TXT and text-native PDF; unsupported type; spoofed extension/content type; scanned/image-only PDF; unusable extracted text with a safe request-for-another-document response; and size above 25 MiB.
+- Ownership, concealed not-found, manual deletion, repeated deletion, cleanup retries/races, and automatic physical deletion by 24 hours.
+- Blob removed while minimal lifecycle metadata remains, and expired/deleted documents cannot start new analysis.
+- Manual or automatic document deletion leaves an already-created result snapshot unchanged.
+
+### Definition of Done
+
+10.5 is complete when supported temporary documents can be safely uploaded, validated, text-extracted, privately stored, manually deleted, and automatically removed within the retention window.
+
+## Phase 10.6 — Second Opinion Pipeline
+
+### Objective
+
+Deliver Beeexy's structured informational Second Opinion workflow from approved user/patient inputs without making AI a diagnostic or deterministic clinical authority.
+
+### Scope
+
+Product-facing intent: “Get a second perspective on your case. An independent AI reviews your information and offers an evidence-based second opinion in minutes to help you make confident decisions.” This presentation does not make the feature a physician, licensed medical opinion, or diagnosis.
+
+Backend/domain definition: Second Opinion is an AI-generated informational analysis of user-provided health information intended to provide an additional perspective, identify relevant considerations, and help the user prepare for discussion with a licensed healthcare professional. It does not provide a medical diagnosis.
+
+- Accept user-written text, one supported temporary document, authorized Pre-Triage information, and authorized Clinical History.
+- Return a structured result containing: (1) summary; (2) important points/relevant considerations; (3) possible questions to discuss with a physician; (4) missing or insufficient information; and (5) disclaimer.
+- Possible diseases, causes, or clinical considerations may be mentioned only as possibilities, never as definitive diagnoses or numerical disease probabilities. A medical-specialty discussion suggestion is allowed.
+- Do not recommend specific medical tests, laboratory studies, imaging, or examinations.
+- An existing physician opinion/diagnosis may be explained, other possibilities may be identified, and discussion questions may be suggested; the AI must not claim to replace, overturn, confirm, or definitively refute the physician.
+- When information is insufficient, return a valid insufficiency result, identify missing information when safe, invite additional information, and never fabricate facts.
+- Potentially concerning content uses Phase 10.3's fixed Beeexy fallback, not model-authored urgency.
+- Include this result disclaimer as versioned/configurable product content whose semantic meaning survives localization: **This is not a medical diagnosis.** Beeexy AI offers educational insights based on clinical literature, not a substitute for a licensed physician. Always discuss results with your doctor.
+- User-facing metadata includes the AI-generated indication, generation date/time, and applicable AI/result/model version identifier.
+
+### Out of Scope
+
+Definitive diagnosis, medical-test recommendations, AI-authoritative urgency, prescriptions or medication changes, OCR, more than one document, automatic Clinical History promotion, and automatic FHIR generation.
+
+### Domain / Persistence / API Impact
+
+| Method / route | Authentication | Authorization | Purpose | Success | Validation and errors |
+|---|---|---|---|---|---|
+| `POST /api/v1/ai/second-opinions` | Bearer | Current account and owner/active manager for any patient context | Start analysis | `202` | Unsupported/missing/invalid input `422`; patient/document concealed `404` |
+| `GET /api/v1/ai/second-opinions/{id}` | Bearer | Analysis owner and current patient authority where patient-scoped | Retrieve safe status/result | `200` | Concealed `404`; rejected raw output never returned |
+
+- Implement `RequestSecondOpinion`, an authorized input-context assembler, a minimized immutable original analysis-input snapshot/provenance record, a distinct versioned provider-neutral Second Opinion prompt contract/result schema, schema and safety validation, immutable result persistence, and retrieval.
+- The document blob remains temporary; the original analysis-input snapshot retains only the normalized input required for result provenance and Phase 10.7 regeneration, with minimized PHI duplication.
+
+### Dependencies
+
+Phases 10.1–10.3; Phase 10.5 when a document is supplied; Phase 4 for Pre-Triage context; Phase 5 for Clinical History context; and Phase 3 patient authority. Phase 10.6 does not depend on Phase 9.
+
+### Implementation Deliverables
+
+`RequestSecondOpinion`; input-context assembler; immutable original analysis-input snapshot/provenance; versioned prompt contract; structured provider-neutral result schema; schema and safety validation; result persistence/retrieval; and disclaimer/provenance metadata.
+
+### Tests
+
+- Text-only and document requests; authorized Pre-Triage and Clinical History context; unauthorized patient/document context; one-document maximum.
+- Structured schema containing Summary, Important points/relevant considerations, Possible questions for a physician, Missing/insufficient information, and Disclaimer; non-diagnostic possible causes; rejection of definitive diagnosis, numerical probability, and test/exam recommendations; allowed specialty suggestion.
+- Non-authoritative analysis of an existing physician diagnosis; valid insufficient-information result; no fabricated missing facts.
+- Safety fallback; rejected raw output never returned; and user-facing provenance containing an `AI-generated` indicator, generation date/time, result/model or applicable AI version, and disclaimer version.
+
+### Definition of Done
+
+10.6 is complete when an authorized user can request and retrieve a structured, safety-approved, immutable informational Second Opinion from supported inputs.
+
+## Phase 10.7 — Regeneration + Immutable Snapshots + Failure Handling
+
+### Objective
+
+Complete the result lifecycle with immutable regeneration, concurrency protection, and safe failure.
+
+### Scope
+
+- Preserve immutable `AiResultSnapshot`; create one execution per regeneration attempt; never modify a previous snapshot; keep complete execution traceability; fail safely; and leave deterministic assessments independent.
+- Regenerate from the same immutable original analysis-input snapshot. Do not silently incorporate later Clinical History, Pre-Triage, demographics, uploaded documents, or conversation state.
+- Each regeneration creates a new execution and, only after schema/safety approval, a new immutable result snapshot linked to the same original input.
+- Preserve normalized original document input needed for regeneration after the temporary blob is physically deleted, without retaining the blob beyond 24 hours and while minimizing duplicated PHI.
+- Define idempotency/concurrency behavior so simultaneous regeneration of the same analysis returns a conflict rather than creating untraceable competing results. Automatic retries must remain visible as execution attempts and must not create hidden user-visible snapshots.
+
+### Out of Scope
+
+Editing snapshots in place, automatically using newer patient data, retaining temporary files beyond policy, multi-provider comparison, and hidden automatic retries/results without traceability.
+
+### Domain / Persistence / API Impact
+
+| Method / route | Authentication | Authorization | Purpose | Success | Validation and errors |
+|---|---|---|---|---|---|
+| `POST /api/v1/ai/second-opinions/{id}/regenerate` | Bearer | Analysis owner and current patient authority where patient-scoped | Create execution/new snapshot from original input | `202` | Already running `409`; concealed `404`; invalid immutable-input state `422` |
+
+- Implement `RegenerateSecondOpinion`, immutable original-input linkage, a new execution per attempt, a new snapshot per approved success, database-backed concurrency protection, and sanitized failure mapping.
+- A failed, timed-out, malformed, or unsafe regeneration records its execution outcome but never mutates or replaces a prior successful snapshot.
+
+### Dependencies
+
+Phases 10.1–10.3 and 10.6; Phase 10.5 retention semantics when the original input included a document.
+
+### Implementation Deliverables
+
+Regeneration use case; immutable original-input reference/snapshot; new execution per attempt; new result snapshot per successful approved regeneration; concurrency/idempotency rules; sanitized failure behavior; and complete linkage.
+
+### Tests
+
+- New snapshot per successful regeneration; prior snapshot unchanged; same original input reused.
+- Later Clinical History, Pre-Triage, demographics, document state, and conversation changes ignored.
+- Expired/deleted original blob does not break regeneration, and the blob is not retained as a workaround.
+- Concurrent regeneration `409`; timeout; malformed/unsafe result; transient/permanent provider failure; and traceable retry behavior.
+- Failed regeneration does not mutate prior results; deterministic assessment remains unaffected.
+
+### Definition of Done
+
+10.7 is complete when every regeneration is independently traceable and immutable, uses the original input semantics, and cannot corrupt or replace earlier successful results.
+
+## Phase 10.8 — Security, Retention + Phase 10 Acceptance
+
+### Objective
+
+Close Phase 10 by validating authorization, privacy, retention, safety, endpoint behavior, observability, and end-to-end acceptance across the complete AI platform.
+
+### Scope
+
+- Require bearer authentication for every AI capability; prohibit anonymous access; enforce account ownership and patient authority; keep object storage private with short-lived authorized access; conceal resource existence where required; and restrict rejected-output audit access.
+- Verify no prompt/provider payload logging, no raw unsafe/rejected output through user APIs, minimal PHI duplication, physical document deletion no later than 24 hours, and correct logical conversation deletion.
+- Verify AI History remains distinct from Clinical History and that no automatic FHIR or Clinical History promotion occurs.
+- Audit observability so provider/model/prompt version, timing, status, failure category, and safety decisions are traceable without leaking secrets or unnecessary health content.
+
+### Out of Scope
+
+Phase 11+ functionality, OCR, additional-provider product behavior, multi-model consensus, AI-to-Clinical-History promotion, and future Andrea-defined FHIR mapping for AI artifacts.
+
+### Domain / Persistence / API Impact
+
+The final authenticated endpoint matrix is:
+
+1. `POST /api/v1/ai/conversations`
+2. `GET /api/v1/ai/conversations`
+3. `GET /api/v1/ai/conversations/{id}`
+4. `POST /api/v1/ai/conversations/{id}/messages`
+5. `DELETE /api/v1/ai/conversations/{id}` (additive soft-delete contract identified in 10.4)
+6. `POST /api/v1/ai/documents`
+7. `DELETE /api/v1/ai/documents/{id}`
+8. `POST /api/v1/ai/second-opinions`
+9. `GET /api/v1/ai/second-opinions/{id}`
+10. `POST /api/v1/ai/second-opinions/{id}/regenerate`
+
+Preserve the owning-subphase contracts and established semantics: `201` for synchronous resource creation, `202` for asynchronous AI execution, `204` for deletion, concealed `404`, `409` for concurrent execution/regeneration, `413` for size, `415` for unsupported/spoofed media, and `422` for semantic/validation/safety-related invalid input where appropriate. Do not redesign these codes during acceptance.
+
+### Dependencies
+
+Phases 10.1–10.7; existing authentication/authorization; the existing NVIDIA adapter with deployment credentials/configuration for live integration acceptance; private blob storage; and approved Phase 10 product/safety contracts.
+
+### Implementation Deliverables
+
+Final authorization hardening; retention verification; privacy/logging review; complete endpoint acceptance matrix; integration and security tests; final regression suite; and required operational documentation.
+
+### Tests
+
+- Exactly one provider call; success; timeout; malformed output; unsafe rejection; transient/permanent failure; generic safe failure; and deterministic-assessment independence.
+- Complete provider-neutral execution metadata without inappropriate PHI duplication; prompt/provider payload absence from logs; restricted rejected-output audit; and no rejected raw output in APIs.
+- Immutable regeneration; AI History/Clinical History separation; no automatic FHIR generation or Clinical History promotion.
+- Upload ownership, type/signature/size validation, manual/idempotent deletion, automatic deletion by 24 hours, and private blob access.
+- Concurrent message and regeneration conflicts; complete bearer/ownership/patient-authority endpoint matrix; concealed not-found behavior; and soft-deleted conversations absent from normal history but retained for audit.
+- Migrations, rollback/reapply, pending-model checks, OpenAPI, configuration validation, and the complete backend regression suite.
+
+### Definition of Done
+
+Phase 10 is complete only when only safety-approved output can be displayed; the provider remains replaceable; AI never controls deterministic clinical rules; AI History stays separate from Clinical History; snapshots and regeneration are immutable and traceable; temporary-document retention is enforced; authorization/ownership and every endpoint contract are covered; all required unit/integration/security/acceptance tests pass; and no Phase 10 responsibility remains ambiguously assigned.
+
+## Phase 10 deferred / operational dependencies
+
+- Deferred product capabilities: OCR, scanned-image and unsupported multimodal extraction, additional providers as product behavior, multi-provider/model consensus, automatic Clinical History promotion, and any future AI-to-FHIR mapping.
+- Concrete provider selection is resolved by the existing configurable NVIDIA integration (`NvidiaClinicalAiProvider` behind `IClinicalAiProvider`). Phase 10 must reuse/adapt it behind `IAiProvider` or an appropriately generalized shared provider-neutral boundary. Deployment credentials/configuration remain the only provider operational dependency for live integration acceptance, are not Domain dependencies, and do not block 10.1. Secrets must never be written into this plan.
+- Concrete versioned prompt text must be approved before the subphase that executes it. The safety and disclaimer semantics above are fixed Phase 10 contracts and are no longer TBD.
+- Supported formats and limits are resolved for MVP as text-native PDF/TXT, 25 MiB per document, and one document per Second Opinion; they are no longer TBD.
+- Rejected-output handling is resolved: rejected raw output is retained internally only for restricted audit under Beeexy's backend-wide security, privacy, access, and retention controls; it is never user-displayable or available to ordinary application/log access. This is a Phase 10 requirement, not a deferred product decision.
 
 ---
 
@@ -2193,7 +2517,7 @@ When a phase is explicitly authorized:
 - **Phase 4:** medically approved questionnaire, urgency model, red flags, rules, and messages.
 - **Phase 7:** product approval of a synthetic/demo directory dataset and deterministic demo matching factors/weights is required; authoritative real directory data, real credentialing, and production matching rules/validation do not block the MVP/demo.
 - **Phase 9:** approved follow-up rules, intervals, escalation actions, and Care Guide templates.
-- **Phase 10:** AI provider, prompt/safety policy, supported inputs, limits, and credentials.
+- **Phase 10:** Deployment credentials/configuration for the existing NVIDIA adapter and approved concrete content for the versioned conversation and Second Opinion prompt contracts remain operational dependencies for live integration/acceptance; the provider-neutral 10.1 foundation is not blocked. Provider selection, restricted-audit handling, MVP inputs/limits, safety semantics, and disclaimers are resolved in Phase 10.
 - **Phase 11:** share duration defaults and frontend public share URL.
 - **Phase 12:** VAPID keys and approved notification copy/rules.
 - **Phase 13:** recording consent/attestation text, speech provider, media constraints, and structured-extraction retention decision.
