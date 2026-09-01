@@ -424,13 +424,13 @@ public sealed class AppointmentRequestEndpointTests(
         string? reason = null,
         string modality = "inPerson",
         EntityId? patientId = null) => new
-    {
-        patientId = (patientId ?? graph.Patient.Id).Value,
-        slotId = slot.Id.Value,
-        modality,
-        reason,
-        idempotencyKey = key
-    };
+        {
+            patientId = (patientId ?? graph.Patient.Id).Value,
+            slotId = slot.Id.Value,
+            modality,
+            reason,
+            idempotencyKey = key
+        };
 
     private FixtureGraph CreateGraph()
     {

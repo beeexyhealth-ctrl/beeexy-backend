@@ -1,4 +1,5 @@
 using Beeexy.Application.Triage;
+using Beeexy.Domain.Identity;
 using Beeexy.Domain.Patients;
 using Beeexy.Domain.Triage;
 using Beeexy.Infrastructure.Persistence;
@@ -15,6 +16,61 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 [Collection(PostgreSqlCollection.Name)]
 public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
 {
+    [Fact]
+    [Trait("Category", "Phase101")]
+    public async Task Phase101AiFoundation_IsAdditiveAndCanRollbackAndReapply()
+    {
+        await EnsureMigratedAsync();
+        var suffix = Guid.NewGuid().ToString("N");
+        var now = DateTimeOffset.UtcNow;
+        var markerAccount = Account.Create(
+            NormalizedEmail.Create($"phase101-marker-{suffix}@example.com"),
+            now);
+        var markerPatient = PatientProfile.Create(
+            BeeexyId.Create($"BXY-PHASE101-{suffix}"),
+            now,
+            markerAccount.Id);
+        var options = CreateOptions();
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            dbContext.AddRange(markerAccount, markerPatient);
+            await dbContext.SaveChangesAsync();
+            await dbContext.GetService<IMigrator>()
+                .MigrateAsync("20260901051351_Phase8OpsAppointmentAdministration");
+        }
+
+        await using (var connection = new NpgsqlConnection(postgres.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText =
+                "SELECT count(*) FROM information_schema.tables " +
+                "WHERE table_schema = 'ai';";
+            Assert.Equal(0L, (long)(await command.ExecuteScalarAsync())!);
+        }
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            Assert.NotNull(await dbContext.Accounts.AsNoTracking()
+                .SingleOrDefaultAsync(value => value.Id == markerAccount.Id));
+            Assert.NotNull(await dbContext.PatientProfiles.AsNoTracking()
+                .SingleOrDefaultAsync(value => value.Id == markerPatient.Id));
+            await dbContext.Database.MigrateAsync();
+            Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+        }
+
+        await using (var connection = new NpgsqlConnection(postgres.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText =
+                "SELECT count(*) FROM information_schema.tables " +
+                "WHERE table_schema = 'ai';";
+            Assert.Equal(7L, (long)(await command.ExecuteScalarAsync())!);
+        }
+    }
+
     [Trait("Category", "Phase8Acceptance")]
     [Fact]
     public async Task Phase8SchedulingMigrations_AreAdditiveAndCanRollbackAndReapply()

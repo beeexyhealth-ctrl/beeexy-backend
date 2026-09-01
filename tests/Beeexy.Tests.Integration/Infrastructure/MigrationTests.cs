@@ -9,7 +9,8 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
-    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase8OpsAdministration()
+    [Trait("Category", "Phase101")]
+    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase101AiFoundation()
     {
         var options = new DbContextOptionsBuilder<BeeexyDbContext>()
             .UseNpgsql(postgres.ConnectionString)
@@ -46,7 +47,8 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                     "20260829070507_Phase75VersionedDoctorMatching",
                     "20260831165338_Phase81SchedulingFoundation",
                     "20260831183703_Phase82AvailabilityInventory",
-                    "20260901051351_Phase8OpsAppointmentAdministration"
+                    "20260901051351_Phase8OpsAppointmentAdministration",
+                    "20260901223517_Phase101AiPlatformPersistenceFoundation"
                 ],
                 appliedMigrations);
             Assert.Empty(pendingMigrations);
@@ -71,6 +73,13 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(
             [
+                "ai.ai_analysis_requests",
+                "ai.ai_conversations",
+                "ai.ai_executions",
+                "ai.ai_messages",
+                "ai.ai_result_snapshots",
+                "ai.ai_safety_validations",
+                "ai.ai_uploaded_documents",
                 "directory.clinic_locations",
                 "directory.clinics",
                 "directory.demo_directory_imports",

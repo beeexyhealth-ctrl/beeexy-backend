@@ -1595,6 +1595,10 @@ No mapping is invented. Future resources depend on Andrea's materials.
 
 **Priority:** MVP SHOULD-HAVE
 
+**Phase 10.1 status:** COMPLETE (2026-09-01)
+**Phase 10.1 implementation:** Added the provider-neutral Phase 10 domain and PostgreSQL persistence foundation for `AiConversation`, `AiMessage`, `AiAnalysisRequest`, immutable `AiResultSnapshot`, lifecycle-controlled `AiExecution`, metadata-only `AiUploadedDocument`, and `AiSafetyValidation`. The new `ai` schema contains exactly `ai_conversations`, `ai_messages`, `ai_analysis_requests`, `ai_result_snapshots`, `ai_executions`, `ai_uploaded_documents`, and `ai_safety_validations`, with UUID ownership/reference keys, optional patient associations, restrictive foreign keys, lifecycle/check and uniqueness constraints, operational indexes, append-only history guards, logical conversation deletion, immutable original input/result artifacts, document expiry/deletion state, and privacy-conscious execution metadata that excludes prompts and raw provider payloads. Migration `20260901223517_Phase101AiPlatformPersistenceFoundation` is additive. No public endpoint, provider call, document binary storage, Clinical History/FHIR projection, Second Opinion execution, regeneration, or Phase 10.2+ behavior was introduced; Phase 4 abstractions required no change.
+**Phase 10.1 verification:** Locked dependency restore succeeded; Debug build completed with 0 warnings and 0 errors; 20 focused domain tests and 8 focused PostgreSQL persistence/migration tests passed. The complete backend suite passed 1,493 tests (880 unit and 613 PostgreSQL integration, 0 failed/skipped). The complete migration chain applied to fresh PostgreSQL 16; Phase 10.1 rolled back to the prior Phase 8 migration and reapplied while preserving prior data; EF reported no pending model changes. Whole-solution formatting verification and `git diff --check` passed, and 26 explicit application-startup/health tests passed.
+
 ## Phase-wide objective
 
 Add one replaceable AI provider with Beeexy safety validation, immutable result snapshots, temporary documents, full execution traceability, and history separate from Clinical History.

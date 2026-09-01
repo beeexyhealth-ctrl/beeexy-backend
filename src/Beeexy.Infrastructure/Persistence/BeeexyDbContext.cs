@@ -1,3 +1,4 @@
+using Beeexy.Domain.Ai;
 using Beeexy.Domain.Directory;
 using Beeexy.Domain.Identity;
 using Beeexy.Domain.History;
@@ -12,6 +13,20 @@ namespace Beeexy.Infrastructure.Persistence;
 public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
     : DbContext(options)
 {
+    public DbSet<AiConversation> AiConversations => Set<AiConversation>();
+
+    public DbSet<AiMessage> AiMessages => Set<AiMessage>();
+
+    public DbSet<AiAnalysisRequest> AiAnalysisRequests => Set<AiAnalysisRequest>();
+
+    public DbSet<AiResultSnapshot> AiResultSnapshots => Set<AiResultSnapshot>();
+
+    public DbSet<AiExecution> AiExecutions => Set<AiExecution>();
+
+    public DbSet<AiUploadedDocument> AiUploadedDocuments => Set<AiUploadedDocument>();
+
+    public DbSet<AiSafetyValidation> AiSafetyValidations => Set<AiSafetyValidation>();
+
     public DbSet<Clinic> Clinics => Set<Clinic>();
 
     public DbSet<ClinicLocation> ClinicLocations => Set<ClinicLocation>();
@@ -116,6 +131,7 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         EnsureSchedulingAuditIsAppendOnly();
+        EnsureAiHistoryIsProtected();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
@@ -124,6 +140,7 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
         CancellationToken cancellationToken = default)
     {
         EnsureSchedulingAuditIsAppendOnly();
+        EnsureAiHistoryIsProtected();
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
@@ -145,6 +162,35 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
         {
             throw new InvalidOperationException(
                 "Appointments are historical records and cannot be deleted.");
+        }
+    }
+
+    private void EnsureAiHistoryIsProtected()
+    {
+        var immutableMutation = ChangeTracker.Entries()
+            .FirstOrDefault(entry =>
+                entry.Entity is AiMessage or
+                    AiAnalysisRequest or
+                    AiResultSnapshot or
+                    AiSafetyValidation &&
+                entry.State is EntityState.Modified or EntityState.Deleted);
+        if (immutableMutation is not null)
+        {
+            throw new InvalidOperationException(
+                "AI messages, analysis inputs, result snapshots, and safety validations " +
+                "are append-only and cannot be changed or deleted.");
+        }
+
+        var destructiveDeletion = ChangeTracker.Entries()
+            .FirstOrDefault(entry =>
+                entry.Entity is AiConversation or
+                    AiExecution or
+                    AiUploadedDocument &&
+                entry.State == EntityState.Deleted);
+        if (destructiveDeletion is not null)
+        {
+            throw new InvalidOperationException(
+                "AI history and lifecycle metadata cannot be physically deleted.");
         }
     }
 }
