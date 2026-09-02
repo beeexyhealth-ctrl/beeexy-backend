@@ -159,6 +159,9 @@ public static class DependencyInjection
         }
         services.AddSingleton<IAiPromptResolver, AiPromptResolver>();
         services.AddSingleton<IAiStructuredResultValidator, AiStructuredResultValidator>();
+        services.AddSingleton<IAiPromptContract, AiConversationPromptV1>();
+        services.AddSingleton<IAiStructuredResultSchema, AiConversationResultSchemaV1>();
+        services.AddScoped<IAiConversationRepository, AiConversationRepository>();
         services.AddScoped<IAiExecutionRepository, AiExecutionRepository>();
         services.AddSingleton<IAiExecutionTelemetry, AiExecutionTelemetry>();
         services.AddScoped<ExecuteAiAnalysis>();

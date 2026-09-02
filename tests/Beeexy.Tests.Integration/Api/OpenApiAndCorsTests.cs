@@ -20,9 +20,40 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(43, paths.EnumerateObject().Count());
+        Assert.Equal(46, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
+        var aiConversationsPath = paths.GetProperty("/api/v1/ai/conversations");
+        var createAiConversationOperation = aiConversationsPath.GetProperty("post");
+        var listAiConversationsOperation = aiConversationsPath.GetProperty("get");
+        var aiConversationPath = paths.GetProperty("/api/v1/ai/conversations/{id}");
+        var getAiConversationOperation = aiConversationPath.GetProperty("get");
+        var deleteAiConversationOperation = aiConversationPath.GetProperty("delete");
+        var sendAiConversationMessageOperation = paths
+            .GetProperty("/api/v1/ai/conversations/{id}/messages")
+            .GetProperty("post");
+        AssertResponseCodes(
+            createAiConversationOperation,
+            "201", "400", "401", "404", "422", "500");
+        AssertResponseCodes(listAiConversationsOperation, "200", "401", "422", "500");
+        AssertResponseCodes(getAiConversationOperation, "200", "401", "404", "500");
+        AssertResponseCodes(deleteAiConversationOperation, "204", "401", "404", "500");
+        AssertResponseCodes(
+            sendAiConversationMessageOperation,
+            "202", "400", "401", "404", "409", "422", "500");
+        foreach (var operation in new[]
+                 {
+                     createAiConversationOperation,
+                     listAiConversationsOperation,
+                     getAiConversationOperation,
+                     deleteAiConversationOperation,
+                     sendAiConversationMessageOperation
+                 })
+        {
+            var security = operation.GetProperty("security");
+            Assert.Single(security.EnumerateArray());
+            Assert.True(security[0].TryGetProperty("Bearer", out _));
+        }
         Assert.True(paths
             .GetProperty("/api/v1/private-access/login")
             .TryGetProperty("post", out var privateLoginOperation));
@@ -370,6 +401,28 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             StringComparison.OrdinalIgnoreCase);
 
         var schemas = document.RootElement.GetProperty("components").GetProperty("schemas");
+        var aiExecutionProperties = schemas
+            .GetProperty("AiConversationExecutionResponse")
+            .GetProperty("properties")
+            .EnumerateObject()
+            .Select(property => property.Name)
+            .ToArray();
+        Assert.Equal(
+            [
+                "conversationId", "userMessageId", "executionId", "status",
+                "assistantMessage", "disclaimer"
+            ],
+            aiExecutionProperties);
+        foreach (var forbidden in new[]
+                 {
+                     "provider", "model", "prompt", "raw", "audit", "safetyReason",
+                     "restrictedAuditOutput", "patientContext", "secret"
+                 })
+        {
+            Assert.DoesNotContain(
+                aiExecutionProperties,
+                property => property.Contains(forbidden, StringComparison.OrdinalIgnoreCase));
+        }
         var historyItemProperties = schemas
             .GetProperty("ClinicalHistoryItemResponse")
             .GetProperty("properties");

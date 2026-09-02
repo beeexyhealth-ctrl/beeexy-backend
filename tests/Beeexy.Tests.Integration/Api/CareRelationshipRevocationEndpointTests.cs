@@ -314,7 +314,7 @@ public sealed class CareRelationshipRevocationEndpointTests(
         var operation = relationshipDetail.GetProperty("delete");
         var parameter = Assert.Single(operation.GetProperty("parameters").EnumerateArray());
 
-        Assert.Equal(43, paths.EnumerateObject().Count());
+        Assert.Equal(46, paths.EnumerateObject().Count());
         Assert.Single(relationshipDetail.EnumerateObject());
         Assert.Equal("id", parameter.GetProperty("name").GetString());
         Assert.Equal("path", parameter.GetProperty("in").GetString());

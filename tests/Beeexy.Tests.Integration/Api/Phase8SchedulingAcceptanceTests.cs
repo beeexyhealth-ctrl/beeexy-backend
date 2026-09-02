@@ -42,7 +42,7 @@ public sealed class Phase8SchedulingAcceptanceTests(PostgreSqlContainerFixture p
         };
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(43, paths.EnumerateObject().Count());
+        Assert.Equal(46, paths.EnumerateObject().Count());
         Assert.Equal(
             expected.Select(value => $"{value.Method} {value.Path}").Order(),
             SchedulingOperations(paths).Order());

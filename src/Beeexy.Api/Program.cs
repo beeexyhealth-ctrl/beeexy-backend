@@ -1,4 +1,5 @@
 using Beeexy.Api.Configuration;
+using Beeexy.Api.Ai;
 using Beeexy.Api.ClinicDirectory;
 using Beeexy.Api.DoctorDirectory;
 using Beeexy.Api.Operations;
@@ -13,6 +14,7 @@ using Beeexy.Api.PrivateAccess;
 using Beeexy.Api.Scheduling;
 using Beeexy.Api.Triage;
 using Beeexy.Application.Identity;
+using Beeexy.Application.Ai;
 using Beeexy.Application.Directory;
 using Beeexy.Application.History;
 using Beeexy.Application.Interoperability;
@@ -157,6 +159,10 @@ var privateAccessSettings = StartupConfiguration.GetPrivateAccessSettings(
     builder.Environment);
 var appointmentSchedulerAssignments =
     StartupConfiguration.GetAppointmentSchedulerAssignments(builder.Configuration);
+var aiConversationOptions = new AiConversationOptions(
+    builder.Configuration.GetValue(
+        "Ai:Conversation:ProviderContextCharacterBudget",
+        AiConversationOptions.DefaultProviderContextCharacterBudget));
 
 builder.Services.AddInfrastructure(
     databaseConnectionString,
@@ -212,6 +218,15 @@ builder.Services.AddScoped<RevokeCareRelationship>();
 builder.Services.AddScoped<AuthorizePatientAccess>();
 builder.Services.AddScoped<GetPatientProfile>();
 builder.Services.AddScoped<UpdateManagedPatient>();
+builder.Services.AddSingleton(aiConversationOptions);
+builder.Services.AddSingleton<AiConversationRequestPolicy>();
+builder.Services.AddSingleton<AiConversationContextBuilder>();
+builder.Services.AddScoped<IAiPatientContextAssembler, AiPatientContextAssembler>();
+builder.Services.AddScoped<CreateAiConversation>();
+builder.Services.AddScoped<ListAiConversations>();
+builder.Services.AddScoped<GetAiConversation>();
+builder.Services.AddScoped<SendAiConversationMessage>();
+builder.Services.AddScoped<DeleteAiConversation>();
 builder.Services.AddScoped<StartPreTriage>();
 builder.Services.AddScoped<InterpretPreTriageIntake>();
 builder.Services.AddScoped<StartPreTriageFromIntake>();
@@ -375,6 +390,7 @@ app.MapBeeexyClinicalHistoryEndpoints();
 app.MapBeeexyFhirExportEndpoints();
 app.MapBeeexyCareRelationshipEndpoints();
 app.MapBeeexyPreTriageEndpoints();
+app.MapBeeexyAiConversationEndpoints();
 
 app.Run();
 

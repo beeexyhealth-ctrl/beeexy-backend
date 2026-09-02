@@ -1,4 +1,5 @@
 using Beeexy.Application.Common;
+using Beeexy.Application.Ai;
 using Beeexy.Application.Directory;
 using Beeexy.Application.History;
 using Beeexy.Application.Identity;
@@ -201,6 +202,30 @@ internal sealed class ApiExceptionHandler(
                 Title = "Doctor not found.",
                 Detail = "The requested doctor could not be found."
             };
+        }
+
+        if (exception is AiConversationNotFoundException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "AI conversation not found.",
+                Detail = "The requested AI conversation could not be found."
+            };
+            problem.Extensions["errorCode"] = "ai.conversation.not_found";
+            return problem;
+        }
+
+        if (exception is AiConversationExecutionConflictException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "AI conversation execution conflict.",
+                Detail = "Another execution is already running for this AI conversation."
+            };
+            problem.Extensions["errorCode"] = "ai.conversation.execution_conflict";
+            return problem;
         }
 
         if (exception is AppointmentNotFoundException)
