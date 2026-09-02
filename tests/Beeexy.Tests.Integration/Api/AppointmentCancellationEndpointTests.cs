@@ -259,7 +259,7 @@ public sealed class AppointmentCancellationEndpointTests(
             .GetProperty("/api/v1/appointments/{id}/cancel")
             .GetProperty("post");
 
-        Assert.Equal(50, paths.EnumerateObject().Count());
+        Assert.Equal(51, paths.EnumerateObject().Count());
         Assert.True(operation.TryGetProperty("security", out _));
         Assert.Equal(
             ["200", "401", "404", "409", "500"],

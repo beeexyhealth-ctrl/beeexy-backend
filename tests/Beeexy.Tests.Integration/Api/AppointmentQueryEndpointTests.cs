@@ -271,7 +271,7 @@ public sealed class AppointmentQueryEndpointTests(
         var collection = paths.GetProperty("/api/v1/appointments");
         var detail = paths.GetProperty("/api/v1/appointments/{id}").GetProperty("get");
 
-        Assert.Equal(50, paths.EnumerateObject().Count());
+        Assert.Equal(51, paths.EnumerateObject().Count());
         Assert.True(collection.TryGetProperty("post", out _));
         Assert.True(collection.TryGetProperty("get", out var list));
         Assert.True(list.TryGetProperty("security", out _));

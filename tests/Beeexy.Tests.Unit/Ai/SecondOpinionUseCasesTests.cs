@@ -125,8 +125,6 @@ public sealed class SecondOpinionUseCasesTests
             name.Contains("Raw", StringComparison.OrdinalIgnoreCase) ||
             name.Contains("Restricted", StringComparison.OrdinalIgnoreCase) ||
             name.Contains("OriginalInput", StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain(typeof(ISecondOpinionRepository).GetMethods(), method =>
-            method.Name.Contains("Regenerate", StringComparison.OrdinalIgnoreCase));
     }
 
     private sealed class Harness
@@ -271,11 +269,24 @@ public sealed class SecondOpinionUseCasesTests
                 Request is null || Request.PatientProfileId is not { } patientId
                     ? null
                     : new SecondOpinionAnalysisAccess(Request.Id, patientId));
+        public Task<SecondOpinionRegenerationSource?> FindRegenerationSourceAsync(
+            EntityId analysisId,
+            EntityId accountId,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ISecondOpinionExecutionLease?> TryAcquireExecutionLeaseAsync(
+            EntityId analysisId,
+            CancellationToken cancellationToken = default) => Task.FromResult<ISecondOpinionExecutionLease?>(
+                new ExecutionLease());
         public Task<SecondOpinionStoredState> GetStateAsync(
             EntityId analysisId,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task SaveChangesAsync(CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
+
+        private sealed class ExecutionLease : ISecondOpinionExecutionLease
+        {
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
     }
 
     private sealed class Provider(

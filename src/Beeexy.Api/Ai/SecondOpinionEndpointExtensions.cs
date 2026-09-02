@@ -42,6 +42,24 @@ internal static class SecondOpinionEndpointExtensions
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
+        endpoints.MapPost(
+                "/api/v1/ai/second-opinions/{id:guid}/regenerate",
+                RegenerateAsync)
+            .WithName("RegenerateSecondOpinion")
+            .WithTags("AI Second Opinions")
+            .WithDescription(
+                "Creates one independently traceable execution from the original immutable " +
+                "Second Opinion input. An approved execution appends a new result snapshot; " +
+                "later patient or document changes are not read, and prior results are never " +
+                "replaced by failed or rejected executions.")
+            .RequireAuthorization()
+            .Produces<SecondOpinionAcceptedResponse>(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
         return endpoints;
     }
 
@@ -101,6 +119,40 @@ internal static class SecondOpinionEndpointExtensions
 
         return Results.Ok(ToResponse(
             await useCase.ExecuteAsync(EntityId.From(id), cancellationToken)));
+    }
+
+    private static async Task<IResult> RegenerateAsync(
+        Guid id,
+        HttpContext httpContext,
+        RegenerateSecondOpinion useCase,
+        CancellationToken cancellationToken)
+    {
+        if (id == Guid.Empty)
+        {
+            throw new SecondOpinionNotFoundException();
+        }
+
+        if (httpContext.Request.ContentLength is > 0 ||
+            httpContext.Request.Headers.TransferEncoding.Count > 0)
+        {
+            throw new RequestValidationException(
+                "ai.second_opinion.regeneration_body_not_allowed",
+                "Second Opinion regeneration does not accept replacement input.");
+        }
+
+        var result = await useCase.ExecuteAsync(
+            new RegenerateSecondOpinionCommand(
+                EntityId.From(id),
+                httpContext.TraceIdentifier),
+            cancellationToken);
+        var location = $"/api/v1/ai/second-opinions/{result.AnalysisId.Value:D}";
+        return Results.Accepted(
+            location,
+            new SecondOpinionAcceptedResponse(
+                result.AnalysisId.Value,
+                result.ExecutionId.Value,
+                Status(result.Status),
+                location));
     }
 
     private static SecondOpinionResponse ToResponse(SecondOpinionDetail value) => new(

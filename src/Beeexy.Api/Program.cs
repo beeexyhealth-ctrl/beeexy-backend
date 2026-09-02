@@ -237,6 +237,7 @@ builder.Services.AddScoped<UploadAiDocument>();
 builder.Services.AddScoped<DeleteAiDocument>();
 builder.Services.AddScoped<ExpireAiDocuments>();
 builder.Services.AddScoped<RequestSecondOpinion>();
+builder.Services.AddScoped<RegenerateSecondOpinion>();
 builder.Services.AddScoped<GetSecondOpinion>();
 builder.Services.AddScoped<StartPreTriage>();
 builder.Services.AddScoped<InterpretPreTriageIntake>();

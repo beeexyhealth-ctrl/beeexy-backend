@@ -7,6 +7,7 @@ using System.Text.Json;
 using Beeexy.Application.Ai;
 using Beeexy.Domain.Ai;
 using Beeexy.Domain.Common;
+using Beeexy.Domain.Patients;
 using Beeexy.Infrastructure.Identity;
 using Beeexy.Infrastructure.Persistence;
 using Beeexy.Tests.Integration.Support;
@@ -357,6 +358,460 @@ public sealed class SecondOpinionEndpointTests(PostgreSqlContainerFixture postgr
         Assert.Equal(0, provider.CallCount);
     }
 
+    [Fact]
+    [Trait("Category", "Phase107")]
+    public async Task Regeneration_AppendsImmutableSnapshotsAndReturnsLatestApprovedResult()
+    {
+        await EnsureMigratedAsync();
+        var provider = Provider.ApprovedSequence(
+            "Original approved summary.",
+            "Second snapshot summary.",
+            "Third snapshot summary.");
+        using var factory = Factory(provider);
+        using var client = factory.CreateApiClient();
+        var owner = await AuthenticateAsync(factory, client, "second-opinion-regenerate");
+        SetBearer(client, owner.AccessToken);
+        var before = await SideEffectCountsAsync();
+        var original = await RequestAsync(client, owner.Account.ProfileId);
+
+        AiResultSnapshot originalSnapshot;
+        AiExecution originalExecution;
+        await using (var originalDb = CreateDbContext())
+        {
+            originalSnapshot = await originalDb.AiResultSnapshots.AsNoTracking().SingleAsync(
+                item => item.AnalysisRequestId == EntityId.From(original.AnalysisId));
+            originalExecution = await originalDb.AiExecutions.AsNoTracking().SingleAsync(
+                item => item.Id == EntityId.From(original.ExecutionId));
+        }
+
+        using var secondResponse = await client.PostAsync(RegenerateEndpoint(original.AnalysisId), null);
+        using var thirdResponse = await client.PostAsync(RegenerateEndpoint(original.AnalysisId), null);
+        var second = await secondResponse.Content.ReadFromJsonAsync<AcceptedResponse>();
+        var third = await thirdResponse.Content.ReadFromJsonAsync<AcceptedResponse>();
+
+        Assert.Equal(HttpStatusCode.Accepted, secondResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, thirdResponse.StatusCode);
+        Assert.Equal("succeeded", second!.Status);
+        Assert.Equal("succeeded", third!.Status);
+        Assert.NotEqual(original.ExecutionId, second.ExecutionId);
+        Assert.NotEqual(second.ExecutionId, third.ExecutionId);
+        Assert.Equal(3, provider.CallCount);
+        Assert.All(provider.Requests.Skip(1),
+            item => AssertJsonEquivalent(provider.Requests.First().UserContent, item.UserContent));
+        Assert.All(provider.Requests,
+            item => Assert.Equal(SecondOpinionContract.Prompt, item.Prompt));
+        Assert.Equal(before, await SideEffectCountsAsync());
+
+        using var get = await client.GetAsync(original.StatusUrl);
+        var current = await get.Content.ReadFromJsonAsync<SecondOpinionResponse>();
+        Assert.Equal(HttpStatusCode.OK, get.StatusCode);
+        Assert.Equal("Third snapshot summary.", current!.Result!.Summary);
+        Assert.Equal(third.ExecutionId, current.ExecutionId);
+        Assert.Equal("phase-106-provider", current.Metadata!.Provider);
+        Assert.Equal("phase-106-model", current.Metadata.ModelVersion);
+        Assert.Equal("ai-second-opinion@v1", current.Metadata.PromptVersion);
+
+        await using var db = CreateDbContext();
+        var executions = await db.AiExecutions.AsNoTracking()
+            .Where(item => item.AnalysisRequestId == EntityId.From(original.AnalysisId))
+            .OrderBy(item => item.CreatedAt)
+            .ThenBy(item => item.Id)
+            .ToArrayAsync();
+        var snapshots = await db.AiResultSnapshots.AsNoTracking()
+            .Where(item => item.AnalysisRequestId == EntityId.From(original.AnalysisId))
+            .OrderBy(item => item.Sequence)
+            .ToArrayAsync();
+        Assert.Equal(3, executions.Length);
+        Assert.Equal(3, snapshots.Length);
+        Assert.Equal([1, 2, 3], snapshots.Select(item => item.Sequence));
+        Assert.Equal(originalSnapshot.Id, snapshots[0].Id);
+        Assert.Equal(originalSnapshot.ExecutionId, snapshots[0].ExecutionId);
+        Assert.Equal(originalSnapshot.ContentJson, snapshots[0].ContentJson);
+        Assert.Equal(originalSnapshot.CreatedAt, snapshots[0].CreatedAt);
+        Assert.Equal(3, snapshots.Select(item => item.ExecutionId).Distinct().Count());
+        var persistedOriginalExecution = Assert.Single(executions,
+            item => item.Id == originalExecution.Id);
+        Assert.Equal(originalExecution.Status, persistedOriginalExecution.Status);
+        Assert.Equal(originalExecution.ProviderIdentifier,
+            persistedOriginalExecution.ProviderIdentifier);
+        Assert.Equal(originalExecution.ModelIdentifier,
+            persistedOriginalExecution.ModelIdentifier);
+        Assert.Equal(originalExecution.PromptVersion, persistedOriginalExecution.PromptVersion);
+        Assert.Equal(originalExecution.CompletedAt, persistedOriginalExecution.CompletedAt);
+        var validations = await db.AiSafetyValidations.AsNoTracking()
+            .Where(item => executions.Select(execution => execution.Id)
+                .Contains(item.ExecutionId))
+            .ToArrayAsync();
+        Assert.Equal(3, validations.Length);
+        Assert.All(validations,
+            item => Assert.Equal(AiSafetyProductContent.Current.PolicyVersion,
+                item.PolicyVersion));
+    }
+
+    [Fact]
+    [Trait("Category", "Phase107")]
+    public async Task RegenerationAfterDocumentDeletion_ReplaysFrozenTextWithoutBlobMutation()
+    {
+        await EnsureMigratedAsync();
+        var provider = Provider.ApprovedSequence(
+            "Original document summary.",
+            "Regenerated document summary.");
+        var blobs = new MemoryBlobStore();
+        using var factory = Factory(provider, blobs);
+        using var client = factory.CreateApiClient();
+        var owner = await AuthenticateAsync(factory, client, "second-opinion-regenerate-document");
+        SetBearer(client, owner.AccessToken);
+        var document = await UploadTextAsync(
+            client,
+            "Frozen document text that must remain available to regeneration.");
+        using var request = await client.PostAsJsonAsync(
+            "/api/v1/ai/second-opinions",
+            new
+            {
+                patientId = owner.Account.ProfileId,
+                text = "Frozen typed context.",
+                documentIds = new[] { document.DocumentId }
+            });
+        var original = await request.Content.ReadFromJsonAsync<AcceptedResponse>();
+        var originalProviderInput = Assert.Single(provider.Requests).UserContent;
+
+        using var delete = await client.DeleteAsync(
+            $"/api/v1/ai/documents/{document.DocumentId:D}");
+        Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
+        Assert.Equal(0, blobs.BlobCount);
+        using var regenerate = await client.PostAsync(
+            RegenerateEndpoint(original!.AnalysisId),
+            null);
+        var regenerated = await regenerate.Content.ReadFromJsonAsync<AcceptedResponse>();
+
+        Assert.Equal(HttpStatusCode.Accepted, regenerate.StatusCode);
+        Assert.Equal("succeeded", regenerated!.Status);
+        Assert.Equal(2, provider.CallCount);
+        AssertJsonEquivalent(originalProviderInput, provider.Requests.Last().UserContent);
+        Assert.Contains("Frozen document text", provider.Requests.Last().UserContent,
+            StringComparison.Ordinal);
+        Assert.Equal(0, blobs.BlobCount);
+
+        await using var db = CreateDbContext();
+        var persistedDocument = await db.AiUploadedDocuments.AsNoTracking().SingleAsync(
+            item => item.Id == EntityId.From(document.DocumentId));
+        Assert.Equal(AiDocumentStatus.Deleted, persistedDocument.Status);
+        Assert.Equal(document.ExpiresAt, persistedDocument.ExpiresAt, TimeSpan.FromMilliseconds(1));
+        Assert.Equal(2, await db.AiResultSnapshots.AsNoTracking().CountAsync(
+            item => item.AnalysisRequestId == EntityId.From(original.AnalysisId)));
+    }
+
+    [Fact]
+    [Trait("Category", "Phase107")]
+    public async Task LaterDemographicsPreTriageAndHistoryChanges_AreExcludedFromRegeneration()
+    {
+        await EnsureMigratedAsync();
+        var provider = Provider.ApprovedSequence(
+            "Original selected-source summary.",
+            "Regenerated selected-source summary.");
+        using var factory = Factory(provider);
+        using var client = factory.CreateApiClient();
+        var owner = await AuthenticateAsync(factory, client, "second-opinion-frozen-sources");
+        SetBearer(client, owner.AccessToken);
+        var selected = await CompletePreTriageAsync(client, owner.Account.ProfileId);
+        using var request = await client.PostAsJsonAsync(
+            "/api/v1/ai/second-opinions",
+            new
+            {
+                patientId = owner.Account.ProfileId,
+                text = "Original selected text.",
+                preTriageSessionId = selected.SessionId,
+                clinicalHistoryEventIds = new[] { selected.EventId }
+            });
+        var original = await request.Content.ReadFromJsonAsync<AcceptedResponse>();
+        var originalProviderInput = Assert.Single(provider.Requests).UserContent;
+
+        await using (var update = CreateDbContext())
+        {
+            var profile = await update.PatientProfiles.SingleAsync(
+                item => item.Id == EntityId.From(owner.Account.ProfileId));
+            profile.UpdateDemographics(
+                null,
+                null,
+                new DateOnly(1984, 3, 2),
+                SexAssignedAtBirth.Female,
+                null,
+                DateTimeOffset.UtcNow);
+            await update.SaveChangesAsync();
+        }
+
+        var later = await CompletePreTriageAsync(client, owner.Account.ProfileId);
+        var beforeRegeneration = await SideEffectCountsAsync();
+        using var regenerate = await client.PostAsync(
+            RegenerateEndpoint(original!.AnalysisId),
+            null);
+
+        Assert.Equal(HttpStatusCode.Accepted, regenerate.StatusCode);
+        Assert.Equal(2, provider.CallCount);
+        AssertJsonEquivalent(originalProviderInput, provider.Requests.Last().UserContent);
+        Assert.Contains(selected.SessionId.ToString("D"),
+            (await AnalysisSnapshotAsync(original.AnalysisId)),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(later.SessionId.ToString("D"),
+            provider.Requests.Last().UserContent,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(beforeRegeneration, await SideEffectCountsAsync());
+    }
+
+    [Fact]
+    [Trait("Category", "Phase107")]
+    public async Task RegenerationAuthorizationAndBodyValidation_AreSafeAndMakeZeroCalls()
+    {
+        await EnsureMigratedAsync();
+        var provider = Provider.Approved();
+        using var factory = Factory(provider);
+        using var ownerClient = factory.CreateApiClient();
+        var owner = await AuthenticateAsync(factory, ownerClient, "second-opinion-regenerate-owner");
+        SetBearer(ownerClient, owner.AccessToken);
+        var original = await RequestAsync(ownerClient, owner.Account.ProfileId);
+        using var foreignClient = factory.CreateApiClient();
+        var foreign = await AuthenticateAsync(factory, foreignClient, "second-opinion-regenerate-foreign");
+        SetBearer(foreignClient, foreign.AccessToken);
+
+        using var anonymous = await factory.CreateApiClient().PostAsync(
+            RegenerateEndpoint(original.AnalysisId),
+            null);
+        using var foreignResponse = await foreignClient.PostAsync(
+            RegenerateEndpoint(original.AnalysisId),
+            null);
+        using var missing = await ownerClient.PostAsync(
+            RegenerateEndpoint(Guid.NewGuid()),
+            null);
+        using var replacement = await ownerClient.PostAsJsonAsync(
+            RegenerateEndpoint(original.AnalysisId),
+            new { text = "replacement context must not be accepted" });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, foreignResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, replacement.StatusCode);
+        Assert.Equal(1, provider.CallCount);
+        await using var db = CreateDbContext();
+        Assert.Single(await db.AiExecutions.AsNoTracking()
+            .Where(item => item.AnalysisRequestId == EntityId.From(original.AnalysisId))
+            .ToArrayAsync());
+    }
+
+    [Theory]
+    [Trait("Category", "Phase107")]
+    [InlineData(AiProviderFailureCategory.Timeout, "timeout")]
+    [InlineData(AiProviderFailureCategory.Transient, "provider_transient")]
+    [InlineData(AiProviderFailureCategory.Permanent, "provider_permanent")]
+    public async Task ProviderFailureRegeneration_PreservesPriorApprovedSnapshot(
+        AiProviderFailureCategory category,
+        string failureCategory)
+    {
+        await EnsureMigratedAsync();
+        var provider = Provider.FailAfterSuccess(category);
+        using var factory = Factory(provider);
+        using var client = factory.CreateApiClient();
+        var owner = await AuthenticateAsync(
+            factory,
+            client,
+            $"second-opinion-failure-{category.ToString().ToLowerInvariant()}");
+        SetBearer(client, owner.AccessToken);
+        var original = await RequestAsync(client, owner.Account.ProfileId);
+        provider.ProviderIdentifier = "failed-regeneration-provider";
+        provider.ModelIdentifier = "failed-regeneration-model";
+
+        using var regenerate = await client.PostAsync(
+            RegenerateEndpoint(original.AnalysisId),
+            null);
+        var attempt = await regenerate.Content.ReadFromJsonAsync<AcceptedResponse>();
+        using var get = await client.GetAsync(original.StatusUrl);
+        var current = await get.Content.ReadFromJsonAsync<SecondOpinionResponse>();
+
+        Assert.Equal(HttpStatusCode.Accepted, regenerate.StatusCode);
+        Assert.Equal("failed", attempt!.Status);
+        Assert.Equal("succeeded", current!.Status);
+        Assert.Equal("Original approved summary.", current!.Result!.Summary);
+        Assert.Equal(original.ExecutionId, current.ExecutionId);
+        Assert.Equal("phase-106-provider", current.Metadata!.Provider);
+        Assert.Equal("phase-106-model", current.Metadata.ModelVersion);
+        Assert.Equal(2, provider.CallCount);
+        await using var db = CreateDbContext();
+        var executions = await db.AiExecutions.AsNoTracking()
+            .Where(item => item.AnalysisRequestId == EntityId.From(original.AnalysisId))
+            .ToArrayAsync();
+        Assert.Equal(2, executions.Length);
+        Assert.Contains(executions,
+            item => item.Id == EntityId.From(attempt.ExecutionId) &&
+                item.Status == AiExecutionStatus.Failed &&
+                item.SanitizedFailureCategory == failureCategory);
+        Assert.Single(await db.AiResultSnapshots.AsNoTracking()
+            .Where(item => item.AnalysisRequestId == EntityId.From(original.AnalysisId))
+            .ToArrayAsync());
+    }
+
+    [Theory]
+    [Trait("Category", "Phase107")]
+    [InlineData("malformed")]
+    [InlineData("unsafe")]
+    public async Task RejectedRegeneration_PreservesPriorResultAndNeverExposesRawOutput(string mode)
+    {
+        await EnsureMigratedAsync();
+        const string restrictedMarker = "phase-107-restricted-marker";
+        var provider = mode == "malformed"
+            ? Provider.RawAfterSuccess($"not-json-{restrictedMarker}")
+            : Provider.RawAfterSuccess(StructuredOutput(
+                $"You have diabetes. {restrictedMarker}"));
+        using var factory = Factory(provider);
+        using var client = factory.CreateApiClient();
+        var owner = await AuthenticateAsync(factory, client, $"second-opinion-{mode}");
+        SetBearer(client, owner.AccessToken);
+        var original = await RequestAsync(client, owner.Account.ProfileId);
+
+        using var regenerate = await client.PostAsync(
+            RegenerateEndpoint(original.AnalysisId),
+            null);
+        var regenerateBody = await regenerate.Content.ReadAsStringAsync();
+        using var get = await client.GetAsync(original.StatusUrl);
+        var getBody = await get.Content.ReadAsStringAsync();
+        var current = JsonSerializer.Deserialize<SecondOpinionResponse>(
+            getBody,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        Assert.Equal(HttpStatusCode.Accepted, regenerate.StatusCode);
+        Assert.Contains("\"status\":\"rejected\"", regenerateBody, StringComparison.Ordinal);
+        Assert.Equal("Original approved summary.", current!.Result!.Summary);
+        Assert.DoesNotContain(restrictedMarker, regenerateBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(restrictedMarker, getBody, StringComparison.Ordinal);
+        Assert.Equal(2, provider.CallCount);
+        await using var db = CreateDbContext();
+        Assert.Single(await db.AiResultSnapshots.AsNoTracking()
+            .Where(item => item.AnalysisRequestId == EntityId.From(original.AnalysisId))
+            .ToArrayAsync());
+        Assert.Equal(2, await db.AiExecutions.AsNoTracking().CountAsync(
+            item => item.AnalysisRequestId == EntityId.From(original.AnalysisId)));
+    }
+
+    [Fact]
+    [Trait("Category", "Phase107")]
+    public async Task PersistedActiveExecution_Returns409WithoutProviderCall()
+    {
+        await EnsureMigratedAsync();
+        var provider = Provider.Approved();
+        using var factory = Factory(provider);
+        using var client = factory.CreateApiClient();
+        var owner = await AuthenticateAsync(factory, client, "second-opinion-persisted-active");
+        SetBearer(client, owner.AccessToken);
+        var original = await RequestAsync(client, owner.Account.ProfileId);
+        await using (var seed = CreateDbContext())
+        {
+            seed.AiExecutions.Add(AiExecution.CreatePending(
+                EntityId.From(original.AnalysisId),
+                DateTimeOffset.UtcNow));
+            await seed.SaveChangesAsync();
+        }
+
+        using var regenerate = await client.PostAsync(
+            RegenerateEndpoint(original.AnalysisId),
+            null);
+
+        Assert.Equal(HttpStatusCode.Conflict, regenerate.StatusCode);
+        Assert.Equal(1, provider.CallCount);
+    }
+
+    [Fact]
+    [Trait("Category", "Phase107")]
+    public async Task AdvisoryLease_ConflictsAcrossInstancesAndAllowsLaterRegeneration()
+    {
+        await EnsureMigratedAsync();
+        var provider = Provider.Blocking();
+        using var firstFactory = Factory(provider);
+        using var firstClient = firstFactory.CreateApiClient();
+        var owner = await AuthenticateAsync(
+            firstFactory,
+            firstClient,
+            "second-opinion-concurrent");
+        SetBearer(firstClient, owner.AccessToken);
+        var original = await RequestAsync(firstClient, owner.Account.ProfileId);
+        using var secondFactory = Factory(provider);
+        using var secondClient = secondFactory.CreateApiClient();
+        SetBearer(secondClient, owner.AccessToken);
+
+        var firstAttempt = firstClient.PostAsync(RegenerateEndpoint(original.AnalysisId), null);
+        await provider.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        using var competitor = await secondClient.PostAsync(
+            RegenerateEndpoint(original.AnalysisId),
+            null);
+        Assert.Equal(HttpStatusCode.Conflict, competitor.StatusCode);
+        Assert.Equal(2, provider.CallCount);
+        provider.Release.TrySetResult();
+        using var completed = await firstAttempt;
+        Assert.Equal(HttpStatusCode.Accepted, completed.StatusCode);
+        using var later = await secondClient.PostAsync(
+            RegenerateEndpoint(original.AnalysisId),
+            null);
+        Assert.Equal(HttpStatusCode.Accepted, later.StatusCode);
+        Assert.Equal(3, provider.CallCount);
+    }
+
+    [Fact]
+    [Trait("Category", "Phase107")]
+    public async Task AdvisoryLease_DoesNotSerializeUnrelatedAnalyses()
+    {
+        await EnsureMigratedAsync();
+        var provider = Provider.BlockingAfter(2, 2);
+        using var firstFactory = Factory(provider);
+        using var firstClient = firstFactory.CreateApiClient();
+        var owner = await AuthenticateAsync(
+            firstFactory,
+            firstClient,
+            "second-opinion-unrelated");
+        SetBearer(firstClient, owner.AccessToken);
+        var firstAnalysis = await RequestAsync(firstClient, owner.Account.ProfileId);
+        var secondAnalysis = await RequestAsync(firstClient, owner.Account.ProfileId);
+        using var secondFactory = Factory(provider);
+        using var secondClient = secondFactory.CreateApiClient();
+        SetBearer(secondClient, owner.AccessToken);
+
+        var firstRegeneration = firstClient.PostAsync(
+            RegenerateEndpoint(firstAnalysis.AnalysisId),
+            null);
+        var secondRegeneration = secondClient.PostAsync(
+            RegenerateEndpoint(secondAnalysis.AnalysisId),
+            null);
+        await provider.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(4, provider.CallCount);
+        provider.Release.TrySetResult();
+        using var firstResponse = await firstRegeneration;
+        using var secondResponse = await secondRegeneration;
+
+        Assert.Equal(HttpStatusCode.Accepted, firstResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, secondResponse.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Phase107")]
+    public async Task OpenApi_DocumentsBodylessBearerRegenerationAndOnlyOneNewPath()
+    {
+        await EnsureMigratedAsync();
+        using var factory = Factory(Provider.Approved());
+        using var client = factory.CreateApiClient();
+
+        using var response = await client.GetAsync("/swagger/v1/swagger.json");
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var paths = document.RootElement.GetProperty("paths");
+        var operation = paths
+            .GetProperty("/api/v1/ai/second-opinions/{id}/regenerate")
+            .GetProperty("post");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(51, paths.EnumerateObject().Count());
+        Assert.False(operation.TryGetProperty("requestBody", out _));
+        Assert.True(operation.GetProperty("security").GetArrayLength() > 0);
+        foreach (var status in new[] { "202", "401", "404", "409", "422", "500" })
+        {
+            Assert.True(operation.GetProperty("responses").TryGetProperty(status, out _));
+        }
+    }
+
     private BeeexyApiFactory Factory(Provider provider, MemoryBlobStore? blobs = null) => new(
         postgres.ConnectionString,
         configureServices: services =>
@@ -377,6 +832,64 @@ public sealed class SecondOpinionEndpointTests(PostgreSqlContainerFixture postgr
             new { patientId, text = "Please explain this health information." });
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<AcceptedResponse>())!;
+    }
+
+    private static string RegenerateEndpoint(Guid analysisId) =>
+        $"/api/v1/ai/second-opinions/{analysisId:D}/regenerate";
+
+    private async Task<string> AnalysisSnapshotAsync(Guid analysisId)
+    {
+        await using var db = CreateDbContext();
+        return await db.AiAnalysisRequests.AsNoTracking()
+            .Where(item => item.Id == EntityId.From(analysisId))
+            .Select(item => item.OriginalInputSnapshotJson)
+            .SingleAsync();
+    }
+
+    private static string StructuredOutput(string summary) => JsonSerializer.Serialize(new
+    {
+        schemaVersion = "v1",
+        summary,
+        importantPoints = new[] { "Important point" },
+        possibleQuestionsForDoctor = new[] { "What should I discuss?" },
+        missingInformation = new[] { "Additional clinical context" },
+        disclaimer = SecondOpinionProductContent.Disclaimer
+    });
+
+    private static void AssertJsonEquivalent(string expected, string actual)
+    {
+        using var expectedDocument = JsonDocument.Parse(expected);
+        using var actualDocument = JsonDocument.Parse(actual);
+        Assert.True(JsonEquivalent(
+            expectedDocument.RootElement,
+            actualDocument.RootElement));
+    }
+
+    private static bool JsonEquivalent(JsonElement expected, JsonElement actual)
+    {
+        if (expected.ValueKind != actual.ValueKind)
+        {
+            return false;
+        }
+
+        return expected.ValueKind switch
+        {
+            JsonValueKind.Object =>
+                expected.EnumerateObject().Count() == actual.EnumerateObject().Count() &&
+                expected.EnumerateObject().All(property =>
+                    actual.TryGetProperty(property.Name, out var actualValue) &&
+                    JsonEquivalent(property.Value, actualValue)),
+            JsonValueKind.Array =>
+                expected.GetArrayLength() == actual.GetArrayLength() &&
+                expected.EnumerateArray().Zip(actual.EnumerateArray())
+                    .All(pair => JsonEquivalent(pair.First, pair.Second)),
+            JsonValueKind.String => expected.GetString() == actual.GetString(),
+            JsonValueKind.Number => expected.GetRawText() == actual.GetRawText(),
+            JsonValueKind.True or JsonValueKind.False =>
+                expected.GetBoolean() == actual.GetBoolean(),
+            JsonValueKind.Null => true,
+            _ => false
+        };
     }
 
     private static Task<HttpResponseMessage> RequestDocumentAsync(
@@ -480,12 +993,20 @@ public sealed class SecondOpinionEndpointTests(PostgreSqlContainerFixture postgr
         await db.Database.MigrateAsync();
     }
 
-    private sealed class Provider(string summary) : IAiProvider
+    private sealed class Provider : IAiProvider
     {
+        private readonly Func<AiProviderRequest, CancellationToken, Task<AiProviderResponse>> response;
         private int callCount;
+
+        private Provider(
+            Func<AiProviderRequest, CancellationToken, Task<AiProviderResponse>> response)
+        {
+            this.response = response;
+        }
+
         public int CallCount => callCount;
-        public string ProviderIdentifier => "phase-106-provider";
-        public string ModelIdentifier => "phase-106-model";
+        public string ProviderIdentifier { get; set; } = "phase-106-provider";
+        public string ModelIdentifier { get; set; } = "phase-106-model";
         public ConcurrentQueue<AiProviderRequest> Requests { get; } = new();
 
         public Task<AiProviderResponse> ExecuteAsync(
@@ -494,7 +1015,75 @@ public sealed class SecondOpinionEndpointTests(PostgreSqlContainerFixture postgr
         {
             Interlocked.Increment(ref callCount);
             Requests.Enqueue(request);
-            return Task.FromResult(new AiProviderResponse(JsonSerializer.Serialize(new
+            return response(request, cancellationToken);
+        }
+
+        public static Provider Approved(string summary = "Educational summary.") => new(
+            (_, _) => Task.FromResult(ApprovedResponse(summary)));
+
+        public static Provider ApprovedSequence(params string[] summaries)
+        {
+            var index = -1;
+            return new Provider((_, _) =>
+            {
+                var current = Interlocked.Increment(ref index);
+                return Task.FromResult(ApprovedResponse(summaries[current]));
+            });
+        }
+
+        public static Provider FailAfterSuccess(AiProviderFailureCategory category) => new(
+            (_, _) => Task.FromResult(ApprovedResponse("Original approved summary.")),
+            (_, _) => Task.FromException<AiProviderResponse>(new AiProviderException(category)));
+
+        public static Provider RawAfterSuccess(string raw) => new(
+            (_, _) => Task.FromResult(ApprovedResponse("Original approved summary.")),
+            (_, _) => Task.FromResult(new AiProviderResponse(raw)));
+
+        public static Provider Blocking() => BlockingAfter(1, 1);
+
+        public static Provider BlockingAfter(
+            int successfulCallsBeforeBlock,
+            int blockedCallsBeforeStarted)
+        {
+            Provider? provider = null;
+            var call = 0;
+            var blocked = 0;
+            provider = new Provider(async (_, cancellationToken) =>
+            {
+                if (Interlocked.Increment(ref call) <= successfulCallsBeforeBlock)
+                {
+                    return ApprovedResponse("Original approved summary.");
+                }
+
+                if (Interlocked.Increment(ref blocked) >= blockedCallsBeforeStarted)
+                {
+                    provider!.Started.TrySetResult();
+                }
+
+                await provider!.Release.Task.WaitAsync(cancellationToken);
+                return ApprovedResponse("Regenerated approved summary.");
+            });
+            return provider;
+        }
+
+        private Provider(
+            Func<AiProviderRequest, CancellationToken, Task<AiProviderResponse>> first,
+            Func<AiProviderRequest, CancellationToken, Task<AiProviderResponse>> subsequent)
+        {
+            var index = 0;
+            response = (request, token) =>
+                Interlocked.Increment(ref index) == 1
+                    ? first(request, token)
+                    : subsequent(request, token);
+        }
+
+        public TaskCompletionSource Started { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        private static AiProviderResponse ApprovedResponse(string summary) => new(
+            JsonSerializer.Serialize(new
             {
                 schemaVersion = "v1",
                 summary,
@@ -502,15 +1091,13 @@ public sealed class SecondOpinionEndpointTests(PostgreSqlContainerFixture postgr
                 possibleQuestionsForDoctor = new[] { "What should I discuss?" },
                 missingInformation = new[] { "Additional clinical context" },
                 disclaimer = SecondOpinionProductContent.Disclaimer
-            })));
-        }
-
-        public static Provider Approved(string summary = "Educational summary.") => new(summary);
+            }));
     }
 
     private sealed class MemoryBlobStore : IAiDocumentBlobStore
     {
         private readonly ConcurrentDictionary<string, byte[]> values = new();
+        public int BlobCount => values.Count;
         public Task WritePrivateAsync(
             AiBlobKey key,
             ReadOnlyMemory<byte> content,

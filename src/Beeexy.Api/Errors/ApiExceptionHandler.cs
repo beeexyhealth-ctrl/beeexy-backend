@@ -240,6 +240,18 @@ internal sealed class ApiExceptionHandler(
             return problem;
         }
 
+        if (exception is SecondOpinionExecutionConflictException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Second Opinion execution conflict.",
+                Detail = "Another execution is already running for this Second Opinion."
+            };
+            problem.Extensions["errorCode"] = "ai.second_opinion.execution_conflict";
+            return problem;
+        }
+
         if (exception is AiDocumentTooLargeException)
         {
             var problem = new ProblemDetails

@@ -17,6 +17,13 @@ public sealed class ExecuteSafeAiAnalysis(
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(command.Execution);
+        if (command.ResultSnapshotSequence <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(command),
+                "The result snapshot sequence must be positive.");
+        }
+
         if (command.ApprovedDisclaimer is null !=
             (command.ApprovedDisclaimerVersion is null))
         {
@@ -69,7 +76,7 @@ public sealed class ExecuteSafeAiAnalysis(
             var snapshot = AiResultSnapshot.Create(
                 command.Execution.AnalysisRequestId,
                 technical.ExecutionId,
-                1,
+                command.ResultSnapshotSequence,
                 resultSchemaVersion,
                 technical.StructurallyValidatedContent,
                 validatedAt);

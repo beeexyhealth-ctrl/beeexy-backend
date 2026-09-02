@@ -34,6 +34,10 @@ public sealed class RequestSecondOpinion(
         repository.Add(request);
         await repository.SaveChangesAsync(cancellationToken);
 
+        await using var executionLease = await repository.TryAcquireExecutionLeaseAsync(
+            request.Id,
+            cancellationToken) ?? throw new SecondOpinionExecutionConflictException();
+
         var outcome = await safeExecution.ExecuteAsync(
             new ExecuteSafeAiAnalysisCommand(
                 new ExecuteAiAnalysisCommand(
@@ -50,6 +54,80 @@ public sealed class RequestSecondOpinion(
             request.Id,
             outcome.ExecutionId,
             MapStatus(outcome));
+    }
+
+    private static SecondOpinionStatus MapStatus(AiSafeAnalysisOutcome outcome) =>
+        outcome.TechnicalOutcome switch
+        {
+            AiExecutionOutcomeKind.StructurallyValid when outcome.ProviderOutputDisplayEligible =>
+                SecondOpinionStatus.Succeeded,
+            AiExecutionOutcomeKind.StructurallyValid or AiExecutionOutcomeKind.MalformedResult =>
+                SecondOpinionStatus.Rejected,
+            _ => SecondOpinionStatus.Failed
+        };
+}
+
+public sealed class RegenerateSecondOpinion(
+    ICurrentSessionIdentity currentIdentity,
+    AuthorizePatientAccess authorizePatientAccess,
+    ISecondOpinionRepository repository,
+    ExecuteSafeAiAnalysis safeExecution)
+{
+    public async Task<SecondOpinionRequestReceipt> ExecuteAsync(
+        RegenerateSecondOpinionCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        var current = currentIdentity.GetRequired();
+        var access = await repository.FindOwnedAsync(
+            command.AnalysisId,
+            current.AccountId,
+            cancellationToken) ?? throw new SecondOpinionNotFoundException();
+        await EnsurePatientAuthorityAsync(access.PatientProfileId, cancellationToken);
+
+        await using var executionLease = await repository.TryAcquireExecutionLeaseAsync(
+            access.AnalysisId,
+            cancellationToken) ?? throw new SecondOpinionExecutionConflictException();
+
+        var source = await repository.FindRegenerationSourceAsync(
+            access.AnalysisId,
+            current.AccountId,
+            cancellationToken) ?? throw new SecondOpinionNotFoundException();
+        await EnsurePatientAuthorityAsync(source.PatientProfileId, cancellationToken);
+        var providerInput = SecondOpinionImmutableInput.ReplayProviderInput(
+            source.OriginalInputSchemaVersion,
+            source.OriginalInputSnapshotJson);
+
+        var outcome = await safeExecution.ExecuteAsync(
+            new ExecuteSafeAiAnalysisCommand(
+                new ExecuteAiAnalysisCommand(
+                    source.AnalysisId,
+                    AiWorkloadIdentifiers.SecondOpinion,
+                    SecondOpinionContract.Prompt,
+                    providerInput,
+                    SecondOpinionContract.Result,
+                    command.CorrelationIdentifier),
+                SecondOpinionProductContent.Disclaimer,
+                SecondOpinionProductContent.DisclaimerVersion,
+                source.NextSnapshotSequence),
+            cancellationToken);
+        return new SecondOpinionRequestReceipt(
+            source.AnalysisId,
+            outcome.ExecutionId,
+            MapStatus(outcome));
+    }
+
+    private async Task EnsurePatientAuthorityAsync(
+        EntityId patientProfileId,
+        CancellationToken cancellationToken)
+    {
+        var authorization = await authorizePatientAccess.ExecuteAsync(
+            patientProfileId,
+            cancellationToken);
+        if (!authorization.IsAuthorized)
+        {
+            throw new SecondOpinionNotFoundException();
+        }
     }
 
     private static SecondOpinionStatus MapStatus(AiSafeAnalysisOutcome outcome) =>

@@ -146,7 +146,8 @@ public sealed record AiSafetyProductContent
 public sealed record ExecuteSafeAiAnalysisCommand(
     ExecuteAiAnalysisCommand Execution,
     string? ApprovedDisclaimer = null,
-    string? ApprovedDisclaimerVersion = null);
+    string? ApprovedDisclaimerVersion = null,
+    int ResultSnapshotSequence = 1);
 
 public sealed record AiSafeAnalysisOutcome(
     EntityId ExecutionId,

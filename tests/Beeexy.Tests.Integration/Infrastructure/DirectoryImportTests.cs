@@ -217,7 +217,7 @@ public sealed class DirectoryImportTests(PostgreSqlContainerFixture postgres) : 
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             var paths = document.RootElement.GetProperty("paths").EnumerateObject().ToArray();
-            Assert.Equal(50, paths.Length);
+            Assert.Equal(51, paths.Length);
             Assert.Equal(2, paths.Count(value =>
                 value.Name.StartsWith("/api/v1/clinics", StringComparison.Ordinal)));
             Assert.Equal(3, paths.Count(value =>

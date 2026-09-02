@@ -1,4 +1,5 @@
 using Beeexy.Api.Errors;
+using Beeexy.Application.Ai;
 using Beeexy.Application.Interoperability;
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
@@ -8,6 +9,19 @@ namespace Beeexy.Tests.Unit.Api;
 
 public sealed class ApiExceptionHandlerTests
 {
+    [Fact]
+    [Trait("Category", "Phase107")]
+    public void MapException_MapsSecondOpinionConflictWithoutProviderDetails()
+    {
+        var problem = ApiExceptionHandler.MapException(
+            new SecondOpinionExecutionConflictException());
+
+        Assert.Equal(StatusCodes.Status409Conflict, problem.Status);
+        Assert.Equal("ai.second_opinion.execution_conflict", problem.Extensions["errorCode"]);
+        Assert.DoesNotContain("provider", problem.ToString(),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void MapException_MapsDomainErrorToSafeUnprocessableEntity()
     {

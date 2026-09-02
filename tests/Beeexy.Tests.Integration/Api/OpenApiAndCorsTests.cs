@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(50, paths.EnumerateObject().Count());
+        Assert.Equal(51, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         var aiConversationsPath = paths.GetProperty("/api/v1/ai/conversations");
@@ -44,6 +44,9 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var getSecondOpinionOperation = paths
             .GetProperty("/api/v1/ai/second-opinions/{id}")
             .GetProperty("get");
+        var regenerateSecondOpinionOperation = paths
+            .GetProperty("/api/v1/ai/second-opinions/{id}/regenerate")
+            .GetProperty("post");
         AssertResponseCodes(
             createAiConversationOperation,
             "201", "400", "401", "404", "422", "500");
@@ -61,6 +64,10 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             requestSecondOpinionOperation,
             "202", "400", "401", "404", "422", "500");
         AssertResponseCodes(getSecondOpinionOperation, "200", "401", "404", "500");
+        AssertResponseCodes(
+            regenerateSecondOpinionOperation,
+            "202", "401", "404", "409", "422", "500");
+        Assert.False(regenerateSecondOpinionOperation.TryGetProperty("requestBody", out _));
         foreach (var operation in new[]
                  {
                      createAiConversationOperation,
@@ -71,7 +78,8 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
                      uploadAiDocumentOperation,
                      deleteAiDocumentOperation,
                      requestSecondOpinionOperation,
-                     getSecondOpinionOperation
+                     getSecondOpinionOperation,
+                     regenerateSecondOpinionOperation
                  })
         {
             var security = operation.GetProperty("security");
@@ -96,9 +104,6 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.DoesNotContain(
             paths.EnumerateObject(),
             path => path.Name.Contains("generator", StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain(
-            paths.EnumerateObject(),
-            path => path.Name.Contains("regenerate", StringComparison.OrdinalIgnoreCase));
         Assert.True(paths
             .GetProperty("/api/v1/auth/email/challenges")
             .TryGetProperty("post", out _));
