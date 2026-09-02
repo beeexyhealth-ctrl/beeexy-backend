@@ -1,3 +1,4 @@
+using Beeexy.Application.Ai;
 using Beeexy.Application.Directory;
 using Beeexy.Application.Identity;
 using Beeexy.Application.History;
@@ -6,6 +7,7 @@ using Beeexy.Application.Patients;
 using Beeexy.Application.Scheduling;
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
+using Beeexy.Infrastructure.Ai;
 using Beeexy.Infrastructure.DirectoryServices;
 using Beeexy.Infrastructure.Identity;
 using Beeexy.Infrastructure.History;
@@ -138,15 +140,28 @@ public static class DependencyInjection
                 client.BaseAddress = configuredNvidiaOptions.BaseUri;
                 client.Timeout = System.Threading.Timeout.InfiniteTimeSpan;
             });
-            services.AddSingleton<IClinicalAiProvider>(provider => new NvidiaClinicalAiProvider(
+            services.AddSingleton(provider => new NvidiaClinicalAiProvider(
                 provider.GetRequiredService<IHttpClientFactory>()
                     .CreateClient(NvidiaClinicalAiProvider.HttpClientName),
                 configuredNvidiaOptions));
+            services.AddSingleton<IClinicalAiProvider>(provider =>
+                provider.GetRequiredService<NvidiaClinicalAiProvider>());
+            services.AddSingleton<IAiProvider>(provider =>
+                provider.GetRequiredService<NvidiaClinicalAiProvider>());
         }
         else
         {
-            services.AddSingleton<IClinicalAiProvider, UnavailableClinicalAiProvider>();
+            services.AddSingleton<UnavailableClinicalAiProvider>();
+            services.AddSingleton<IClinicalAiProvider>(provider =>
+                provider.GetRequiredService<UnavailableClinicalAiProvider>());
+            services.AddSingleton<IAiProvider>(provider =>
+                provider.GetRequiredService<UnavailableClinicalAiProvider>());
         }
+        services.AddSingleton<IAiPromptResolver, AiPromptResolver>();
+        services.AddSingleton<IAiStructuredResultValidator, AiStructuredResultValidator>();
+        services.AddScoped<IAiExecutionRepository, AiExecutionRepository>();
+        services.AddSingleton<IAiExecutionTelemetry, AiExecutionTelemetry>();
+        services.AddScoped<ExecuteAiAnalysis>();
         services.AddSingleton<IClinicalSafetyPolicy, ClinicalSafetyPolicy>();
         services.AddSingleton(preTriageEducationalVideoOptions);
         services.AddSingleton<IPreTriageEducationalVideoCatalog,

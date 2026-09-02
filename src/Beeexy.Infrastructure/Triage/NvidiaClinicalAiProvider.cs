@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Beeexy.Application.Ai;
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Triage;
 
@@ -10,10 +11,11 @@ namespace Beeexy.Infrastructure.Triage;
 
 public sealed class NvidiaClinicalAiProvider(
     HttpClient httpClient,
-    NvidiaClinicalAiOptions options) : IClinicalAiProvider
+    NvidiaClinicalAiOptions options) : IClinicalAiProvider, IAiProvider
 {
     public const string HttpClientName = "NvidiaClinicalAi";
-    private const int MaximumCompletionTokens = 512;
+    private const int Phase4MaximumCompletionTokens = 512;
+    private const int GenericMaximumCompletionTokens = 2048;
     private static readonly JsonSerializerOptions OmitNullProperties = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
@@ -25,6 +27,75 @@ public sealed class NvidiaClinicalAiProvider(
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        string content;
+        try
+        {
+            content = await SendChatCompletionAsync(
+                Phase4ClinicalAiExtractionPrompt.SystemMessage(request),
+                Phase4ClinicalAiExtractionPrompt.UserMessage(request),
+                Phase4MaximumCompletionTokens,
+                cancellationToken);
+        }
+        catch (NvidiaProviderException exception)
+        {
+            throw new ClinicalAiProviderException(exception.Category switch
+            {
+                AiProviderFailureCategory.Timeout =>
+                    ClinicalAiProviderFailureCategory.Timeout,
+                AiProviderFailureCategory.Permanent =>
+                    ClinicalAiProviderFailureCategory.RejectedOutput,
+                AiProviderFailureCategory.MalformedResponse =>
+                    ClinicalAiProviderFailureCategory.InvalidStructuredResponse,
+                _ => ClinicalAiProviderFailureCategory.Unavailable
+            });
+        }
+
+        try
+        {
+            return ParseProviderOutput(content);
+        }
+        catch (JsonException)
+        {
+            throw new ClinicalAiProviderException(
+                ClinicalAiProviderFailureCategory.InvalidStructuredResponse);
+        }
+        catch (InvalidStructuredResponseException)
+        {
+            throw new ClinicalAiProviderException(
+                ClinicalAiProviderFailureCategory.InvalidStructuredResponse);
+        }
+    }
+
+    public string ProviderIdentifier => ClinicalAiProviderOptions.NvidiaProviderName;
+
+    public string ModelIdentifier => options.Model;
+
+    public async Task<AiProviderResponse> ExecuteAsync(
+        AiProviderRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        try
+        {
+            var content = await SendChatCompletionAsync(
+                request.SystemInstructions,
+                request.UserContent,
+                GenericMaximumCompletionTokens,
+                cancellationToken);
+            return new AiProviderResponse(content);
+        }
+        catch (NvidiaProviderException exception)
+        {
+            throw new AiProviderException(exception.Category);
+        }
+    }
+
+    private async Task<string> SendChatCompletionAsync(
+        string systemInstructions,
+        string userContent,
+        int maximumCompletionTokens,
+        CancellationToken cancellationToken)
+    {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(options.Timeout);
         using var message = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
@@ -35,11 +106,11 @@ public sealed class NvidiaClinicalAiProvider(
                     model = options.Model,
                     messages = new[]
                     {
-                        new { role = "system", content = Phase4ClinicalAiExtractionPrompt.SystemMessage(request) },
-                        new { role = "user", content = Phase4ClinicalAiExtractionPrompt.UserMessage(request) }
+                        new { role = "system", content = systemInstructions },
+                        new { role = "user", content = userContent }
                     },
                     temperature = 0.0,
-                    max_tokens = MaximumCompletionTokens,
+                    max_tokens = maximumCompletionTokens,
                     stream = false,
                     response_format = options.UseJsonObjectResponseFormat
                         ? new { type = "json_object" }
@@ -62,18 +133,18 @@ public sealed class NvidiaClinicalAiProvider(
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new ClinicalAiProviderException(ClinicalAiProviderFailureCategory.Timeout);
+            throw new NvidiaProviderException(AiProviderFailureCategory.Timeout);
         }
         catch (HttpRequestException)
         {
-            throw new ClinicalAiProviderException(ClinicalAiProviderFailureCategory.Unavailable);
+            throw new NvidiaProviderException(AiProviderFailureCategory.Transient);
         }
 
         using (response)
         {
             if (!response.IsSuccessStatusCode)
             {
-                throw new ClinicalAiProviderException(FailureFor(response.StatusCode));
+                throw new NvidiaProviderException(FailureFor(response.StatusCode));
             }
 
             string responseJson;
@@ -83,33 +154,31 @@ public sealed class NvidiaClinicalAiProvider(
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                throw new ClinicalAiProviderException(ClinicalAiProviderFailureCategory.Timeout);
+                throw new NvidiaProviderException(AiProviderFailureCategory.Timeout);
             }
 
             try
             {
-                return ParseChatCompletion(responseJson);
+                return ParseChatCompletionContent(responseJson);
             }
             catch (JsonException)
             {
-                throw new ClinicalAiProviderException(
-                    ClinicalAiProviderFailureCategory.InvalidStructuredResponse);
+                throw new NvidiaProviderException(AiProviderFailureCategory.MalformedResponse);
             }
             catch (InvalidStructuredResponseException)
             {
-                throw new ClinicalAiProviderException(
-                    ClinicalAiProviderFailureCategory.InvalidStructuredResponse);
+                throw new NvidiaProviderException(AiProviderFailureCategory.MalformedResponse);
             }
         }
     }
 
-    private static ClinicalAiProviderFailureCategory FailureFor(HttpStatusCode statusCode) =>
+    private static AiProviderFailureCategory FailureFor(HttpStatusCode statusCode) =>
         statusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests ||
         (int)statusCode >= 500
-            ? ClinicalAiProviderFailureCategory.Unavailable
-            : ClinicalAiProviderFailureCategory.RejectedOutput;
+            ? AiProviderFailureCategory.Transient
+            : AiProviderFailureCategory.Permanent;
 
-    private static ClinicalAiProviderOutput ParseChatCompletion(string responseJson)
+    private static string ParseChatCompletionContent(string responseJson)
     {
         using var document = JsonDocument.Parse(responseJson);
         var root = document.RootElement;
@@ -121,8 +190,7 @@ public sealed class NvidiaClinicalAiProvider(
 
         var choice = choices[0];
         var message = RequiredObject(choice, "message");
-        var content = RequiredString(message, "content");
-        return ParseProviderOutput(content);
+        return RequiredString(message, "content");
     }
 
     private static ClinicalAiProviderOutput ParseProviderOutput(string content)
@@ -343,4 +411,10 @@ public sealed class NvidiaClinicalAiProvider(
     }
 
     private sealed class InvalidStructuredResponseException : Exception;
+
+    private sealed class NvidiaProviderException(AiProviderFailureCategory category)
+        : Exception
+    {
+        public AiProviderFailureCategory Category { get; } = category;
+    }
 }
