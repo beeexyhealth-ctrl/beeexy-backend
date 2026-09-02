@@ -162,6 +162,11 @@ public static class DependencyInjection
         services.AddScoped<IAiExecutionRepository, AiExecutionRepository>();
         services.AddSingleton<IAiExecutionTelemetry, AiExecutionTelemetry>();
         services.AddScoped<ExecuteAiAnalysis>();
+        services.AddSingleton(AiSafetyProductContent.Current);
+        services.AddSingleton<IAiSafetyValidator, BeeexyAiSafetyValidator>();
+        services.AddScoped<IAiSafetyPersistence, AiSafetyPersistence>();
+        services.AddSingleton<IAiSafetyTelemetry, AiSafetyTelemetry>();
+        services.AddScoped<ExecuteSafeAiAnalysis>();
         services.AddSingleton<IClinicalSafetyPolicy, ClinicalSafetyPolicy>();
         services.AddSingleton(preTriageEducationalVideoOptions);
         services.AddSingleton<IPreTriageEducationalVideoCatalog,
