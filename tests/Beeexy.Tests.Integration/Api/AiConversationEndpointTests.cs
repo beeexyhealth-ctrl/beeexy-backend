@@ -20,6 +20,7 @@ namespace Beeexy.Tests.Integration.Api;
 
 [Collection(PostgreSqlCollection.Name)]
 [Trait("Category", "Phase104")]
+[Trait("Category", "Phase108")]
 public sealed class AiConversationEndpointTests(PostgreSqlContainerFixture postgres)
 {
     private static readonly DateTimeOffset Now =

@@ -9,6 +9,7 @@ using Beeexy.Domain.Common;
 namespace Beeexy.Tests.Unit.Ai;
 
 [Trait("Category", "Phase104")]
+[Trait("Category", "Phase108")]
 public sealed class AiConversationUseCasesTests
 {
     [Fact]

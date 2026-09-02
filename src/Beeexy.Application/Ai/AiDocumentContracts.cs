@@ -130,12 +130,19 @@ public interface IAiDocumentRepository
     Task<IReadOnlyList<AiUploadedDocument>> ListExpiredAsync(
         DateTimeOffset now,
         int take,
+        AiDocumentExpiryCursor? after = null,
         CancellationToken cancellationToken = default);
 
-    Task<DateTimeOffset?> GetNextExpiryAsync(CancellationToken cancellationToken = default);
+    Task<DateTimeOffset?> GetNextExpiryAsync(
+        DateTimeOffset? strictlyAfter = null,
+        CancellationToken cancellationToken = default);
 
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }
+
+public sealed record AiDocumentExpiryCursor(
+    DateTimeOffset ExpiresAt,
+    EntityId DocumentId);
 
 public sealed record UploadAiDocumentCommand(
     string FileName,

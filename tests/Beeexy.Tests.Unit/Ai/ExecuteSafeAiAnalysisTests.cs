@@ -6,6 +6,7 @@ using Beeexy.Domain.Common;
 namespace Beeexy.Tests.Unit.Ai;
 
 [Trait("Category", "Phase103")]
+[Trait("Category", "Phase108")]
 public sealed class ExecuteSafeAiAnalysisTests
 {
     [Fact]

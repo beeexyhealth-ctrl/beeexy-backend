@@ -4,6 +4,7 @@ using Beeexy.Application.Ai;
 namespace Beeexy.Tests.Unit.Ai;
 
 [Trait("Category", "Phase102")]
+[Trait("Category", "Phase108")]
 public sealed class AiPromptAndStructureTests
 {
     [Fact]

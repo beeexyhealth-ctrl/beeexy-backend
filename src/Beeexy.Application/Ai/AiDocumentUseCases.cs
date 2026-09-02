@@ -200,40 +200,51 @@ public sealed class ExpireAiDocuments(
     public async Task<int> ExecuteAsync(CancellationToken cancellationToken = default)
     {
         var now = clock.UtcNow;
-        var documents = await repository.ListExpiredAsync(
-            now,
-            options.CleanupBatchSize,
-            cancellationToken);
         var expired = 0;
         var deletionFailures = new List<Exception>();
-        foreach (var document in documents)
+        AiDocumentExpiryCursor? cursor = null;
+        while (true)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (document.Status != AiDocumentStatus.Active || document.ExpiresAt > now)
+            var documents = await repository.ListExpiredAsync(
+                now,
+                options.CleanupBatchSize,
+                cursor,
+                cancellationToken);
+            foreach (var document in documents)
             {
-                continue;
+                cancellationToken.ThrowIfCancellationRequested();
+                cursor = new AiDocumentExpiryCursor(document.ExpiresAt, document.Id);
+                if (document.Status != AiDocumentStatus.Active || document.ExpiresAt > now)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    await blobStore.DeleteAsync(
+                        AiBlobKey.Parse(document.StorageKey),
+                        cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    deletionFailures.Add(exception);
+                    continue;
+                }
+
+                if (document.MarkExpired(now))
+                {
+                    await repository.SaveChangesAsync(cancellationToken);
+                    expired++;
+                }
             }
 
-            try
+            if (documents.Count < options.CleanupBatchSize)
             {
-                await blobStore.DeleteAsync(
-                    AiBlobKey.Parse(document.StorageKey),
-                    cancellationToken);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                deletionFailures.Add(exception);
-                continue;
-            }
-
-            if (document.MarkExpired(now))
-            {
-                await repository.SaveChangesAsync(cancellationToken);
-                expired++;
+                break;
             }
         }
 

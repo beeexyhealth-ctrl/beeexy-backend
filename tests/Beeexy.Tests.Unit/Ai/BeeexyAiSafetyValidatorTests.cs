@@ -5,6 +5,7 @@ using Beeexy.Domain.Ai;
 namespace Beeexy.Tests.Unit.Ai;
 
 [Trait("Category", "Phase103")]
+[Trait("Category", "Phase108")]
 public sealed class BeeexyAiSafetyValidatorTests
 {
     private readonly BeeexyAiSafetyValidator validator = new(AiSafetyProductContent.Current);

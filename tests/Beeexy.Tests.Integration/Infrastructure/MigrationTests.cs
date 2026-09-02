@@ -10,6 +10,7 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
     [Trait("Category", "Phase101")]
+    [Trait("Category", "Phase108")]
     public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase101AiFoundation()
     {
         var options = new DbContextOptionsBuilder<BeeexyDbContext>()

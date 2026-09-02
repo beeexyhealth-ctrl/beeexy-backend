@@ -18,6 +18,7 @@ public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
     [Trait("Category", "Phase101")]
+    [Trait("Category", "Phase108")]
     public async Task Phase101AiFoundation_IsAdditiveAndCanRollbackAndReapply()
     {
         await EnsureMigratedAsync();

@@ -10,6 +10,7 @@ using Beeexy.Tests.Unit.Patients;
 namespace Beeexy.Tests.Unit.Ai;
 
 [Trait("Category", "Phase107")]
+[Trait("Category", "Phase108")]
 public sealed class RegenerateSecondOpinionTests
 {
     [Fact]

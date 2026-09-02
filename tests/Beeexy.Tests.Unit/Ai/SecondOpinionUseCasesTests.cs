@@ -8,6 +8,7 @@ using Beeexy.Domain.Common;
 namespace Beeexy.Tests.Unit.Ai;
 
 [Trait("Category", "Phase106")]
+[Trait("Category", "Phase108")]
 public sealed class SecondOpinionUseCasesTests
 {
     [Fact]

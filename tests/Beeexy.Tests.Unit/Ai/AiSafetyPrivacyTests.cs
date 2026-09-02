@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 namespace Beeexy.Tests.Unit.Ai;
 
 [Trait("Category", "Phase103Security")]
+[Trait("Category", "Phase108")]
 public sealed class AiSafetyPrivacyTests
 {
     [Fact]

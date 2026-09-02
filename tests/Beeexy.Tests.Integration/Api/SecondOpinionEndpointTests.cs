@@ -19,6 +19,7 @@ namespace Beeexy.Tests.Integration.Api;
 
 [Collection(PostgreSqlCollection.Name)]
 [Trait("Category", "Phase106")]
+[Trait("Category", "Phase108")]
 public sealed class SecondOpinionEndpointTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]

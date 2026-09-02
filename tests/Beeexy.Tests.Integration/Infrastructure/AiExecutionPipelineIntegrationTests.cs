@@ -11,6 +11,7 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 
 [Collection(PostgreSqlCollection.Name)]
 [Trait("Category", "Phase102")]
+[Trait("Category", "Phase108")]
 public sealed class AiExecutionPipelineIntegrationTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]

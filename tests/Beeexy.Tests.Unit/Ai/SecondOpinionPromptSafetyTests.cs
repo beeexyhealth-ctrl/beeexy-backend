@@ -5,6 +5,7 @@ using Beeexy.Domain.Ai;
 namespace Beeexy.Tests.Unit.Ai;
 
 [Trait("Category", "Phase106")]
+[Trait("Category", "Phase108")]
 public sealed class SecondOpinionPromptSafetyTests
 {
     private readonly SecondOpinionResultSchemaV1 schema = new();

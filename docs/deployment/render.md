@@ -46,8 +46,15 @@ These variables are conditional:
 | `ClinicalAi__BaseUrl` | Override only when the provider endpoint differs from the configured default. |
 | `ClinicalAi__TimeoutSeconds` | Override only when changing the provider timeout. |
 | `ClinicalAi__UseJsonObjectResponseFormat` | Set to `false` only for an NVIDIA model that returns valid structured JSON but rejects `response_format: {"type":"json_object"}`. |
+| `AiDocuments__PrivateStorageRoot` | Optional absolute private filesystem directory for Temporary Documents. Never place it under a web/static-content root. The image default is `/app/private-ai-documents`. |
+| `AiDocuments__MaximumBytes` | Optional lower upload ceiling; it cannot exceed the fixed 25 MiB (`26214400` byte) policy. |
+| `AiDocuments__CleanupCadenceSeconds` | Optional retry/scheduling cadence. Cleanup still wakes at the earliest durable expiry when that is sooner. |
+| `AiDocuments__CleanupBatchSize` | Optional bounded database page size for expiry processing. |
 
 The checked-in policy and lifetime settings have non-secret defaults. Override their corresponding double-underscore environment names only if the production policy is intentionally changed.
+
+See [phase-10-ai.md](phase-10-ai.md) for the complete AI security boundary,
+Temporary Document retention behavior, and deployment smoke checks.
 
 ## Health check
 
@@ -115,6 +122,15 @@ FHIR exports are currently stored on the local filesystem at:
 ```
 
 Render's container filesystem is ephemeral. If FHIR exports must remain downloadable after a restart or deploy, attach a Render persistent disk with `/app/private-fhir-artifacts` as its exact mount path. A paid service is required for a Render persistent disk. Without it, the API can start, but database export records can outlive their artifact files and downloads will fail after filesystem replacement.
+
+## Temporary AI document persistence
+
+Temporary AI Documents are private artifacts with a hard upload-time-plus-24-hour expiry, not
+durable records. The default `/app/private-ai-documents` directory is outside the HTTP surface.
+An ephemeral filesystem may remove an artifact earlier during a restart; the database-backed
+expiry worker tolerates the already-missing blob and closes its lifecycle metadata on recovery.
+If an alternate disk is configured, it must remain private and writable by only the application
+identity; the same worker and 24-hour maximum still apply.
 
 ## Remaining blockers
 

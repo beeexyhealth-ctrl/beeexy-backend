@@ -20,6 +20,7 @@ namespace Beeexy.Tests.Integration.Api;
 
 [Collection(PostgreSqlCollection.Name)]
 [Trait("Category", "Phase105")]
+[Trait("Category", "Phase108")]
 public sealed class AiDocumentEndpointTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
@@ -185,7 +186,9 @@ public sealed class AiDocumentEndpointTests(PostgreSqlContainerFixture postgres)
         using var factory = Factory(blobs);
         using var client = factory.CreateApiClient();
         var owner = await AuthenticateAsync(factory, client, "document-expiry");
-        var now = new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);
+        // Use an isolated historical cutoff because the shared migration fixture retains
+        // independently seeded Phase 10 foundation rows across test cases.
+        var now = new DateTimeOffset(2000, 1, 2, 12, 0, 0, TimeSpan.Zero);
         var due = AiUploadedDocument.Create(
             EntityId.From(owner.Account.AccountId),
             AiBlobKey.CreateNew().Value,
@@ -227,6 +230,82 @@ public sealed class AiDocumentEndpointTests(PostgreSqlContainerFixture postgres)
             (await verify.AiUploadedDocuments.AsNoTracking().SingleAsync(item => item.Id == future.Id)).Status);
         Assert.False(blobs.Content.ContainsKey(due.StorageKey));
         Assert.True(blobs.Content.ContainsKey(future.StorageKey));
+    }
+
+    [Fact]
+    [Trait("Category", "Phase108")]
+    public async Task PostgreSqlExpiryPaging_DoesNotLetFailedOldBlobStarveLaterDocuments()
+    {
+        await EnsureMigratedAsync();
+        var blobs = new MemoryBlobStore();
+        using var factory = Factory(blobs);
+        using var client = factory.CreateApiClient();
+        var owner = await AuthenticateAsync(factory, client, "document-expiry-recovery");
+        var now = new DateTimeOffset(2000, 1, 2, 14, 0, 0, TimeSpan.Zero);
+        var documents = Enumerable.Range(0, 5)
+            .Select(index => AiUploadedDocument.Create(
+                EntityId.From(owner.Account.AccountId),
+                AiBlobKey.CreateNew().Value,
+                "text/plain",
+                5,
+                now.AddHours(-30).AddMinutes(index),
+                now.AddHours(-6).AddMinutes(index)))
+            .ToArray();
+        var documentIds = documents.Select(document => document.Id).ToArray();
+        foreach (var document in documents)
+        {
+            blobs.Content[document.StorageKey] = "hello"u8.ToArray();
+        }
+
+        blobs.FailingKeys.Add(documents[0].StorageKey);
+        await using (var seed = CreateDbContext())
+        {
+            seed.AiUploadedDocuments.AddRange(documents);
+            await seed.SaveChangesAsync();
+        }
+
+        await using (var firstContext = CreateDbContext())
+        {
+            var cleanup = new ExpireAiDocuments(
+                new FixedClock(now),
+                new AiDocumentOptions(
+                    AiDocumentOptions.MaximumAllowedBytes,
+                    TimeSpan.FromMinutes(1),
+                    2),
+                blobs,
+                new AiDocumentRepository(firstContext));
+            await Assert.ThrowsAsync<AggregateException>(() => cleanup.ExecuteAsync());
+        }
+
+        await using (var verifyProgress = CreateDbContext())
+        {
+            var states = await verifyProgress.AiUploadedDocuments.AsNoTracking()
+                .Where(document => documentIds.Contains(document.Id))
+                .ToDictionaryAsync(document => document.Id, document => document.Status);
+            Assert.Equal(AiDocumentStatus.Active, states[documents[0].Id]);
+            Assert.All(documents[1..], document =>
+                Assert.Equal(AiDocumentStatus.Expired, states[document.Id]));
+        }
+
+        blobs.FailingKeys.Clear();
+        await using (var retryContext = CreateDbContext())
+        {
+            var cleanup = new ExpireAiDocuments(
+                new FixedClock(now),
+                new AiDocumentOptions(
+                    AiDocumentOptions.MaximumAllowedBytes,
+                    TimeSpan.FromMinutes(1),
+                    2),
+                blobs,
+                new AiDocumentRepository(retryContext));
+            Assert.Equal(1, await cleanup.ExecuteAsync());
+        }
+
+        await using var verifyRecovery = CreateDbContext();
+        Assert.All(await verifyRecovery.AiUploadedDocuments.AsNoTracking()
+            .Where(document => documentIds.Contains(document.Id))
+            .ToArrayAsync(),
+            document => Assert.Equal(AiDocumentStatus.Expired, document.Status));
     }
 
     private BeeexyApiFactory Factory(MemoryBlobStore blobs) => new(
@@ -293,6 +372,7 @@ public sealed class AiDocumentEndpointTests(PostgreSqlContainerFixture postgres)
     private sealed class MemoryBlobStore : IAiDocumentBlobStore
     {
         public Dictionary<string, byte[]> Content { get; } = [];
+        public HashSet<string> FailingKeys { get; } = [];
         public Task WritePrivateAsync(AiBlobKey key, ReadOnlyMemory<byte> content,
             CancellationToken cancellationToken = default)
         {
@@ -302,7 +382,15 @@ public sealed class AiDocumentEndpointTests(PostgreSqlContainerFixture postgres)
         public Task<byte[]> ReadPrivateAsync(AiBlobKey key,
             CancellationToken cancellationToken = default) => Task.FromResult(Content[key.Value]);
         public Task<bool> DeleteAsync(AiBlobKey key,
-            CancellationToken cancellationToken = default) => Task.FromResult(Content.Remove(key.Value));
+            CancellationToken cancellationToken = default)
+        {
+            if (FailingKeys.Contains(key.Value))
+            {
+                throw new IOException("private-blob-path-marker");
+            }
+
+            return Task.FromResult(Content.Remove(key.Value));
+        }
         public Task<int> DeleteCreatedBeforeAsync(DateTimeOffset cutoff,
             CancellationToken cancellationToken = default) => Task.FromResult(0);
     }

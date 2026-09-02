@@ -8,6 +8,7 @@ using UglyToad.PdfPig.Writer;
 namespace Beeexy.Tests.Unit.Ai;
 
 [Trait("Category", "Phase105")]
+[Trait("Category", "Phase108")]
 public sealed class AiDocumentInfrastructureTests
 {
     private readonly PdfTxtAiDocumentTextExtractor extractor = new();
@@ -76,11 +77,27 @@ public sealed class AiDocumentInfrastructureTests
         try
         {
             var store = new FileSystemAiDocumentBlobStore(root);
+            if (!OperatingSystem.IsWindows())
+            {
+                Assert.Equal(
+                    UnixFileMode.UserRead |
+                    UnixFileMode.UserWrite |
+                    UnixFileMode.UserExecute,
+                    File.GetUnixFileMode(root));
+            }
+
             var key = AiBlobKey.CreateNew();
             await store.WritePrivateAsync(key, "private PHI"u8.ToArray());
             Assert.Equal("private PHI", Encoding.UTF8.GetString(await store.ReadPrivateAsync(key)));
             var file = Assert.Single(Directory.GetFiles(root));
             Assert.Equal(key.Value + ".blob", Path.GetFileName(file));
+            if (!OperatingSystem.IsWindows())
+            {
+                Assert.Equal(
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite,
+                    File.GetUnixFileMode(file));
+            }
+
             Assert.True(await store.DeleteAsync(key));
             Assert.False(await store.DeleteAsync(key));
         }

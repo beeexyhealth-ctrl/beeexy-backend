@@ -214,6 +214,7 @@ public sealed class StartupValidationTests(PostgreSqlContainerFixture postgres)
     }
 
     [Fact]
+    [Trait("Category", "Phase108")]
     public void AiDocumentConfiguration_RegistersExactLimitAndExpiryWorker()
     {
         using var factory = new BeeexyApiFactory(postgres.ConnectionString);
@@ -228,6 +229,7 @@ public sealed class StartupValidationTests(PostgreSqlContainerFixture postgres)
     }
 
     [Theory]
+    [Trait("Category", "Phase108")]
     [InlineData("AiDocuments:MaximumBytes", "26214401")]
     [InlineData("AiDocuments:CleanupCadenceSeconds", "0")]
     [InlineData("AiDocuments:CleanupBatchSize", "0")]

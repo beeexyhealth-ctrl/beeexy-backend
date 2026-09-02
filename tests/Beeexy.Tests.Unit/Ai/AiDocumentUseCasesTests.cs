@@ -3,10 +3,14 @@ using Beeexy.Application.Ai;
 using Beeexy.Application.Identity;
 using Beeexy.Domain.Ai;
 using Beeexy.Domain.Common;
+using Beeexy.Infrastructure.Ai;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Beeexy.Tests.Unit.Ai;
 
 [Trait("Category", "Phase105")]
+[Trait("Category", "Phase108")]
 public sealed class AiDocumentUseCasesTests
 {
     private static readonly DateTimeOffset Now =
@@ -220,6 +224,121 @@ public sealed class AiDocumentUseCasesTests
     }
 
     [Fact]
+    public async Task ExpiryFailure_DoesNotStarveLaterBatchesAndRecoversOnNextRun()
+    {
+        var fixture = new Fixture(options: new AiDocumentOptions(
+            AiDocumentOptions.MaximumAllowedBytes,
+            TimeSpan.FromMinutes(1),
+            2));
+        var documents = Enumerable.Range(0, 5)
+            .Select(index => fixture.AddActive(
+                Now.AddHours(-30).AddMinutes(index),
+                Now.AddHours(-6).AddMinutes(index)))
+            .ToArray();
+        fixture.Blobs.FailingKeys.Add(documents[0].StorageKey);
+
+        await Assert.ThrowsAsync<AggregateException>(() => fixture.Expire.ExecuteAsync());
+
+        Assert.Equal(AiDocumentStatus.Active, documents[0].Status);
+        Assert.All(documents[1..], document =>
+            Assert.Equal(AiDocumentStatus.Expired, document.Status));
+
+        fixture.Blobs.FailingKeys.Clear();
+        Assert.Equal(1, await fixture.Expire.ExecuteAsync());
+        Assert.All(documents, document =>
+            Assert.Equal(AiDocumentStatus.Expired, document.Status));
+    }
+
+    [Fact]
+    public async Task ExpiryWorker_ReportsSafeSuccessAndFailureWithoutSensitiveDetails()
+    {
+        var fixture = new Fixture();
+        fixture.AddActive(Now.AddHours(-25), Now.AddMinutes(-1));
+        var logger = new CaptureLogger<AiDocumentExpiryWorker>();
+        var services = new ServiceCollection();
+        services.AddSingleton(fixture.Expire);
+        await using var provider = services.BuildServiceProvider();
+        var worker = new AiDocumentExpiryWorker(
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            fixture.Options,
+            new Clock(),
+            logger);
+
+        Assert.True(await worker.RunOnceAsync(CancellationToken.None));
+        Assert.Contains(logger.Messages, message =>
+            message.Contains("removed artifact count 1", StringComparison.Ordinal));
+
+        fixture.Repository.ListFailure = new InvalidOperationException(
+            "private-patient-document-marker");
+        Assert.False(await worker.RunOnceAsync(CancellationToken.None));
+        var logs = string.Join('\n', logger.Messages);
+        Assert.Contains("InvalidOperationException", logs, StringComparison.Ordinal);
+        Assert.DoesNotContain("private-patient-document-marker", logs, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExpiryWorker_PropagatesHostCancellationWithoutLoggingFailure()
+    {
+        var fixture = new Fixture();
+        var logger = new CaptureLogger<AiDocumentExpiryWorker>();
+        var services = new ServiceCollection();
+        services.AddSingleton(fixture.Expire);
+        await using var provider = services.BuildServiceProvider();
+        var worker = new AiDocumentExpiryWorker(
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            fixture.Options,
+            new Clock(),
+            logger);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            worker.RunOnceAsync(cancellation.Token));
+        Assert.Empty(logger.Messages);
+    }
+
+    [Fact]
+    public async Task FailedRun_DoesNotBusyLoopOnOverdueFailureOrMissNextFutureDeadline()
+    {
+        var fixture = new Fixture(options: new AiDocumentOptions(
+            AiDocumentOptions.MaximumAllowedBytes,
+            TimeSpan.FromHours(1),
+            100));
+        fixture.AddActive(Now.AddHours(-25), Now.AddMinutes(-1));
+        fixture.AddActive(Now.AddHours(-23), Now.AddHours(1));
+        var services = new ServiceCollection();
+        services.AddSingleton(fixture.Expire);
+        services.AddSingleton<IAiDocumentRepository>(fixture.Repository);
+        await using var provider = services.BuildServiceProvider();
+        var worker = new AiDocumentExpiryWorker(
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            fixture.Options,
+            new Clock(),
+            new CaptureLogger<AiDocumentExpiryWorker>());
+
+        Assert.Equal(
+            TimeSpan.FromHours(1),
+            await worker.GetNextDelayAfterRunSafelyAsync(
+                previousRunSucceeded: false,
+                previousRunCutoff: Now,
+                cancellationToken: CancellationToken.None));
+
+        fixture.AddActive(Now.AddHours(-23), Now.AddMinutes(5));
+        Assert.Equal(
+            TimeSpan.FromMinutes(5),
+            await worker.GetNextDelayAfterRunSafelyAsync(
+                previousRunSucceeded: false,
+                previousRunCutoff: Now,
+                cancellationToken: CancellationToken.None));
+        Assert.Equal(
+            TimeSpan.Zero,
+            await worker.GetNextDelayAfterRunSafelyAsync(
+                previousRunSucceeded: true,
+                previousRunCutoff: Now,
+                cancellationToken: CancellationToken.None));
+    }
+
+    [Fact]
     public void OptionsEnforceExactMaximumAndSaneWorkerBounds()
     {
         _ = new AiDocumentOptions(
@@ -320,6 +439,7 @@ public sealed class AiDocumentUseCasesTests
     private sealed class BlobStore : IAiDocumentBlobStore
     {
         public Dictionary<string, byte[]> Content { get; } = [];
+        public HashSet<string> FailingKeys { get; } = [];
         public int DeleteCalls { get; private set; }
 
         public Task WritePrivateAsync(AiBlobKey key, ReadOnlyMemory<byte> content,
@@ -337,6 +457,11 @@ public sealed class AiDocumentUseCasesTests
             CancellationToken cancellationToken = default)
         {
             DeleteCalls++;
+            if (FailingKeys.Contains(key.Value))
+            {
+                throw new IOException("private-blob-path-marker");
+            }
+
             return Task.FromResult(Content.Remove(key.Value));
         }
 
@@ -348,19 +473,55 @@ public sealed class AiDocumentUseCasesTests
     {
         public List<AiUploadedDocument> Documents { get; } = [];
         public Exception? SaveFailure { get; set; }
+        public Exception? ListFailure { get; set; }
         public void Add(AiUploadedDocument document) => Documents.Add(document);
         public Task<AiUploadedDocument?> FindOwnedAsync(EntityId documentId, EntityId accountId,
             CancellationToken cancellationToken = default) => Task.FromResult(Documents
                 .SingleOrDefault(document => document.Id == documentId && document.AccountId == accountId));
-        public Task<IReadOnlyList<AiUploadedDocument>> ListExpiredAsync(DateTimeOffset now,
-            int take, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<AiUploadedDocument>>(Documents
+        public Task<IReadOnlyList<AiUploadedDocument>> ListExpiredAsync(
+            DateTimeOffset now,
+            int take, AiDocumentExpiryCursor? after = null,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ListFailure is not null
+                ? Task.FromException<IReadOnlyList<AiUploadedDocument>>(ListFailure)
+                : Task.FromResult<IReadOnlyList<AiUploadedDocument>>(Documents
                 .Where(document => document.Status == AiDocumentStatus.Active && document.ExpiresAt <= now)
-                .OrderBy(document => document.ExpiresAt).Take(take).ToArray());
-        public Task<DateTimeOffset?> GetNextExpiryAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(Documents.Where(document => document.Status == AiDocumentStatus.Active)
+                .Where(document => after is null ||
+                    document.ExpiresAt > after.ExpiresAt ||
+                    (document.ExpiresAt == after.ExpiresAt &&
+                     document.Id.Value.CompareTo(after.DocumentId.Value) > 0))
+                .OrderBy(document => document.ExpiresAt)
+                .ThenBy(document => document.Id.Value)
+                .Take(take)
+                .ToArray());
+        }
+        public Task<DateTimeOffset?> GetNextExpiryAsync(
+            DateTimeOffset? strictlyAfter = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Documents.Where(document =>
+                    document.Status == AiDocumentStatus.Active &&
+                    (!strictlyAfter.HasValue || document.ExpiresAt > strictlyAfter.Value))
                 .Select(document => (DateTimeOffset?)document.ExpiresAt).Min());
         public Task SaveChangesAsync(CancellationToken cancellationToken = default) =>
             SaveFailure is null ? Task.CompletedTask : Task.FromException(SaveFailure);
+    }
+
+    private sealed class CaptureLogger<T> : ILogger<T>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Messages.Add(formatter(state, exception));
     }
 }

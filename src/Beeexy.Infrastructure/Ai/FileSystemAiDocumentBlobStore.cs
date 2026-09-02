@@ -11,6 +11,7 @@ internal sealed class FileSystemAiDocumentBlobStore : IAiDocumentBlobStore
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
         this.rootDirectory = Path.GetFullPath(rootDirectory);
+        EnsurePrivateRoot();
     }
 
     public async Task WritePrivateAsync(
@@ -19,18 +20,25 @@ internal sealed class FileSystemAiDocumentBlobStore : IAiDocumentBlobStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(key);
-        Directory.CreateDirectory(rootDirectory);
+        EnsurePrivateRoot();
         var destination = GetPath(key);
         var temporary = Path.Combine(rootDirectory, $".{key.Value}.{Guid.NewGuid():N}.tmp");
         try
         {
-            await using (var stream = new FileStream(
-                temporary,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None,
-                64 * 1024,
-                FileOptions.Asynchronous | FileOptions.WriteThrough))
+            var streamOptions = new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.Write,
+                Share = FileShare.None,
+                BufferSize = 64 * 1024,
+                Options = FileOptions.Asynchronous | FileOptions.WriteThrough
+            };
+            if (!OperatingSystem.IsWindows())
+            {
+                streamOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            }
+
+            await using (var stream = new FileStream(temporary, streamOptions))
             {
                 await stream.WriteAsync(content, cancellationToken);
                 await stream.FlushAsync(cancellationToken);
@@ -103,6 +111,19 @@ internal sealed class FileSystemAiDocumentBlobStore : IAiDocumentBlobStore
         }
 
         return path;
+    }
+
+    private void EnsurePrivateRoot()
+    {
+        Directory.CreateDirectory(rootDirectory);
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(
+                rootDirectory,
+                UnixFileMode.UserRead |
+                UnixFileMode.UserWrite |
+                UnixFileMode.UserExecute);
+        }
     }
 
     private static bool TryParseOpaqueKey(string value)

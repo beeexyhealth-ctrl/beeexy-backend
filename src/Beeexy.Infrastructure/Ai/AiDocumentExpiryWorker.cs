@@ -16,10 +16,12 @@ internal sealed class AiDocumentExpiryWorker(
     {
         while (!stoppingToken.IsCancellationRequested)
         {
+            var runCutoff = clock.UtcNow;
             var successful = await RunOnceAsync(stoppingToken);
-            var delay = successful
-                ? await GetDeadlineAwareDelaySafelyAsync(stoppingToken)
-                : options.CleanupCadence;
+            var delay = await GetNextDelayAfterRunSafelyAsync(
+                successful,
+                runCutoff,
+                stoppingToken);
             try
             {
                 await Task.Delay(delay, stoppingToken);
@@ -36,8 +38,12 @@ internal sealed class AiDocumentExpiryWorker(
         try
         {
             await using var scope = scopeFactory.CreateAsyncScope();
-            await scope.ServiceProvider.GetRequiredService<ExpireAiDocuments>()
+            var expired = await scope.ServiceProvider.GetRequiredService<ExpireAiDocuments>()
                 .ExecuteAsync(cancellationToken);
+            logger.LogInformation(
+                "Temporary AI document cleanup completed; removed artifact count " +
+                "{RemovedArtifactCount}.",
+                expired);
             return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -55,12 +61,16 @@ internal sealed class AiDocumentExpiryWorker(
     }
 
     private async Task<TimeSpan> GetDeadlineAwareDelayAsync(
+        bool previousRunSucceeded,
+        DateTimeOffset previousRunCutoff,
         CancellationToken cancellationToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var nextExpiry = await scope.ServiceProvider
             .GetRequiredService<IAiDocumentRepository>()
-            .GetNextExpiryAsync(cancellationToken);
+            .GetNextExpiryAsync(
+                previousRunSucceeded ? null : previousRunCutoff,
+                cancellationToken);
         if (!nextExpiry.HasValue)
         {
             return options.CleanupCadence;
@@ -77,12 +87,17 @@ internal sealed class AiDocumentExpiryWorker(
             : options.CleanupCadence;
     }
 
-    private async Task<TimeSpan> GetDeadlineAwareDelaySafelyAsync(
+    internal async Task<TimeSpan> GetNextDelayAfterRunSafelyAsync(
+        bool previousRunSucceeded,
+        DateTimeOffset previousRunCutoff,
         CancellationToken cancellationToken)
     {
         try
         {
-            return await GetDeadlineAwareDelayAsync(cancellationToken);
+            return await GetDeadlineAwareDelayAsync(
+                previousRunSucceeded,
+                previousRunCutoff,
+                cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

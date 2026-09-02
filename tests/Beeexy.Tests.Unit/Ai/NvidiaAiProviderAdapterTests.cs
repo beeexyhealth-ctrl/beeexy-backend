@@ -8,6 +8,7 @@ using Beeexy.Infrastructure.Triage;
 namespace Beeexy.Tests.Unit.Ai;
 
 [Trait("Category", "Phase102Provider")]
+[Trait("Category", "Phase108")]
 public sealed class NvidiaAiProviderAdapterTests
 {
     private const string ApiKey = "phase-102-secret-key";

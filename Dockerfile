@@ -28,10 +28,12 @@ ENV ASPNETCORE_ENVIRONMENT=Production \
 
 COPY --from=build --chown=app:app /app/publish .
 
-# Beeexy's current FHIR artifact store writes here. The directory remains usable
-# without a disk, while Render can mount persistent storage at this exact path.
-RUN mkdir -p /app/private-fhir-artifacts \
-    && chown app:app /app/private-fhir-artifacts
+# Beeexy's private artifact stores write here. The FHIR directory may be backed
+# by a persistent disk; Temporary AI Documents remain subject to their fixed
+# 24-hour maximum even if their private directory is mounted persistently.
+RUN mkdir -p /app/private-fhir-artifacts /app/private-ai-documents \
+    && chown app:app /app/private-fhir-artifacts /app/private-ai-documents \
+    && chmod 700 /app/private-ai-documents
 
 USER app
 
