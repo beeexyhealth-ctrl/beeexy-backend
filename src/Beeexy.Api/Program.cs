@@ -163,6 +163,9 @@ var aiConversationOptions = new AiConversationOptions(
     builder.Configuration.GetValue(
         "Ai:Conversation:ProviderContextCharacterBudget",
         AiConversationOptions.DefaultProviderContextCharacterBudget));
+var aiDocumentOptions = StartupConfiguration.GetRequiredAiDocumentOptions(
+    builder.Configuration);
+var privateAiDocumentRoot = builder.Configuration["AiDocuments:PrivateStorageRoot"];
 
 builder.Services.AddInfrastructure(
     databaseConnectionString,
@@ -175,7 +178,9 @@ builder.Services.AddInfrastructure(
     emailChallengeSettings.EmailSender,
     preTriageCleanupOptions,
     clinicalAiProviderOptions,
-    preTriageEducationalVideoOptions);
+    preTriageEducationalVideoOptions,
+    aiDocumentOptions: aiDocumentOptions,
+    privateAiDocumentRoot: privateAiDocumentRoot);
 if (builder.Environment.IsDevelopment())
 {
     builder.Services.AddHostedService<DevelopmentDemoDefinitionsBootstrapper>();
@@ -227,6 +232,9 @@ builder.Services.AddScoped<ListAiConversations>();
 builder.Services.AddScoped<GetAiConversation>();
 builder.Services.AddScoped<SendAiConversationMessage>();
 builder.Services.AddScoped<DeleteAiConversation>();
+builder.Services.AddScoped<UploadAiDocument>();
+builder.Services.AddScoped<DeleteAiDocument>();
+builder.Services.AddScoped<ExpireAiDocuments>();
 builder.Services.AddScoped<StartPreTriage>();
 builder.Services.AddScoped<InterpretPreTriageIntake>();
 builder.Services.AddScoped<StartPreTriageFromIntake>();
@@ -391,6 +399,7 @@ app.MapBeeexyFhirExportEndpoints();
 app.MapBeeexyCareRelationshipEndpoints();
 app.MapBeeexyPreTriageEndpoints();
 app.MapBeeexyAiConversationEndpoints();
+app.MapBeeexyAiDocumentEndpoints();
 
 app.Run();
 

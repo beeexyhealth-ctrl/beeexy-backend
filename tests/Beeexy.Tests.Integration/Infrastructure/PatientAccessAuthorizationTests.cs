@@ -245,7 +245,7 @@ public sealed class PatientAccessAuthorizationTests(PostgreSqlContainerFixture p
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var paths = document.RootElement.GetProperty("paths");
 
-        Assert.Equal(46, paths.EnumerateObject().Count());
+        Assert.Equal(48, paths.EnumerateObject().Count());
         Assert.False(paths.TryGetProperty("/api/v1/patient-access", out _));
         var patientDetail = paths.GetProperty("/api/v1/patients/{patientId}");
         Assert.True(patientDetail.TryGetProperty("get", out _));

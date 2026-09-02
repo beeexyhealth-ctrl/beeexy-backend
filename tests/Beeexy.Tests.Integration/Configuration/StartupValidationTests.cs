@@ -4,6 +4,7 @@ using Beeexy.Infrastructure.Identity;
 using Beeexy.Infrastructure.Triage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Beeexy.Application.Ai;
 
 namespace Beeexy.Tests.Integration.Configuration;
 
@@ -209,6 +210,34 @@ public sealed class StartupValidationTests(PostgreSqlContainerFixture postgres)
         var exception = Assert.ThrowsAny<Exception>(() => factory.CreateApiClient());
 
         Assert.Contains(setting, exception.ToString());
+        Assert.DoesNotContain(postgres.ConnectionString, exception.ToString());
+    }
+
+    [Fact]
+    public void AiDocumentConfiguration_RegistersExactLimitAndExpiryWorker()
+    {
+        using var factory = new BeeexyApiFactory(postgres.ConnectionString);
+        using var client = factory.CreateApiClient();
+        var options = factory.Services.GetRequiredService<AiDocumentOptions>();
+        Assert.Equal(26_214_400, options.MaximumBytes);
+        Assert.Equal(TimeSpan.FromSeconds(60), options.CleanupCadence);
+        Assert.Equal(100, options.CleanupBatchSize);
+        Assert.Contains(
+            factory.Services.GetServices<IHostedService>(),
+            service => service.GetType().Name == "AiDocumentExpiryWorker");
+    }
+
+    [Theory]
+    [InlineData("AiDocuments:MaximumBytes", "26214401")]
+    [InlineData("AiDocuments:CleanupCadenceSeconds", "0")]
+    [InlineData("AiDocuments:CleanupBatchSize", "0")]
+    public void InvalidAiDocumentConfiguration_FailsFast(string setting, string value)
+    {
+        using var factory = new BeeexyApiFactory(
+            postgres.ConnectionString,
+            configurationOverrides: new Dictionary<string, string?> { [setting] = value });
+        var exception = Assert.ThrowsAny<Exception>(() => factory.CreateApiClient());
+        Assert.Contains("AiDocuments", exception.ToString());
         Assert.DoesNotContain(postgres.ConnectionString, exception.ToString());
     }
 }

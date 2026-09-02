@@ -52,7 +52,9 @@ public static class DependencyInjection
         PreTriageCleanupOptions preTriageCleanupOptions,
         ClinicalAiProviderOptions clinicalAiProviderOptions,
         PreTriageEducationalVideoOptions preTriageEducationalVideoOptions,
-        string? privateFhirArtifactRoot = null)
+        string? privateFhirArtifactRoot = null,
+        AiDocumentOptions? aiDocumentOptions = null,
+        string? privateAiDocumentRoot = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
         ArgumentNullException.ThrowIfNull(emailChallengePolicy);
@@ -170,6 +172,19 @@ public static class DependencyInjection
         services.AddScoped<IAiSafetyPersistence, AiSafetyPersistence>();
         services.AddSingleton<IAiSafetyTelemetry, AiSafetyTelemetry>();
         services.AddScoped<ExecuteSafeAiAnalysis>();
+        var documentOptions = aiDocumentOptions ?? new AiDocumentOptions(
+            AiDocumentOptions.MaximumAllowedBytes,
+            TimeSpan.FromMinutes(1),
+            100);
+        services.AddSingleton(documentOptions);
+        services.AddSingleton<IAiDocumentSafetyScanner, BaselineAiDocumentSafetyScanner>();
+        services.AddSingleton<IAiDocumentTextExtractor, PdfTxtAiDocumentTextExtractor>();
+        services.AddSingleton<IAiDocumentBlobStore>(_ => new FileSystemAiDocumentBlobStore(
+            string.IsNullOrWhiteSpace(privateAiDocumentRoot)
+                ? Path.Combine(AppContext.BaseDirectory, "private-ai-documents")
+                : privateAiDocumentRoot));
+        services.AddScoped<IAiDocumentRepository, AiDocumentRepository>();
+        services.AddHostedService<AiDocumentExpiryWorker>();
         services.AddSingleton<IClinicalSafetyPolicy, ClinicalSafetyPolicy>();
         services.AddSingleton(preTriageEducationalVideoOptions);
         services.AddSingleton<IPreTriageEducationalVideoCatalog,

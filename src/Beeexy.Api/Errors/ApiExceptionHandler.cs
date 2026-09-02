@@ -228,6 +228,54 @@ internal sealed class ApiExceptionHandler(
             return problem;
         }
 
+        if (exception is AiDocumentTooLargeException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status413PayloadTooLarge,
+                Title = "AI document is too large.",
+                Detail = "The document must not exceed 26,214,400 bytes."
+            };
+            problem.Extensions["errorCode"] = "ai.document.too_large";
+            return problem;
+        }
+
+        if (exception is AiDocumentUnsupportedMediaException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status415UnsupportedMediaType,
+                Title = "AI document type is unsupported.",
+                Detail = "Choose a valid text-native PDF or UTF-8 TXT document."
+            };
+            problem.Extensions["errorCode"] = "ai.document.unsupported_media";
+            return problem;
+        }
+
+        if (exception is AiDocumentValidationException documentValidation)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status422UnprocessableEntity,
+                Title = "AI document validation failed.",
+                Detail = documentValidation.Message
+            };
+            problem.Extensions["errorCode"] = documentValidation.Code;
+            return problem;
+        }
+
+        if (exception is AiDocumentNotFoundException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "AI document not found.",
+                Detail = "The requested AI document could not be found."
+            };
+            problem.Extensions["errorCode"] = "ai.document.not_found";
+            return problem;
+        }
+
         if (exception is AppointmentNotFoundException)
         {
             var problem = new ProblemDetails
@@ -467,11 +515,11 @@ internal sealed class ApiExceptionHandler(
             };
         }
 
-        if (exception is BadHttpRequestException)
+        if (exception is BadHttpRequestException badRequest)
         {
             return new ProblemDetails
             {
-                Status = StatusCodes.Status400BadRequest,
+                Status = badRequest.StatusCode,
                 Title = "The request is malformed."
             };
         }

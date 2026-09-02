@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(46, paths.EnumerateObject().Count());
+        Assert.Equal(48, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         var aiConversationsPath = paths.GetProperty("/api/v1/ai/conversations");
@@ -32,6 +32,12 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var sendAiConversationMessageOperation = paths
             .GetProperty("/api/v1/ai/conversations/{id}/messages")
             .GetProperty("post");
+        var uploadAiDocumentOperation = paths
+            .GetProperty("/api/v1/ai/documents")
+            .GetProperty("post");
+        var deleteAiDocumentOperation = paths
+            .GetProperty("/api/v1/ai/documents/{id}")
+            .GetProperty("delete");
         AssertResponseCodes(
             createAiConversationOperation,
             "201", "400", "401", "404", "422", "500");
@@ -41,13 +47,19 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         AssertResponseCodes(
             sendAiConversationMessageOperation,
             "202", "400", "401", "404", "409", "422", "500");
+        AssertResponseCodes(
+            uploadAiDocumentOperation,
+            "201", "400", "401", "413", "415", "422", "500");
+        AssertResponseCodes(deleteAiDocumentOperation, "204", "401", "404", "500");
         foreach (var operation in new[]
                  {
                      createAiConversationOperation,
                      listAiConversationsOperation,
                      getAiConversationOperation,
                      deleteAiConversationOperation,
-                     sendAiConversationMessageOperation
+                     sendAiConversationMessageOperation,
+                     uploadAiDocumentOperation,
+                     deleteAiDocumentOperation
                  })
         {
             var security = operation.GetProperty("security");

@@ -8,6 +8,7 @@ using Beeexy.Domain.Patients;
 using Beeexy.Infrastructure.Identity;
 using Beeexy.Infrastructure.Persistence;
 using Beeexy.Infrastructure.Triage;
+using Beeexy.Application.Ai;
 using Microsoft.Extensions.Hosting;
 
 namespace Beeexy.Api.Configuration;
@@ -24,6 +25,7 @@ internal static class StartupConfiguration
     private const string GoogleSectionKey = "Authentication:Google";
     private const string PreTriageCleanupSectionKey = "PreTriageCleanup";
     private const string ClinicalAiSectionKey = "ClinicalAi";
+    private const string AiDocumentsSectionKey = "AiDocuments";
     private const string PreTriageEducationalVideosSectionKey =
         "PreTriageEducationalVideos";
     private const string PrivateAccessSectionKey = "PrivateAccess";
@@ -479,6 +481,30 @@ internal static class StartupConfiguration
             section["BaseUrl"],
             section.GetValue<int?>("TimeoutSeconds"),
             section.GetValue<bool?>("UseJsonObjectResponseFormat"));
+    }
+
+    public static AiDocumentOptions GetRequiredAiDocumentOptions(
+        IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        var section = configuration.GetSection(AiDocumentsSectionKey);
+        var maximumBytes = section.GetValue<long?>("MaximumBytes")
+            ?? AiDocumentOptions.MaximumAllowedBytes;
+        var cadenceSeconds = section.GetValue<int?>("CleanupCadenceSeconds") ?? 60;
+        var batchSize = section.GetValue<int?>("CleanupBatchSize") ?? 100;
+        try
+        {
+            return new AiDocumentOptions(
+                maximumBytes,
+                TimeSpan.FromSeconds(cadenceSeconds),
+                batchSize);
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            throw new InvalidOperationException(
+                $"Configuration section '{AiDocumentsSectionKey}' is invalid.",
+                exception);
+        }
     }
 
     public static PreTriageEducationalVideoOptions GetRequiredPreTriageEducationalVideoOptions(
