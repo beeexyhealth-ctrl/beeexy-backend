@@ -318,7 +318,7 @@ public sealed class AppointmentRescheduleEndpointTests(
             .GetProperty("/api/v1/appointments/{id}/reschedule")
             .GetProperty("post");
 
-        Assert.Equal(48, paths.EnumerateObject().Count());
+        Assert.Equal(50, paths.EnumerateObject().Count());
         Assert.True(operation.TryGetProperty("security", out _));
         Assert.Equal(
             ["200", "400", "401", "404", "409", "422", "500"],

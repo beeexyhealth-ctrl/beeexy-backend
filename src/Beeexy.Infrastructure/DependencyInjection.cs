@@ -162,12 +162,16 @@ public static class DependencyInjection
         services.AddSingleton<IAiPromptResolver, AiPromptResolver>();
         services.AddSingleton<IAiStructuredResultValidator, AiStructuredResultValidator>();
         services.AddSingleton<IAiPromptContract, AiConversationPromptV1>();
+        services.AddSingleton<IAiPromptContract, SecondOpinionPromptV1>();
         services.AddSingleton<IAiStructuredResultSchema, AiConversationResultSchemaV1>();
+        services.AddSingleton<IAiStructuredResultSchema, SecondOpinionResultSchemaV1>();
         services.AddScoped<IAiConversationRepository, AiConversationRepository>();
+        services.AddScoped<ISecondOpinionRepository, SecondOpinionRepository>();
         services.AddScoped<IAiExecutionRepository, AiExecutionRepository>();
         services.AddSingleton<IAiExecutionTelemetry, AiExecutionTelemetry>();
         services.AddScoped<ExecuteAiAnalysis>();
         services.AddSingleton(AiSafetyProductContent.Current);
+        services.AddSingleton(SecondOpinionProductContent.Current);
         services.AddSingleton<IAiSafetyValidator, BeeexyAiSafetyValidator>();
         services.AddScoped<IAiSafetyPersistence, AiSafetyPersistence>();
         services.AddSingleton<IAiSafetyTelemetry, AiSafetyTelemetry>();

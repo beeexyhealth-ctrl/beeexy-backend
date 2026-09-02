@@ -17,6 +17,24 @@ public sealed class ExecuteSafeAiAnalysis(
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(command.Execution);
+        if (command.ApprovedDisclaimer is null !=
+            (command.ApprovedDisclaimerVersion is null))
+        {
+            throw new ArgumentException(
+                "A workload disclaimer and its version must be supplied together.",
+                nameof(command));
+        }
+
+        if (command.ApprovedDisclaimer is not null)
+        {
+            AiContractGuard.Content(
+                command.ApprovedDisclaimer,
+                nameof(command.ApprovedDisclaimer));
+            AiContractGuard.Identifier(
+                command.ApprovedDisclaimerVersion,
+                nameof(command.ApprovedDisclaimerVersion));
+        }
+
         var technical = await executionPipeline.ExecuteAsync(
             command.Execution,
             cancellationToken);
@@ -41,6 +59,9 @@ public sealed class ExecuteSafeAiAnalysis(
         var validatedAt = clock.UtcNow;
         if (decision.IsApproved)
         {
+            var disclaimer = command.ApprovedDisclaimer ?? productContent.Disclaimer;
+            var disclaimerVersion = command.ApprovedDisclaimerVersion ??
+                productContent.DisclaimerVersion;
             var resultSchemaVersion = AiContractGuard.Identifier(
                 $"{command.Execution.ExpectedResult.SchemaIdentifier}@" +
                 command.Execution.ExpectedResult.Version,
@@ -57,7 +78,7 @@ public sealed class ExecuteSafeAiAnalysis(
                 snapshot.Id,
                 decision.PolicyVersion,
                 validatedAt,
-                productContent.DisclaimerVersion);
+                disclaimerVersion);
             persistence.AddApproved(snapshot, validation);
             await persistence.SaveChangesAsync(CancellationToken.None);
             telemetry.DecisionPersisted(validation);
@@ -67,8 +88,8 @@ public sealed class ExecuteSafeAiAnalysis(
                 decision.Category,
                 true,
                 technical.StructurallyValidatedContent,
-                productContent.Disclaimer,
-                productContent.DisclaimerVersion,
+                disclaimer,
+                disclaimerVersion,
                 validation.Id,
                 snapshot.Id);
         }
@@ -95,7 +116,7 @@ public sealed class ExecuteSafeAiAnalysis(
             decision.Category,
             false,
             fallback,
-            productContent.Disclaimer,
+            command.ApprovedDisclaimer ?? productContent.Disclaimer,
             fallbackVersion,
             rejected.Id,
             null);

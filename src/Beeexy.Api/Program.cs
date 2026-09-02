@@ -227,6 +227,7 @@ builder.Services.AddSingleton(aiConversationOptions);
 builder.Services.AddSingleton<AiConversationRequestPolicy>();
 builder.Services.AddSingleton<AiConversationContextBuilder>();
 builder.Services.AddScoped<IAiPatientContextAssembler, AiPatientContextAssembler>();
+builder.Services.AddScoped<ISecondOpinionInputAssembler, SecondOpinionInputAssembler>();
 builder.Services.AddScoped<CreateAiConversation>();
 builder.Services.AddScoped<ListAiConversations>();
 builder.Services.AddScoped<GetAiConversation>();
@@ -235,6 +236,8 @@ builder.Services.AddScoped<DeleteAiConversation>();
 builder.Services.AddScoped<UploadAiDocument>();
 builder.Services.AddScoped<DeleteAiDocument>();
 builder.Services.AddScoped<ExpireAiDocuments>();
+builder.Services.AddScoped<RequestSecondOpinion>();
+builder.Services.AddScoped<GetSecondOpinion>();
 builder.Services.AddScoped<StartPreTriage>();
 builder.Services.AddScoped<InterpretPreTriageIntake>();
 builder.Services.AddScoped<StartPreTriageFromIntake>();
@@ -400,6 +403,7 @@ app.MapBeeexyCareRelationshipEndpoints();
 app.MapBeeexyPreTriageEndpoints();
 app.MapBeeexyAiConversationEndpoints();
 app.MapBeeexyAiDocumentEndpoints();
+app.MapBeeexySecondOpinionEndpoints();
 
 app.Run();
 

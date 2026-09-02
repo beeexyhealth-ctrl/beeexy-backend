@@ -120,6 +120,17 @@ public sealed partial class BeeexyAiSafetyValidator(AiSafetyProductContent conte
                     AiSafetyReasonCode.UnsafeCareInstruction);
             }
 
+            if (string.Equals(
+                    input.WorkloadIdentifier,
+                    AiWorkloadIdentifiers.SecondOpinion,
+                    StringComparison.Ordinal) &&
+                NewStudyRecommendationRegex().IsMatch(text))
+            {
+                return Rejected(
+                    AiSafetyCategory.UnsafeMedicalAdvice,
+                    AiSafetyReasonCode.NewStudyRecommendation);
+            }
+
             return AiSafetyDecision.Approved(content.PolicyVersion);
         }
         catch (JsonException)
@@ -336,4 +347,9 @@ public sealed partial class BeeexyAiSafetyValidator(AiSafetyProductContent conte
         @"\b(?:treat\s+(?:this|it)\s+at\s+home|do\s+not\s+seek\s+medical\s+care|ignore\s+(?:these|the|your)\s+symptoms|there\s+is\s+no\s+need\s+to\s+see\s+(?:a\s+)?doctor|you\s+must\s+follow\s+this\s+treatment|trata(?:lo)?\s+en\s+casa|no\s+busques\s+atenci[oó]n\s+m[eé]dica|ignora\s+(?:estos|tus)\s+s[ií]ntomas)\b",
         RegexOptions.CultureInvariant)]
     private static partial Regex UnsafeCareInstructionRegex();
+
+    [GeneratedRegex(
+        @"\b(?:(?:you\s+should|i\s+(?:recommend|suggest)(?:\s+that\s+you)?|ask\s+(?:your\s+)?doctor\s+to|get|obtain|schedule|request)\s+(?:(?:get|have|undergo|order|schedule|request)\s+)?(?:a\s+|an\s+|the\s+)?(?:new\s+)?(?:test|exam|study|scan|x-ray|xray|mri|ct\s+scan|ultrasound|blood\s+(?:work|test)|laboratory\s+test)|(?:debes|recomiendo|sugiero)\s+(?:hacerte|solicitar|programar)?\s*(?:un\s+|una\s+)?(?:nuevo\s+|nueva\s+)?(?:examen|estudio|prueba|tomograf[iÃ­]a|resonancia|ecograf[iÃ­]a|radiograf[iÃ­]a))\b",
+        RegexOptions.CultureInvariant)]
+    private static partial Regex NewStudyRecommendationRegex();
 }

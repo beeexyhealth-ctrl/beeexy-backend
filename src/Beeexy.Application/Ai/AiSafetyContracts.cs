@@ -16,6 +16,7 @@ public enum AiSafetyReasonCode
     AuthoritativeUrgency,
     EmergencyInstruction,
     DiseaseProbability,
+    NewStudyRecommendation,
     UnsupportedOutput,
     MalformedOutput
 }
@@ -142,7 +143,10 @@ public sealed record AiSafetyProductContent
         "estar ante una emergencia o tus síntomas son graves, busca atención médica de inmediato.");
 }
 
-public sealed record ExecuteSafeAiAnalysisCommand(ExecuteAiAnalysisCommand Execution);
+public sealed record ExecuteSafeAiAnalysisCommand(
+    ExecuteAiAnalysisCommand Execution,
+    string? ApprovedDisclaimer = null,
+    string? ApprovedDisclaimerVersion = null);
 
 public sealed record AiSafeAnalysisOutcome(
     EntityId ExecutionId,

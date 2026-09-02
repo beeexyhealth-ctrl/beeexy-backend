@@ -228,6 +228,18 @@ internal sealed class ApiExceptionHandler(
             return problem;
         }
 
+        if (exception is SecondOpinionNotFoundException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Second Opinion not found.",
+                Detail = "The requested Second Opinion could not be found."
+            };
+            problem.Extensions["errorCode"] = "ai.second_opinion.not_found";
+            return problem;
+        }
+
         if (exception is AiDocumentTooLargeException)
         {
             var problem = new ProblemDetails

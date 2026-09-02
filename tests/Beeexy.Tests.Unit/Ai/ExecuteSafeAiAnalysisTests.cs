@@ -121,6 +121,41 @@ public sealed class ExecuteSafeAiAnalysisTests
     }
 
     [Fact]
+    public async Task WorkloadDisclaimerOverride_IsPersistedForApprovedSnapshot()
+    {
+        var harness = Harness.Response(Json("Possible considerations include hydration."));
+        var command = Command() with
+        {
+            ApprovedDisclaimer = SecondOpinionProductContent.Disclaimer,
+            ApprovedDisclaimerVersion = SecondOpinionProductContent.DisclaimerVersion
+        };
+
+        var outcome = await harness.Subject.ExecuteAsync(command);
+
+        Assert.Equal(SecondOpinionProductContent.Disclaimer, outcome.Disclaimer);
+        Assert.Equal(SecondOpinionProductContent.DisclaimerVersion,
+            outcome.ProductContentVersion);
+        Assert.Equal(SecondOpinionProductContent.DisclaimerVersion,
+            harness.Persistence.Validation!.ProductContentVersion);
+    }
+
+    [Fact]
+    public async Task IncompleteWorkloadDisclaimerOverride_IsRejectedBeforeProviderCall()
+    {
+        var harness = Harness.Response(Json("Educational health information."));
+        var command = Command() with
+        {
+            ApprovedDisclaimer = SecondOpinionProductContent.Disclaimer
+        };
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            harness.Subject.ExecuteAsync(command));
+
+        Assert.Equal(0, harness.Provider.CallCount);
+        Assert.Null(harness.ExecutionRepository.Execution);
+    }
+
+    [Fact]
     public void NormalOutcomeAndPersistenceExposeNoRestrictedAuditReadOperation()
     {
         Assert.DoesNotContain(typeof(AiSafeAnalysisOutcome).GetProperties(), property =>

@@ -20,7 +20,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(48, paths.EnumerateObject().Count());
+        Assert.Equal(50, paths.EnumerateObject().Count());
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         var aiConversationsPath = paths.GetProperty("/api/v1/ai/conversations");
@@ -38,6 +38,12 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var deleteAiDocumentOperation = paths
             .GetProperty("/api/v1/ai/documents/{id}")
             .GetProperty("delete");
+        var requestSecondOpinionOperation = paths
+            .GetProperty("/api/v1/ai/second-opinions")
+            .GetProperty("post");
+        var getSecondOpinionOperation = paths
+            .GetProperty("/api/v1/ai/second-opinions/{id}")
+            .GetProperty("get");
         AssertResponseCodes(
             createAiConversationOperation,
             "201", "400", "401", "404", "422", "500");
@@ -51,6 +57,10 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             uploadAiDocumentOperation,
             "201", "400", "401", "413", "415", "422", "500");
         AssertResponseCodes(deleteAiDocumentOperation, "204", "401", "404", "500");
+        AssertResponseCodes(
+            requestSecondOpinionOperation,
+            "202", "400", "401", "404", "422", "500");
+        AssertResponseCodes(getSecondOpinionOperation, "200", "401", "404", "500");
         foreach (var operation in new[]
                  {
                      createAiConversationOperation,
@@ -59,7 +69,9 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
                      deleteAiConversationOperation,
                      sendAiConversationMessageOperation,
                      uploadAiDocumentOperation,
-                     deleteAiDocumentOperation
+                     deleteAiDocumentOperation,
+                     requestSecondOpinionOperation,
+                     getSecondOpinionOperation
                  })
         {
             var security = operation.GetProperty("security");
@@ -84,6 +96,9 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.DoesNotContain(
             paths.EnumerateObject(),
             path => path.Name.Contains("generator", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            paths.EnumerateObject(),
+            path => path.Name.Contains("regenerate", StringComparison.OrdinalIgnoreCase));
         Assert.True(paths
             .GetProperty("/api/v1/auth/email/challenges")
             .TryGetProperty("post", out _));

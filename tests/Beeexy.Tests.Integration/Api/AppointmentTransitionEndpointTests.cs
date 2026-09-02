@@ -208,7 +208,7 @@ public sealed class AppointmentTransitionEndpointTests(
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var paths = document.RootElement.GetProperty("paths");
 
-        Assert.Equal(48, paths.EnumerateObject().Count());
+        Assert.Equal(50, paths.EnumerateObject().Count());
         foreach (var action in new[] { "confirm", "reject" })
         {
             var operation = paths
