@@ -75,7 +75,7 @@ public sealed partial class AiConversationRequestPolicy
     private static partial Regex JailbreakRegex();
 
     [GeneratedRegex(
-        @"\b(?:health|healthy|medical|medicine|medication|drug|doctor|physician|clinician|nurse|hospital|clinic|appointment|symptom|pain|ache|fever|cough|rash|nausea|vomit|dizz|fatigue|headache|migraine|blood|heart|lung|kidney|liver|stomach|skin|infection|disease|condition|diagnos|treatment|therapy|surgery|vaccine|vitamin|nutrition|diet|exercise|sleep|stress|anxiety|depression|pregnan|diabetes|cancer|hypertension|cholesterol|allerg|asthma|injury|wound|swelling|hydrate|hydration|term|questions?\s+(?:for|to\s+ask)|salud|m[eé]dic(?:o|a|os|as)?|medicamento|doctor|s[ií]ntoma|dolor|fiebre|tos|mareo|cansancio|enfermedad|nutrici[oó]n|embarazo|t[eé]rmino)\b",
+        @"\b(?:health|healthy|medical|medicine|medication|drug|doctor|physician|clinician|nurse|hospital|clinic|appointment|symptom|pain|ache|fever|cough|rash|nausea|vomit|dizz|fatigue|headaches?|migraine|blood|heart|lung|kidney|liver|stomach|skin|infection|disease|condition|diagnos|treatment|therapy|surgery|vaccine|vitamin|nutrition|diet|exercise|sleep|stress|anxiety|depression|pregnan|diabetes|cancer|hypertension|cholesterol|allerg|asthma|injury|wound|swelling|hydrate|hydration|term|questions?\s+(?:for|to\s+ask)|salud|m[eé]dic(?:o|a|os|as)?|medicamento|doctor|s[ií]ntoma|dolor|fiebre|tos|mareo|cansancio|enfermedad|nutrici[oó]n|embarazo|t[eé]rmino)\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex HealthTopicRegex();
 }

@@ -34,6 +34,7 @@ public sealed class AiConversationRequestPolicyTests
     [Theory]
     [InlineData("What does hypertension mean?")]
     [InlineData("I have a headache and would like general health information.")]
+    [InlineData("What are some common causes of headaches?")]
     [InlineData("Help me prepare questions for my physician appointment.")]
     [InlineData("¿Qué significa este término médico?")]
     public void LegitimateHealthRequests_AreAccepted(string message) =>
