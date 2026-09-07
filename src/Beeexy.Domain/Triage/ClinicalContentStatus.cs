@@ -4,7 +4,8 @@ public enum ClinicalContentSource
 {
     LegacyUnspecified,
     ReferencePlatformDerived,
-    ProductDemoDefined
+    ProductDemoDefined,
+    MedicalTeamProvided
 }
 
 public enum ClinicalReviewStatus
@@ -40,4 +41,9 @@ public sealed record ClinicalContentStatus(
         ClinicalContentSource.ProductDemoDefined,
         ClinicalReviewStatus.NotApplicable,
         ClinicalApprovalStatus.NotClinicallyApproved);
+
+    public static ClinicalContentStatus MedicalTeamApproved { get; } = new(
+        ClinicalContentSource.MedicalTeamProvided,
+        ClinicalReviewStatus.Reviewed,
+        ClinicalApprovalStatus.Approved);
 }

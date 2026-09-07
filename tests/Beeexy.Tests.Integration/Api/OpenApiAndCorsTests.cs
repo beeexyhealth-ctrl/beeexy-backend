@@ -9,6 +9,7 @@ namespace Beeexy.Tests.Integration.Api;
 public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
+    [Trait("Category", "Phase91")]
     public async Task OpenApi_InDevelopment_IncludesHealthAndEmailAuthenticationEndpoints()
     {
         using var factory = new BeeexyApiFactory(postgres.ConnectionString);
@@ -21,6 +22,10 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
         Assert.Equal(51, paths.EnumerateObject().Count());
+        Assert.DoesNotContain(paths.EnumerateObject(), path =>
+            path.Name.Contains("symptom-diary", StringComparison.OrdinalIgnoreCase) ||
+            path.Name.Contains("check-ins", StringComparison.OrdinalIgnoreCase) ||
+            path.Name.Contains("care-guide", StringComparison.OrdinalIgnoreCase));
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/health/ready").TryGetProperty("get", out _));
         var aiConversationsPath = paths.GetProperty("/api/v1/ai/conversations");

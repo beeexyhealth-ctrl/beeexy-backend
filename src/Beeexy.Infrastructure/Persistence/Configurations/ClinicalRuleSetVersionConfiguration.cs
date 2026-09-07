@@ -31,7 +31,7 @@ internal sealed class ClinicalRuleSetVersionConfiguration
                     "ck_clinical_rule_set_versions_content_source",
                     "clinical_content_source IN " +
                     "('LEGACY_UNSPECIFIED', 'REFERENCE_PLATFORM_DERIVED', " +
-                    "'PRODUCT_DEMO_DEFINED')");
+                    "'PRODUCT_DEMO_DEFINED', 'MEDICAL_TEAM_PROVIDED')");
                 table.HasCheckConstraint(
                     "ck_clinical_rule_set_versions_review_status",
                     "clinical_review_status IN " +

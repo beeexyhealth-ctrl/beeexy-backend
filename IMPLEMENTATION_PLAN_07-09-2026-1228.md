@@ -15,10 +15,12 @@ The prototype is reference material only. Its percentages, alerts, timers, lists
 
 Andrea's FHIR Markdown materials are now present under `Backend/docs/fhir/`: `beeexy-coleccion-recursos.md`, `beeexy-provenance-device-ejemplo.md`, and `beeexy-riskassessment-ejemplo.md`. These files are the source of truth for Phase 6's exact FHIR mappings and requirements. Requirements not specified by those files remain explicit TBD items and must not be invented.
 
+Andrea's approved Phase 9 direction supersedes the earlier follow-up evaluator/Care Guide/reminder design: Phase 9 is a voluntary symptom diary with separately presented reviewed warning-sign information and no clinical interpretation. The required `symptoms.md` content artifact is not currently present in the backend workspace or Git history; Phase 9.3 must read it verbatim after it is provided and must not reconstruct its questions, options, or warning signs from other sources.
+
 ## Delivery priorities
 
 - **MVP core:** Phases 1, 2, 4-8, 11, 12, and 14.
-- **MVP should-have:** Phases 9 and 10 when their approved product/clinical inputs are available.
+- **MVP should-have:** Phase 9 through the staged implementation defined below; its content-neutral 9.1-9.2 foundations are ready while exact source import starts only after `symptoms.md` is present. Phase 10 is complete.
 - **Conditional MVP:** Phase 3 (My Circle and Managed Patient Profiles), because caregiver/dependent workflows require additional authorization, consent, minor/adult, and legal decisions and are not required for the core MVP/demo; and Phase 13 (Visit Recording), because it is valuable but high risk.
 - **Post-MVP:** Phase 15 and every capability explicitly deferred within earlier phases.
 
@@ -1499,95 +1501,368 @@ No FHIR Appointment is generated or exported in Phase 8, and scheduling never im
 
 ---
 
-# Phase 9 — Longitudinal Symptom Follow-Up and Care Guide
+# Phase 9 — Longitudinal Symptom Diary and Reviewed Symptom Information
 
-**Priority:** MVP SHOULD-HAVE; CLINICAL INPUT BLOCKED
+**Priority:** MVP SHOULD-HAVE
+**Status:** IN PROGRESS
+**Clinical/product direction:** APPROVED FOR PLANNING — Phase 9 is a voluntary symptom diary and static reviewed-information capability, not a clinical assessment, recommendation, escalation, or reminder engine.
 
 ## 1. Objective
 
-Retain repeated check-ins and the exact recommendation shown at each moment, using only approved clinical rules and reviewed Care Guide templates.
+Allow a bearer-authenticated patient or currently authorized manager to voluntarily record repeated, immutable symptom diary entries against an eligible completed patient-owned Pre-Triage episode; preserve the exact submitted values and the exact reviewed content/provenance used for each entry; and return the entries in deterministic chronological order. Phase 9 may separately present versioned, medically reviewed general warning-sign information. It never interprets an answer or a sequence of entries as improvement, worsening, severity, risk, a detected red flag, or a reason for personalized action.
 
 ## 2. Scope
 
-- Multiple check-ins per Pre-Triage episode.
-- Deterministic worsening/red-flag evaluation.
-- Recommendation snapshots and reminder intent.
-- Reviewed Care Guide template selection/display.
+- Record zero or more patient-initiated symptom diary entries for an eligible completed `PreTriageEpisode`; there is no mandatory cadence, due time, or automatic next entry.
+- Pin the episode's symptom/pathway from its frozen Phase 4 questionnaire version. A request cannot select or change the pathway.
+- Present and validate only the exact questions, answer shapes, and answer options contained in an active, reviewed, approved, immutable Phase 9 package for that pathway.
+- Preserve each submitted answer losslessly, together with the exact package, question-set, reviewed symptom-information version, content hash, and source/review/approval provenance.
+- Retain multiple entries and return them oldest-first by server `createdAt`, then UUID, with stable cursor pagination.
+- Present the package's reviewed general warning-sign list as informational content separate from answers. No answer-to-warning-sign mapping exists.
+- Reuse Phase 3 patient authorization, concealed-resource behavior, active managed-patient relationship checks, and write-time relationship locking.
+- Reuse the established immutable code/version/hash/import/approval/activation pattern, with truthful medical-team provenance.
+- Keep the original Pre-Triage session, episode, questionnaire/rule-set versions, neutral assessment, result, and Clinical History projection unchanged.
 
 ## 3. Explicitly Out of Scope
 
-- Invented reminder/escalation rules, AI-generated care instructions, and routine/task completion tracking.
+- Determining or stating that symptoms are improving, worsening, stable, severe, urgent, or otherwise clinically classified.
+- Scores, risk bands, trends with clinical meaning, deterministic clinical thresholds, diagnoses, urgency, disposition, or a new `ClinicalAssessment`.
+- Inferring, detecting, matching, or returning that an answer or entry constitutes a red flag. Warning signs are static informational content only.
+- Personalized medical advice, a patient-specific action, treatment, prescription, emergency instruction, care recommendation, or dynamic selection of guidance from answers.
+- Automatic escalation, clinician notification, appointment creation, scheduled reassessment, reminder intent, follow-up interval, due date, or mandatory check-in cadence.
+- AI/LLM interpretation, summarization into clinical conclusions, advice generation, warning-sign generation, or any Phase 10 dependency.
+- Branching logic inferred from Andrea's material, answer-to-warning mappings, or rules borrowed from the Phase 4 detailed abdominal package.
+- Anonymous/capability-only diary access, edits/deletes/amendments, routine/task completion, a clinic portal, frontend work, or a content-administration API.
+- Activating `CHEST_PAIN` as a Phase 4 Pre-Triage pathway.
+- Projecting diary entries into Phase 5 Clinical History, adding Phase 6 FHIR mappings, or emitting Phase 12 notification intents.
 
 ## 4. Domain Model
 
-- Entities: `SymptomCheckIn`, `FollowUpAssessment`, `CareGuideTemplateVersion`, `CareGuideSnapshot`, `ReminderIntent`.
-- Relationships: check-in and guide link to patient/Pre-Triage/rule/template version.
-- Invariants: all check-ins/recommendations retained; only approved rule/template versions display; routines are visual-only.
+- Retain and reframe `SymptomCheckIn` as the immutable diary-entry aggregate. It records the eligible `PreTriageEpisode`, exact `SymptomDiaryPackageVersion`, submitting Account for audit provenance, server creation time, UUID idempotency key, canonical request hash, and ordered immutable answers. It contains no assessment or recommendation field.
+- Add `SymptomCheckInAnswer` for the exact submitted JSON value, question identity, source order, and recorded time. Structural validation may confirm a value matches its reviewed question definition; it must not assign medical meaning.
+- Replace the old Care Guide concepts with `SymptomDiaryPackageVersion`, `SymptomDiaryQuestion`, `SymptomDiaryQuestionOption`, and `SymptomWarningSign`, or equivalent names preserving these semantics. One immutable package identifies both an exact question-set code/version and an exact reviewed symptom-information code/version so the two cannot be mixed accidentally. A question retains its stable code, exact prompt, source order, only source-approved required/optional semantics, and canonical answer shape; an option retains its exact value/display text and source order.
+- A package records stable package/question-set/information codes and versions, pathway, canonical SHA-256 content hash, source reference, import time, review status, approval status/time, and activation time using the existing `ClinicalContentStatus` semantics. Add only the truthful `MEDICAL_TEAM_PROVIDED` source value required for Andrea's material; do not relabel it as reference-platform-derived or product-demo-defined.
+- `SymptomWarningSign` is ordered display text with a stable technical identity. It has no condition, operator, threshold, linked answer option, priority, score, action, or executable rule.
+- Remove `FollowUpAssessment` and `ReminderIntent`. Do not rename either into a hidden evaluation or scheduling concept.
+- Remove `CareGuideTemplateVersion` and `CareGuideSnapshot`. An immutable package reference on each check-in preserves the exact reviewed question and informational content without copying a personalized recommendation snapshot.
+- Invariants: entries and package versions are append-only; same code/version with different content is rejected; display/entry creation requires `Reviewed` + `Approved` content with valid approval/activation provenance; every answer belongs to the pinned package; the package pathway equals the frozen episode pathway; and no later package version reinterprets an earlier entry.
 
 ## 5. Database Changes
 
-- `care.symptom_check_ins`, `follow_up_assessments`, `care_guide_template_versions`, `care_guide_snapshots`, `reminder_intents`.
-- UUID PKs; patient/episode/rule/template FKs; structured answers; recommendation snapshot; scheduled instant and user timezone.
-- Index episode/time and pending reminder due time.
+- Add `care.symptom_diary_package_versions`, `care.symptom_diary_questions`, `care.symptom_diary_question_options`, `care.symptom_warning_signs`, `care.symptom_check_ins`, and `care.symptom_check_in_answers` using UUID primary keys.
+- Package versions store package/question-set/information identities and versions, pathway, canonical content hash, optional exact informational heading/body, source/review/approval status, source reference, and import/approval/activation timestamps. Question rows store canonical answer-schema JSON and source-approved requiredness; child option/warning rows preserve exact text/value and source order.
+- Check-ins reference the completed `triage.pre_triage_episodes` row, the exact package-version row, and the submitting `identity.accounts` row with restrictive foreign keys. Patient ownership is derived from the episode and positively validated; it is not accepted from the request.
+- Answers reference both their check-in and exact package question, retain the submitted JSON without medical normalization, and enforce one answer per question per check-in unless the approved source explicitly defines a repeatable answer shape.
+- Enforce unique package code/version, unique question/option/warning technical code and display order within a package, unique `(episode_id, idempotency_key)`, and sufficient canonical request identity to distinguish identical retries from incompatible reuse.
+- Index package pathway/activation, check-in `(episode_id, created_at, id)`, and answer/check-in lookup. No due-time, reminder, escalation, assessment, score, recommendation, or rule-execution index/column/table is added.
+- Use restrictive foreign keys and append-only update/delete guards for package content, check-ins, and answers. Later versions are new rows; no migration, importer, cleanup job, or cascade may rewrite historical content.
+- Narrowly extend the existing clinical-content source serialization/check constraints for `MEDICAL_TEAM_PROVIDED`; preserve all existing Phase 4 rows and meanings.
 
 ## 6. API Endpoints
 
-| Method / route | Authentication | Authorization | Purpose | Response | Validation and errors |
+| Method / route | Authentication | Authorization | Purpose | Success response | Validation and errors |
 |---|---|---|---|---|---|
-| `POST /api/v1/pre-triage/episodes/{id}/check-ins` | Bearer | Owner/active manager | Record check-in and approved response | `201` | No applicable approved rules `422`; `404` |
-| `GET /api/v1/pre-triage/episodes/{id}/check-ins` | Bearer | Owner/active manager | Longitudinal check-in history | `200` | `404` |
-| `GET /api/v1/pre-triage/episodes/{id}/care-guide` | Bearer | Owner/active manager | Reviewed guide + provenance | `200` | No approved template `422`; `404` |
+| `GET /api/v1/pre-triage/episodes/{episodeId}/symptom-diary-content` | Bearer | Phase 3 Primary or currently active Managed authority over the episode's patient | Retrieve the current reviewed package: exact questions/options, separate general warning-sign information, and provenance | `200` package-version UUID, package/question-set/information identities and versions, ordered content, hash, source/review/approval metadata | `401`; malformed UUID routing `404`; nonexistent, anonymous/unclaimed, ineligible, unrelated, or revoked access concealed as `404`; accessible episode with no displayable approved package `422`; no `409` |
+| `POST /api/v1/pre-triage/episodes/{episodeId}/check-ins` | Bearer | Same, revalidated and relationship-locked inside the write transaction | Voluntarily record one immutable diary entry | First creation `201`; exact same episode/key/request replay returns the original entry with `200` and no additional row; neutral entry plus frozen content/provenance and separately labeled informational content | `400` malformed JSON; `401`; concealed `404`; unknown/duplicate/missing-required answers, invalid source-defined value shape/option, mismatched/unapproved package, or forbidden fields `422`; incompatible idempotency reuse/concurrent conflicting request `409` |
+| `GET /api/v1/pre-triage/episodes/{episodeId}/check-ins` | Bearer | Same, reevaluated on every read | Return immutable longitudinal diary history | `200` cursor page ordered by `createdAt ASC, id ASC`; each entry resolves only its frozen package and returns exact questions/options, submitted values, informational content, and provenance | `401`; malformed UUID routing `404`; nonexistent/inaccessible/revoked concealed as `404`; invalid/repeated/mismatched cursor or page size `422`; no `409` |
+
+The content GET accepts no query/body selector: the episode fixes the pathway and the server chooses the current displayable version. Its response contains `episodeId`, the frozen `pathway`, package-version UUID/code/version/hash, question-set code/version, information code/version, source/review/approval status and approval time, ordered questions with exact answer shapes/options, and a separate information object. Unknown or repeated query fields are `422`.
+
+The POST body contains exactly `{ packageVersionId, idempotencyKey, answers }`, where both identifiers are non-empty UUIDs and `answers` is an ordered array of `{ questionCode, value }`. Unknown fields and client-supplied patient, pathway, timestamps, author, assessment, warning match, advice, or reminder data are rejected. The create/replay response contains only `checkInId`, `episodeId`, server `createdAt`, the frozen package/question-set/information metadata, ordered exact questions/submitted values, and the same separately labeled informational content.
+
+The history GET accepts only optional `cursor` and `pageSize` query values; page size defaults to 20 and is limited to 1-100. It returns `{ items, nextCursor }`, where every item uses the neutral entry shape above and `nextCursor` is null at the end. The opaque cursor is bound to the episode and ordering boundary and cannot be replayed across patients or episodes.
+
+The content response separates `questions` from an `information` object containing reviewed heading/body text when supplied and an ordered `warningSigns` list. It never labels an answer as matching that list. Check-in responses use an allow-listed neutral schema and contain no `assessment`, `trend`, `improving`, `worsening`, `severity`, `riskScore`, `urgency`, `disposition`, `redFlagDetected`, `matchedWarningSigns`, personalized `recommendation`, `action`, `escalation`, `nextCheckInAt`, `reminder`, AI/provider/model, or generated narrative field.
+
+`GET /care-guide` is removed from the plan because “Care Guide” implies personalized guidance that Phase 9 does not provide. No compatibility alias is planned because the old route was never implemented.
 
 ## 7. Application / Use Cases
 
-- `RecordSymptomCheckIn`, `EvaluateFollowUp`, `ListCheckIns`, `GetCareGuide`, `CreateReminderIntent`.
-- Uses approved deterministic rule/template providers.
+- `GetSymptomDiaryContent`: authorize the episode, derive its pathway from the frozen questionnaire definition, select only the current reviewed/approved Phase 9 package, and return its questions and separate informational content without evaluating patient data.
+- `RecordSymptomCheckIn`: reauthorize inside a transaction, validate the exact package and source-defined answer shapes/options, preserve exact submitted values, implement episode-scoped idempotency, and append one entry. It performs no comparison with the original Pre-Triage answers or earlier diary entries.
+- `ListSymptomCheckIns`: authorize and page by stable chronological cursor, then resolve each entry exclusively through its frozen package reference. It never consults the current active package to reinterpret history.
+- `ISymptomDiaryContentProvider`, `ISymptomDiaryContentImporter`, canonical serializer/hasher, and package validator: provide active and exact-version lookup plus atomic, immutable, idempotent import.
+- Remove `EvaluateFollowUp`, `GetCareGuide`, and `CreateReminderIntent`. No evaluator, recommendation selector, timer, outbox message, notification intent, or AI provider belongs to Phase 9.
 
 ## 8. Authentication and Authorization
 
-All capabilities require bearer authentication and patient authority. Anonymous users cannot access Follow-Up or Care Guide.
+- All three endpoints require a valid Bearer identity; anonymous capability access is unavailable.
+- Resolve the episode first through a targeted boundary, derive its patient from persisted ownership, and delegate the access decision to Phase 3's shared `AuthorizePatientAccess`. UUID or Beeexy ID knowledge grants no authority.
+- Nonexistent episodes, anonymous/unclaimed episodes, unrelated accounts, reverse relationships, and revoked managers produce the same concealed `404` representation after authentication.
+- A claimed anonymous episode becomes eligible only through its persisted patient ownership; the original capability alone remains insufficient.
+- Reads reevaluate current authority. Creation reauthorizes and share-locks the exact active manager relationship inside the same transaction, following the Phase 3/4/5 write pattern, so revocation that wins the race prevents the write.
+- The submitting Account is recorded as audit provenance but does not gain permanent authority. Later revocation immediately blocks future read/create access for that manager while preserving entries already submitted for the patient.
 
 ## 9. Security and Privacy
 
-- Answers/recommendations are sensitive clinical data.
-- Preserve shown snapshot and author/version provenance.
-- No clinical payload in notification intent/logs beyond necessary references.
+- Diary answers, questions in context, and informational content associated with a patient are sensitive health data. Do not log request bodies, answer values, full response bodies, complete clinical payloads, or package content.
+- Privacy-safe audit/telemetry may contain only technical IDs, authorization category, package code/version, answer count, idempotency outcome, server time, and sanitized failure category. Never include bearer tokens, Beeexy IDs, demographics, question text, option text, answer JSON, or warning-sign text.
+- Historical entries, answers, and package content cannot be silently updated or deleted. Exact provenance and content hashes remain available for historical reconstruction.
+- Missing, corrupt, hash-mismatched, unreviewed, unapproved, cross-pathway, or internally inconsistent content fails closed and is never partially displayed or accepted.
+- There is no answer-to-warning mapping, red-flag detection, clinical classification, recommendation, escalation, reminder creation, AI invocation, provider call, or external data transfer.
+- Responses and Problem Details expose no resource existence across patient boundaries and no stack trace, SQL, content source path, or internal review note.
+- Long-term retention/deletion rights remain unresolved; Phase 9 therefore adds no destructive endpoint or cleanup policy and must not imply a compliance guarantee.
 
 ## 10. External Integrations
 
-- **IMPLEMENT NOW:** approved rule/template import.
-- **INTERFACE/PLACEHOLDER:** notification dispatch consumed in Phase 12.
-- **POST-MVP:** AI-authored clinical care.
+- **IMPLEMENT NOW:** none. Reviewed packages are source-controlled, validated, and imported through an in-process provider/persistence adapter.
+- **NOT USED:** AI/LLM providers, notification/push providers, terminology services, FHIR servers, scheduling, and other external services receive no Phase 9 data.
+- **POST-MVP / SEPARATELY GOVERNED:** clinical-content administration/reviewer workflow, localization workflow, and any future patient-authorized export or sharing support.
+
+Phase 9 defines no Phase 12 notification placeholder or intent. Voluntary entries are not notification schedules.
 
 ## 11. FHIR Impact
 
-No mapping is invented. Future resources depend on Andrea's materials.
+None. Phase 9 diary entries remain internal source data. Andrea's current FHIR material does not approve a Phase 9 representation, so this phase adds no `Observation`, `Questionnaire`, `QuestionnaireResponse`, `CarePlan`, `Condition`, `RiskAssessment`, `ClinicalImpression`, extension, terminology mapping, export inclusion, or other FHIR resource. Any future mapping requires separately approved Andrea material and a new Phase 6/interoperability plan; internal stable IDs and provenance do not by themselves authorize mapping.
 
 ## 12. Tests
 
-- Multiple ordered check-ins and immutable recommendation snapshots.
-- Approved red-flag/worsening fixtures and rule versioning.
-- Missing/unapproved rule/template fails closed.
-- No completion-state persistence.
-- Reminder calculation in user timezone using approved intervals and DST boundaries.
-- Authorization/relationship revocation tests.
-- Mandatory endpoint test matrix for all three endpoints.
+- Domain/persistence: one voluntary entry, multiple entries including identical answers under distinct idempotency keys, exact-value round trips, stable oldest-first ordering with equal-time UUID tie-breaks, immutable rows, restrictive foreign keys, content hashes, and migration rollback/reapply/pending-model checks.
+- Versioning: exact question-set and information versions are retained; version B can become active without changing an entry pinned to version A; same-version/different-hash import fails; corrupt/missing/cross-pathway/unreviewed/unapproved content fails closed.
+- Content fidelity: golden fixtures compare every supplied question, option, warning sign, order, punctuation, and Unicode value with `symptoms.md`; no extra symptom, question, option, threshold, branch, warning sign, or medical rule is present.
+- Clinical-safety negative tests prove no code path or public/persisted contract calculates improvement/worsening, severity, risk, answer-to-warning matches, personalized recommendations, clinical actions, escalation, next-check-in time, or reminder. Reflection/schema tests exclude those concepts and prove no `FollowUpAssessment`, Care Guide, or `ReminderIntent` persistence/API surface exists.
+- Informational content: only reviewed/approved/activated content is returned; missing/unapproved content returns the safe `422`; the exact provenance is returned; warning signs remain a separate ordered list even when a submitted value has identical words; no “detected” or patient-specific conclusion appears.
+- Authorization: primary patient, active manager, claimed episode, revoked manager, unrelated account, reverse relationship, nonexistent episode, anonymous/unclaimed episode, cross-patient UUID/IDOR, Beeexy-ID non-authority, disabled/invalid account, malformed identifiers, and revocation-versus-write races.
+- Endpoint contracts: malformed JSON, unsupported/extra fields, missing/duplicate/unknown question codes, invalid source-defined shapes/options, page/cursor validation, identical idempotent replay, incompatible-key reuse, concurrent same-key requests, and concurrent distinct voluntary entries.
+- Privacy/integration: captured logs and telemetry exclude all answers and full clinical payloads; Phase 9 makes zero AI/external-provider calls and creates no assessment, finding, Clinical History event, FHIR artifact, appointment, notification/outbox message, escalation, or reminder.
+- Apply the mandatory endpoint matrix to all three endpoints and run the complete existing backend suite.
 
 ## 13. Acceptance Criteria
 
-- Longitudinal records and displayed recommendations are retained.
-- Only medically approved content/rules reach the patient.
-- No task-completion state exists.
-- All tests pass.
+1. An authorized primary patient or active manager can voluntarily create a diary entry for an eligible completed patient-owned Pre-Triage episode.
+2. The same episode can retain multiple intentional entries, with no cadence, due time, or automatic scheduling requirement.
+3. Each entry preserves the exact submitted values and the exact immutable package, question-set, informational-content, hash, and provenance identities.
+4. History is cursor-paginated and deterministically ordered by `createdAt ASC, id ASC` without mutating earlier entries.
+5. A later content version never rewrites or reinterprets an earlier entry.
+6. Only content with reviewed, approved, valid, activated provenance is displayable or accepted for a new entry; missing/unapproved/inconsistent content fails closed.
+7. Reviewed general warning-sign information can be returned separately without evaluating whether the patient meets any listed warning sign.
+8. No improvement, worsening, stability, or trend classification exists.
+9. No personalized medical recommendation or patient-specific action is generated.
+10. No clinical severity, urgency, disposition, diagnosis, risk score, probability, or new assessment is generated.
+11. No automatic red-flag/warning-sign detection or answer-to-warning mapping exists.
+12. No automatic clinical escalation, appointment, clinician contact, or external message exists.
+13. No clinically scheduled follow-up, reminder intent, next-check-in time, or mandatory interval exists; all entries are patient-initiated.
+14. No AI/LLM provider participates in content creation, entry processing, history, or informational-content retrieval.
+15. Existing primary/managed-patient authorization and concealed `404` behavior are enforced, and revoked authority fails closed immediately.
+16. Sensitive answers, question/option text, warning-sign text, and complete clinical payloads are absent from application logs and technical telemetry.
+17. The original Pre-Triage result and frozen Phase 4 versions remain unchanged; no new Clinical History event is created.
+18. No unsupported FHIR mapping or export inclusion is introduced.
+19. `CHEST_PAIN` remains unsupported by executable Phase 4 Pre-Triage and cannot become enabled through a Phase 9 import.
+20. Every Phase 9 endpoint passes the mandatory matrix and the complete regression suite passes.
 
 ## 14. Dependencies
 
-- Phases 4-5; Phase 12 for actual reminder delivery.
-- Medical-team follow-up rules, thresholds, intervals, actions, and reviewed templates.
+- Phases 1-2 for foundation/authentication; completed Phase 3 patient authority for managed access; completed Phase 4 immutable patient-owned episode and frozen pathway/version provenance; Phase 5 only as an immutability/separation convention, not as a projection target.
+- The medical-team-provided `symptoms.md` source and an immutable release identity/hash. Its exact questions, options, ordering, and warning-sign text are content dependencies for Phase 9.3, not inputs to a rule engine.
+- Existing `ClinicalContentStatus`, code/version/hash, canonical import, activation, and exact-version retrieval patterns. Andrea's source requires the truthful additive source value `MEDICAL_TEAM_PROVIDED`; its actual review/approval timestamp must come from clinical release provenance and must not be fabricated from import or implementation time.
+- No dependency on Phase 6, Phase 8, Phase 10, or Phase 12. In particular, Phase 9 neither consumes AI nor produces notification/reminder intents.
 
 ## 15. Deferred / TBD Items
 
-- All unresolved clinical reminder/escalation behavior, Care Guide catalog, content governance workflow, and task tracking.
+- **Repository input required for 9.3:** at this plan rewrite, the required `symptoms.md` file is not present in the backend workspace, its parent project, or Git history. It must be checked in/provided and read verbatim before exact package fixtures, counts, hashes, answer schemas, and approval provenance can be finalized. This does not block 9.1 or 9.2.
+- **Clinical/product TBD:** final versioned patient-facing heading/contextual copy around the supplied warning-sign lists if that wording is not already explicit in `symptoms.md`. The example wording in the redesign prompt is not approved copy and must not be shipped by default.
+- **Clinical/product TBD:** `CHEST_PAIN` Phase 4 activation and resulting Phase 9 integration. Andrea supplied Phase 9 source material for it, but Phase 4 continues to support only `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`.
+- **Post-MVP / separately governed:** localization, content-administration/reviewer UI, emergency content-withdrawal workflow, diary correction/deletion and long-term retention rights, Phase 5 timeline projection, Phase 6/FHIR mapping, Phase 11 sharing/export, and any future notification behavior.
+- No follow-up rules, thresholds, intervals, red-flag mappings, escalation actions, or Care Guide recommendations are waiting to be filled in; those concepts are deliberately absent from Phase 9 rather than blockers.
+
+## Relationship to Pre-Triage and clinical material mapping
+
+- An eligible source is a completed `PreTriageEpisode` with non-null patient ownership, including an anonymously completed episode after successful Phase 4 claim. Active sessions, abandoned sessions, expired/unclaimed anonymous episodes, and capability-only callers are ineligible.
+- The diary pathway is derived from the episode's frozen `QuestionnaireDefinitionVersion.Pathway`; it is never supplied by the Phase 9 caller and is never inferred from new answers.
+- A Phase 9 entry references the original episode but does not rerun or rewrite its questionnaire, answers, rule-set reference, neutral `ClinicalAssessment`, result, completion time, provenance, or Clinical History projection. It creates no diagnosis, urgency, disposition, recommendation, or additional Pre-Triage episode.
+- `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`: Andrea has supplied Phase 9 questions/options and warning-sign information; these are the only currently executable Phase 4 pathways and are the planned active Phase 9 packages after exact source import and approval validation.
+- `CHEST_PAIN`: Andrea has supplied Phase 9 source material, which may be preserved as an immutable inactive package, but no current Phase 4 session/episode may execute this pathway. Importing or storing its Phase 9 content must not update the Phase 4 supported-pathway registry. Activation/integration remains an explicit separate decision.
+- Warning signs are stored as ordered, reviewed informational text. There are deliberately no conditions connecting them to questions/options and no result such as `redFlagDetected`.
+
+## Implementation sequence
+
+The sequential dependency chain is `9.1 -> 9.2 -> 9.3 -> 9.4 -> 9.5 -> 9.6 -> 9.7`. Phase 9.1 is implementation-ready now because it is content-neutral; Phase 9.3 requires the missing source artifact and exact release provenance noted above.
+
+## Phase 9.1 — Neutral Symptom Diary Domain + Persistence Foundation
+
+**Phase 9.1 status:** COMPLETE
+
+**Objective:** Establish the content-neutral, non-assessing domain and PostgreSQL schema needed to retain immutable reviewed packages and repeated diary entries, without importing content or exposing behavior.
+
+**Exact scope:** Add the six Phase 9 entities/table mappings listed in Sections 4-5, UUID identities, episode/package/question/Account relationships, server timestamps, answer JSON, package provenance, idempotency fields, restrictive foreign keys, immutable guards, uniqueness/check constraints, indexes, DbContext registration, and one additive migration. Add the truthful `MEDICAL_TEAM_PROVIDED` provenance source while preserving every existing Phase 4 value and row.
+
+**Explicitly out of scope:** Clinical content, source parsing/import, active package lookup, application commands/queries, endpoints, assessment/trend/red-flag logic, recommendations, reminders, AI, FHIR, and Clinical History projection.
+
+**Dependencies:** Phases 1-4 persistence conventions and existing Account/Pre-Triage FKs; no `symptoms.md` dependency.
+
+**Domain/database changes:** `SymptomDiaryPackageVersion`, question, option, warning-sign, check-in, and answer models plus the exact `care.*` tables/constraints/indexes in Sections 4-5. No `FollowUpAssessment`, `CareGuide*`, or `ReminderIntent` type/table may be introduced.
+
+**Application/use cases:** Repository contracts needed only to prove persistence round trips; no product use case.
+
+**Endpoints involved:** None; OpenAPI remains unchanged.
+
+**Clinical-content dependencies:** None. Tables remain empty and no placeholder medical text or fake version is seeded.
+
+**Security/privacy requirements:** Restrictive deletion, append-only history, no clinical payload logging, no broad patient query, and no public surface. Technical actor/package identifiers are not authorization shortcuts.
+
+**Tests:** Domain invariants; exact table/column/index/FK/check/immutability behavior; same-version identity constraints; answer losslessness; prohibited-field/type/table reflection; fresh migration plus rollback/reapply and prior-data preservation; EF pending-model, build, OpenAPI, and full-regression checks.
+
+**Acceptance/exit criteria:** The empty foundation can truthfully represent a future reviewed package and immutable diary entries, contains no clinical inference/scheduling concept, applies cleanly, and all tests pass.
+
+**Implementation (2026-09-07):** Added the six content-neutral domain/persistence concepts and `care.*` tables, exact package/question-set/information identities, reviewed-content provenance, ordered static questions/options/informational warning-sign text, patient-owned completed-episode/package/Account check-in references, canonical SHA-256 hashes, UUID idempotency, semantic-lossless JSON answers, restrictive/composite foreign keys, uniqueness/check/index coverage, and application plus PostgreSQL append-only guards. Added `MEDICAL_TEAM_PROVIDED` additively to the shared clinical-content source model and existing Phase 4 check constraints without changing prior values or data. Migration: `20260907180355_Phase91NeutralSymptomDiaryFoundation`. No content, importer/provider, use case, route, clinical evaluation, reminder, AI, FHIR, or Clinical History behavior was added.
+
+**Verification (2026-09-07):** Focused Phase 9.1 unit/architecture tests passed 16/16 and focused PostgreSQL/migration/OpenAPI tests passed 9/9. The complete unit suite passed 1,124/1,124 and the complete PostgreSQL integration suite passed 681/681, with zero failures and zero skipped tests. The clean migration chain and Phase 9.1 rollback/reapply test passed; EF reported no pending model changes; OpenAPI remained 51 paths with no Phase 9 route; the complete Debug solution build completed with zero warnings/errors; `dotnet format --verify-no-changes` and `git diff --check` passed.
+
+## Phase 9.2 — Immutable Reviewed Symptom-Diary Package Infrastructure
+
+**Phase 9.2 status:** NOT STARTED
+
+**Objective:** Implement package validation, canonical hashing, immutable import, and active/exact-version retrieval without supplying medical content.
+
+**Exact scope:** Add provider-neutral `ISymptomDiaryContentProvider`/`ISymptomDiaryContentImporter` contracts, a canonical serializer and SHA-256 calculator, package validator, atomic importer, and active/exact-version read model. Validate stable identities/order/references, question answer schemas/options, warning-sign ordering, package/pathway consistency, content hash, source/review/approval/activation provenance, and same-version immutability. Active lookup admits only reviewed + approved + activated content; exact historical lookup never substitutes a newer version.
+
+**Explicitly out of scope:** Andrea content import, endpoints, patient answers, answer-to-warning mappings, branching, assessment, recommendation, reminders, AI, and content-admin UI.
+
+**Dependencies:** Phase 9.1 and existing Phase 4 canonical version/import patterns.
+
+**Domain/database changes:** No new clinical entity or table beyond 9.1. Add only repository/import adapters and, if proven necessary by concurrency tests, a package-scoped PostgreSQL advisory lock; no content row is seeded.
+
+**Application/use cases:** `ImportSymptomDiaryPackage`, active lookup by exact pathway, and exact lookup by package/version/ID for historical projection. These are internal boundaries, not patient actions.
+
+**Endpoints involved:** None; OpenAPI remains unchanged.
+
+**Clinical-content dependencies:** Schema rules only. The model supports exact source-defined answer shapes but defines no medical question, option, threshold, or warning text.
+
+**Security/privacy requirements:** Fail closed on corrupt/missing/unapproved/cross-pathway content; log only package technical identity/status; never log content text; never auto-promote provisional content; never reuse a package across pathways.
+
+**Tests:** A test-only synthetic package fixture that is never production-imported; invalid identity/order/reference/schema/status/timestamp/hash cases; atomic import rollback; identical import no-op; changed-content/same-version rejection; concurrent import convergence; active-versus-exact retrieval; no executable rule/condition/action fields; migration/OpenAPI/full regressions.
+
+**Acceptance/exit criteria:** A later source package can be imported idempotently and retrieved only under truthful approval rules, while no medical content or clinical behavior exists and all tests pass.
+
+## Phase 9.3 — Exact Andrea Symptom Content Import
+
+**Phase 9.3 status:** NOT STARTED
+
+**Objective:** Materialize Andrea's supplied questions/options and warning-sign information exactly as immutable Phase 9 packages, without translating the material into rules.
+
+**Exact scope:** Read the checked-in `symptoms.md` completely; create source-controlled canonical package fixtures for `HEADACHE`, `ABDOMINAL_PAIN`, `FEVER`, and `CHEST_PAIN`; preserve exact wording, Unicode, punctuation, options, and source order; assign only stable non-clinical technical IDs; record the source reference/hash and actual review/approval provenance; and import atomically. Activate the first three only after their reviewed/approved provenance validates. Preserve `CHEST_PAIN` as inactive until its separate integration decision.
+
+**Explicitly out of scope:** Editing/normalizing Andrea's wording; extra symptoms/questions/options/warnings; invented requiredness, ranges, thresholds, branching, answer-to-warning mappings, urgency, recommendations, Phase 4 package/registry changes, and endpoints.
+
+**Dependencies:** Phase 9.2; the actual `symptoms.md` artifact; a truthful immutable release version/hash and clinical approval timestamp. The file absence recorded in Section 15 blocks this subphase only.
+
+**Domain/database changes:** No schema change expected. Add source package definitions/fixtures and imported rows. If the source omits a display wrapper, leave it absent pending approved versioned copy rather than using the prompt's example sentence.
+
+**Application/use cases:** Invoke the 9.2 importer through the repository's established controlled import/bootstrap path; no public import command.
+
+**Endpoints involved:** None; OpenAPI remains unchanged and Phase 4 still rejects `CHEST_PAIN`.
+
+**Clinical-content dependencies:** Exclusively `symptoms.md`. The Phase 4 detailed abdominal package, prototype, generic medical knowledge, and AI are prohibited sources.
+
+**Security/privacy requirements:** Validate before persistence; never log source text; never mark unverified metadata approved; never activate Chest Pain indirectly; package text remains static display data with no executable condition fields.
+
+**Tests:** Golden field-for-field comparison with the source; exact four-category inventory; exact counts/orders determined only after reading the file; no added/changed content; stable hashes/IDs; import idempotency/version coexistence; first-three activation; inactive Chest Pain; Phase 4 supported registry remains exactly `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`; no warning/answer links or rule artifacts.
+
+**Acceptance/exit criteria:** The database can reconstruct Andrea's exact reviewed source and provenance, current eligible pathways have displayable approved packages, Chest Pain remains non-executable/inactive, and all tests pass.
+
+## Phase 9.4 — Authorized Reviewed Content Retrieval
+
+**Phase 9.4 status:** NOT STARTED
+
+**Objective:** Let an authorized patient retrieve the current questions/options and separate general warning-sign information before voluntarily creating an entry.
+
+**Exact scope:** Implement `GetSymptomDiaryContent`; resolve an eligible patient-owned episode; reuse shared patient authorization; derive the frozen pathway; load the active reviewed/approved package; map an allow-listed response containing package/question-set/information versions and provenance, ordered questions/options, and a separate informational heading/body/warning list. Return no patient-answer interpretation.
+
+**Explicitly out of scope:** Entry creation/history, content mutation/admin, personalized selection, comparison with Pre-Triage answers, red-flag detection, recommendations, scheduling, AI, FHIR, and anonymous access.
+
+**Dependencies:** Phases 9.2-9.3; Phase 3 authorization; completed/claimed Phase 4 episode ownership.
+
+**Domain/database changes:** None expected; no access/view event is persisted because no such product/audit requirement exists.
+
+**Application/use cases:** `GetSymptomDiaryContent` plus a targeted episode/content read repository. Active version selection occurs only after authorization.
+
+**Endpoints involved:** `GET /api/v1/pre-triage/episodes/{episodeId}/symptom-diary-content` with the exact Section 6 contract and mandatory endpoint matrix.
+
+**Clinical-content dependencies:** Exact active package for the frozen episode pathway. Missing/unapproved/corrupt content returns safe `422`; it never falls back to another pathway or old Phase 4 content.
+
+**Security/privacy requirements:** Bearer required; UUID/Beeexy ID non-authority; concealed `404`; current managed authority on each read; no content/request-body logging; allow-listed response and safe Problem Details.
+
+**Tests:** Primary/manager/claimed success; anonymous/unclaimed/nonexistent/revoked/unrelated/reverse/IDOR denial; malformed UUID; no-content/unapproved/corrupt/cross-pathway failure; exact order/version/provenance; warning/answer separation; forbidden-response fields; zero AI/external calls; OpenAPI and full regressions.
+
+**Acceptance/exit criteria:** Authorized callers receive only exact approved static content for the episode pathway, warning signs remain informational, inaccessible resources are concealed, and all tests pass.
+
+## Phase 9.5 — Voluntary Immutable Diary-Entry Creation
+
+**Phase 9.5 status:** NOT STARTED
+
+**Objective:** Append one neutral diary entry from explicitly submitted structured answers, with exact provenance and retry safety.
+
+**Exact scope:** Implement `RecordSymptomCheckIn`. Accept exactly `packageVersionId`, UUID `idempotencyKey`, and ordered `{ questionCode, value }` answers; reject caller-supplied patient/pathway/actor/time/assessment/advice/reminder fields. Reauthorize and lock active management authority inside the transaction; verify episode ownership and frozen pathway; load the exact reviewed/approved package; apply only source-defined required/optional and structural/option validation; store values without clinical normalization; append one entry; and return the neutral frozen entry plus separately labeled information.
+
+**Explicitly out of scope:** Natural-language/AI input, comparison with earlier data, derived fields, partial defaults not authorized by the source, edits/deletes, clinical evaluation, recommendation, escalation, reminder/outbox, appointment, history projection, and FHIR.
+
+**Dependencies:** Phase 9.4, with Phase 9.2 exact-version provider and Phase 3 transaction-time relationship locking.
+
+**Domain/database changes:** Use 9.1 tables. No new table/migration expected. First `(episode,idempotencyKey)` creation persists a canonical request hash; exact replay returns the same entry, incompatible reuse returns `409`, and distinct keys create distinct voluntary entries even when answers are identical.
+
+**Application/use cases:** `RecordSymptomCheckIn`, request validator, canonical request hasher, transaction/repository boundary, privacy-safe audit logger, and neutral response mapper. No `EvaluateFollowUp` call exists.
+
+**Endpoints involved:** `POST /api/v1/pre-triage/episodes/{episodeId}/check-ins` with the exact Section 6 contract and mandatory endpoint matrix.
+
+**Clinical-content dependencies:** The exact package presented by 9.4. Validation enforces only its literal schemas/options; an answer sharing words with a warning sign remains merely an answer.
+
+**Security/privacy requirements:** Authorization-before-sensitive validation where needed for concealment; transaction-time reauthorization; no answer/payload logging; immutable append; database-backed idempotency/concurrency; safe errors; zero provider/notification side effects.
+
+**Tests:** One/multiple entries; every exact source-defined answer shape; missing/optional/unknown/duplicate/extra/value failures; package/pathway/status mismatch; exact-value round trip; same-key sequential/concurrent replay; incompatible reuse; distinct-key concurrency; primary/manager/revocation race/IDOR; no forbidden persistence/response/log fields or side effects; OpenAPI and full regressions.
+
+**Acceptance/exit criteria:** Authorized structured submissions append exactly one immutable neutral entry per logical request, preserve source data/provenance, never evaluate it or schedule anything, and all tests pass.
+
+## Phase 9.6 — Longitudinal Diary History Retrieval
+
+**Phase 9.6 status:** NOT STARTED
+
+**Objective:** Return the complete longitudinal diary as stable pages reconstructed only from each entry's frozen content.
+
+**Exact scope:** Implement `ListSymptomCheckIns`; authorize the episode on every request; page by opaque cursor bound to the episode and normalized page size; order `createdAt ASC, id ASC`; and return each entry's server time, neutral submitter category if approved for display, exact questions/options/submitted values, package/question-set/information identities, general informational content, hash, and provenance. Query frozen exact versions, never the currently active version.
+
+**Explicitly out of scope:** Trend charts with clinical labels, summaries, comparison/deltas, current-content reinterpretation, edits/deletes, Clinical History projection, recommendation, red-flag matching, reminders, AI, and exports.
+
+**Dependencies:** Phase 9.5 and the 9.2 exact-version provider.
+
+**Domain/database changes:** None expected; use the 9.1 `(episode_id, created_at, id)` index and bounded no-tracking queries. Default page size 20 and maximum 100 follow repository conventions.
+
+**Application/use cases:** `ListSymptomCheckIns`, episode-bound cursor codec, targeted paged repository, frozen-content mapper, and authorization boundary.
+
+**Endpoints involved:** `GET /api/v1/pre-triage/episodes/{episodeId}/check-ins` with the exact Section 6 contract and mandatory endpoint matrix.
+
+**Clinical-content dependencies:** Exact historical packages referenced by entries. A later active version may be shown only by 9.4 for a new entry and cannot replace historical text.
+
+**Security/privacy requirements:** Current bearer/patient authority; revoked manager fails immediately; concealed `404`; cursor cannot cross episodes; bounded queries; no answers/content in logs; corrupt frozen history fails closed and is audited with identifiers only.
+
+**Tests:** Empty/one/many pages; equal-time UUID ordering; every entry exactly once; invalid/stale/cross-episode cursor; version A history after version B activation; historical content/hash/provenance fidelity; authorization/revocation/IDOR; no clinical derived fields; bounded query behavior; OpenAPI and full regressions.
+
+**Acceptance/exit criteria:** Authorized callers can traverse all entries deterministically and see their exact historical meaning without reinterpretation or leakage, and all tests pass.
+
+## Phase 9.7 — Clinical-Safety, Privacy, and Acceptance Closure
+
+**Phase 9.7 status:** NOT STARTED
+
+**Objective:** Close Phase 9 with end-to-end evidence that the implemented feature is only a voluntary diary plus reviewed static information.
+
+**Exact scope:** Audit all 9.1-9.6 models, migrations, import paths, three endpoints, authorization/locking, version selection, idempotency, cursor behavior, logging/telemetry, external dependencies, OpenAPI, and cross-phase side effects. Add only missing acceptance tests or narrow fixes proven necessary by the audit.
+
+**Explicitly out of scope:** New product behavior, Phase 4/5/6/8/10/12 redesign, new endpoint, medical-rule expansion, recommendation, escalation, reminder, AI, frontend, and post-MVP governance.
+
+**Dependencies:** Phases 9.1-9.6 and all existing regression suites.
+
+**Domain/database changes:** None expected. Any change must be the smallest correction required to meet the already stated invariants; no speculative schema is allowed.
+
+**Application/use cases:** Exercise the three existing Phase 9 use cases only; prove forbidden evaluators/providers/outbox paths are absent.
+
+**Endpoints involved:** All three Phase 9 endpoints; no fourth endpoint and no `/care-guide` alias.
+
+**Clinical-content dependencies:** Exact approved 9.3 fixtures for current eligible pathways. Chest Pain remains an inactive regression fixture unless separately authorized.
+
+**Security/privacy requirements:** Full primary/managed/revoked/unrelated matrix, concurrency and IDOR review, sensitive-log scan, immutable-history verification, fail-closed content behavior, and zero AI/external/notification/FHIR/Clinical History side effects.
+
+**Tests:** Execute every Section 12 test, all three mandatory endpoint matrices, structural allow-list/deny-list tests, migration chain/rollback/reapply, EF pending-model check, OpenAPI snapshot, format/static checks, and the complete backend suite.
+
+**Acceptance/exit criteria:** All 20 Section 13 criteria pass objectively; all Phase 9 subphases and regressions pass; documentation records real verification evidence; and only then may Phase 9 change from `NOT STARTED` to complete.
 
 ---
 
@@ -2169,11 +2444,11 @@ Deliver traceable in-app and Web Push notifications with correct clinic/user tim
 - PWA push subscription management.
 - Database outbox/background delivery.
 - Delivery attempt/failure tracking.
-- Appointment notifications and approved reminder intents.
+- Appointment notifications and independently approved non-clinical/product notification intents. Phase 9 symptom-diary entries create none.
 
 ## 3. Explicitly Out of Scope
 
-- Email/SMS product notifications and undefined clinical reminders/escalations.
+- Email/SMS product notifications and any symptom-diary-derived or otherwise undefined clinical reminders/escalations.
 
 ## 4. Domain Model
 
@@ -2231,7 +2506,7 @@ None.
 - Stale subscription handling.
 - Persisted channel/status/timestamps/failure reason.
 - Clinic/user timezone and DST tests.
-- Verify no undefined clinical reminder is scheduled.
+- Verify no undefined clinical reminder is scheduled and no Phase 9 diary entry creates a notification intent.
 - Mandatory endpoint test matrix for all six endpoints.
 
 ## 13. Acceptance Criteria
@@ -2243,12 +2518,12 @@ None.
 
 ## 14. Dependencies
 
-- Phase 2; Phase 8 for appointment notifications; Phase 9 for approved clinical reminders.
+- Phase 2 and Phase 8 for appointment notifications. Phase 12 has no dependency on Phase 9.
 - VAPID/deployment keys and approved notification copy.
 
 ## 15. Deferred / TBD Items
 
-- Clinical reminder triggers/intervals/escalation, delivery receipt semantics, retention, email, and SMS.
+- Any future clinical reminder triggers/intervals/escalation require a separately approved post-MVP plan and must not be inferred from Phase 9 diary answers; delivery receipt semantics, retention, email, and SMS.
 
 ---
 
@@ -2423,7 +2698,7 @@ Run all approved golden exports through the selected validator; no new mapping.
 - End-to-end: authenticate -> Pre-Triage -> persist -> history -> FHIR/export.
 - Anonymous: complete -> view -> claim; separate unclaimed expiry.
 - Doctor search -> slot -> concurrent appointment booking.
-- Follow-up/Care Guide with approved fixtures.
+- Voluntary symptom diary and reviewed static warning-sign information with approved fixtures, including proof that no clinical evaluation or reminder occurs.
 - AI safe failure while deterministic result survives.
 - Share create -> exchange -> access -> audit -> revoke/expire.
 - Notification success/failure/timezone.
@@ -2546,7 +2821,7 @@ When a phase is explicitly authorized:
 - **Phase 2:** Final demographic requirements beyond the fields explicitly documented in `Backend/docs/fhir/` remain TBD.
 - **Phase 4:** medically approved questionnaire, urgency model, red flags, rules, and messages.
 - **Phase 7:** product approval of a synthetic/demo directory dataset and deterministic demo matching factors/weights is required; authoritative real directory data, real credentialing, and production matching rules/validation do not block the MVP/demo.
-- **Phase 9:** approved follow-up rules, intervals, escalation actions, and Care Guide templates.
+- **Phase 9:** 9.1 and 9.2 are content-neutral and implementation-ready. Phase 9.3 requires the checked-in `symptoms.md` artifact plus truthful immutable release/approval provenance; final wrapper copy and `CHEST_PAIN` activation remain scoped TBDs and do not authorize rules, intervals, escalation, recommendations, or reminders.
 - **Phase 10:** COMPLETE. Production NVIDIA credentials and a credentialed deployment smoke check remain operational deployment concerns, not implementation or standard acceptance blockers. Provider selection, versioned prompt content, restricted-audit handling, MVP inputs/limits, safety semantics, disclaimers, private storage, and retention behavior are implemented and covered with credential-free fakes in the repository suite.
 - **Phase 11:** share duration defaults and frontend public share URL.
 - **Phase 12:** VAPID keys and approved notification copy/rules.

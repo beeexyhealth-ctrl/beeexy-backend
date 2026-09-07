@@ -9,6 +9,7 @@ internal static class ClinicalContentStatusPersistence
         ClinicalContentSource.LegacyUnspecified => "LEGACY_UNSPECIFIED",
         ClinicalContentSource.ReferencePlatformDerived => "REFERENCE_PLATFORM_DERIVED",
         ClinicalContentSource.ProductDemoDefined => "PRODUCT_DEMO_DEFINED",
+        ClinicalContentSource.MedicalTeamProvided => "MEDICAL_TEAM_PROVIDED",
         _ => throw new ArgumentOutOfRangeException(nameof(value))
     };
 
@@ -17,6 +18,7 @@ internal static class ClinicalContentStatusPersistence
         "LEGACY_UNSPECIFIED" => ClinicalContentSource.LegacyUnspecified,
         "REFERENCE_PLATFORM_DERIVED" => ClinicalContentSource.ReferencePlatformDerived,
         "PRODUCT_DEMO_DEFINED" => ClinicalContentSource.ProductDemoDefined,
+        "MEDICAL_TEAM_PROVIDED" => ClinicalContentSource.MedicalTeamProvided,
         _ => throw new InvalidOperationException($"Unknown clinical content source '{value}'.")
     };
 

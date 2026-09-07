@@ -9,9 +9,10 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
+    [Trait("Category", "Phase91")]
     [Trait("Category", "Phase101")]
     [Trait("Category", "Phase108")]
-    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase101AiFoundation()
+    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase91DiaryFoundation()
     {
         var options = new DbContextOptionsBuilder<BeeexyDbContext>()
             .UseNpgsql(postgres.ConnectionString)
@@ -49,7 +50,8 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                     "20260831165338_Phase81SchedulingFoundation",
                     "20260831183703_Phase82AvailabilityInventory",
                     "20260901051351_Phase8OpsAppointmentAdministration",
-                    "20260901223517_Phase101AiPlatformPersistenceFoundation"
+                    "20260901223517_Phase101AiPlatformPersistenceFoundation",
+                    "20260907180355_Phase91NeutralSymptomDiaryFoundation"
                 ],
                 appliedMigrations);
             Assert.Empty(pendingMigrations);
@@ -81,6 +83,12 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                 "ai.ai_result_snapshots",
                 "ai.ai_safety_validations",
                 "ai.ai_uploaded_documents",
+                "care.symptom_check_in_answers",
+                "care.symptom_check_ins",
+                "care.symptom_diary_package_versions",
+                "care.symptom_diary_question_options",
+                "care.symptom_diary_questions",
+                "care.symptom_warning_signs",
                 "directory.clinic_locations",
                 "directory.clinics",
                 "directory.demo_directory_imports",

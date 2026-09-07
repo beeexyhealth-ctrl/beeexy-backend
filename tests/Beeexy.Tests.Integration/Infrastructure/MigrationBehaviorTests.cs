@@ -17,6 +17,65 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
 {
     [Fact]
+    [Trait("Category", "Phase91")]
+    public async Task Phase91DiaryFoundation_IsAdditiveEmptyAndCanRollbackAndReapply()
+    {
+        await EnsureMigratedAsync();
+        var suffix = Guid.NewGuid().ToString("N");
+        var now = DateTimeOffset.UtcNow;
+        var markerAccount = Account.Create(
+            NormalizedEmail.Create($"phase91-marker-{suffix}@example.com"),
+            now);
+        var markerPatient = PatientProfile.Create(
+            BeeexyId.Create($"BXY-PHASE91-{suffix}"),
+            now,
+            markerAccount.Id);
+        var options = CreateOptions();
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            dbContext.AddRange(markerAccount, markerPatient);
+            await dbContext.SaveChangesAsync();
+            await dbContext.GetService<IMigrator>()
+                .MigrateAsync("20260901223517_Phase101AiPlatformPersistenceFoundation");
+        }
+
+        await using (var connection = new NpgsqlConnection(postgres.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText =
+                "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'care';";
+            Assert.Equal(0L, (long)(await command.ExecuteScalarAsync())!);
+        }
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            Assert.NotNull(await dbContext.Accounts.AsNoTracking()
+                .SingleOrDefaultAsync(value => value.Id == markerAccount.Id));
+            Assert.NotNull(await dbContext.PatientProfiles.AsNoTracking()
+                .SingleOrDefaultAsync(value => value.Id == markerPatient.Id));
+            await dbContext.Database.MigrateAsync();
+            Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+        }
+
+        await using (var connection = new NpgsqlConnection(postgres.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText =
+                "SELECT (SELECT count(*) FROM information_schema.tables WHERE table_schema = 'care'), " +
+                "(SELECT count(*) FROM care.symptom_diary_package_versions), " +
+                "(SELECT count(*) FROM care.symptom_check_ins);";
+            await using var reader = await command.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal(6L, reader.GetInt64(0));
+            Assert.Equal(0L, reader.GetInt64(1));
+            Assert.Equal(0L, reader.GetInt64(2));
+        }
+    }
+
+    [Fact]
     [Trait("Category", "Phase101")]
     [Trait("Category", "Phase108")]
     public async Task Phase101AiFoundation_IsAdditiveAndCanRollbackAndReapply()

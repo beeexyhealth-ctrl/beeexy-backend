@@ -1,4 +1,5 @@
 using Beeexy.Domain.Ai;
+using Beeexy.Domain.Care;
 using Beeexy.Domain.Directory;
 using Beeexy.Domain.Identity;
 using Beeexy.Domain.History;
@@ -26,6 +27,20 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
     public DbSet<AiUploadedDocument> AiUploadedDocuments => Set<AiUploadedDocument>();
 
     public DbSet<AiSafetyValidation> AiSafetyValidations => Set<AiSafetyValidation>();
+
+    public DbSet<SymptomDiaryPackageVersion> SymptomDiaryPackageVersions =>
+        Set<SymptomDiaryPackageVersion>();
+
+    public DbSet<SymptomDiaryQuestion> SymptomDiaryQuestions => Set<SymptomDiaryQuestion>();
+
+    public DbSet<SymptomDiaryQuestionOption> SymptomDiaryQuestionOptions =>
+        Set<SymptomDiaryQuestionOption>();
+
+    public DbSet<SymptomWarningSign> SymptomWarningSigns => Set<SymptomWarningSign>();
+
+    public DbSet<SymptomCheckIn> SymptomCheckIns => Set<SymptomCheckIn>();
+
+    public DbSet<SymptomCheckInAnswer> SymptomCheckInAnswers => Set<SymptomCheckInAnswer>();
 
     public DbSet<Clinic> Clinics => Set<Clinic>();
 
@@ -132,6 +147,7 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
     {
         EnsureSchedulingAuditIsAppendOnly();
         EnsureAiHistoryIsProtected();
+        EnsureSymptomDiaryHistoryIsAppendOnly();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
@@ -141,6 +157,7 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
     {
         EnsureSchedulingAuditIsAppendOnly();
         EnsureAiHistoryIsProtected();
+        EnsureSymptomDiaryHistoryIsAppendOnly();
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
@@ -191,6 +208,24 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
         {
             throw new InvalidOperationException(
                 "AI history and lifecycle metadata cannot be physically deleted.");
+        }
+    }
+
+    private void EnsureSymptomDiaryHistoryIsAppendOnly()
+    {
+        var mutation = ChangeTracker.Entries()
+            .FirstOrDefault(entry =>
+                entry.Entity is SymptomDiaryPackageVersion or
+                    SymptomDiaryQuestion or
+                    SymptomDiaryQuestionOption or
+                    SymptomWarningSign or
+                    SymptomCheckIn or
+                    SymptomCheckInAnswer &&
+                entry.State is EntityState.Modified or EntityState.Deleted);
+        if (mutation is not null)
+        {
+            throw new InvalidOperationException(
+                "Symptom-diary packages and check-in history are append-only and cannot be changed or deleted.");
         }
     }
 }
