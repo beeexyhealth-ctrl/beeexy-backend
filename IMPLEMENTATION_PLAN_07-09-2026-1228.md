@@ -15,12 +15,12 @@ The prototype is reference material only. Its percentages, alerts, timers, lists
 
 Andrea's FHIR Markdown materials are now present under `Backend/docs/fhir/`: `beeexy-coleccion-recursos.md`, `beeexy-provenance-device-ejemplo.md`, and `beeexy-riskassessment-ejemplo.md`. These files are the source of truth for Phase 6's exact FHIR mappings and requirements. Requirements not specified by those files remain explicit TBD items and must not be invented.
 
-Andrea's approved Phase 9 direction supersedes the earlier follow-up evaluator/Care Guide/reminder design: Phase 9 is a voluntary symptom diary with separately presented reviewed warning-sign information and no clinical interpretation. The required `symptoms.md` content artifact is not currently present in the backend workspace or Git history; Phase 9.3 must read it verbatim after it is provided and must not reconstruct its questions, options, or warning signs from other sources.
+Andrea's approved Phase 9 direction supersedes the earlier follow-up evaluator/Care Guide/reminder design: Phase 9 is a voluntary symptom diary with separately presented reviewed warning-sign information and no clinical interpretation. The authoritative `docs/symptoms.md` artifact is checked in with byte-level checksum protection and its exact questions, options, ordering, and warning signs form the approved `andrea-symptoms-v1` release.
 
 ## Delivery priorities
 
 - **MVP core:** Phases 1, 2, 4-8, 11, 12, and 14.
-- **MVP should-have:** Phase 9 through the staged implementation defined below; its content-neutral 9.1-9.2 foundations are ready while exact source import starts only after `symptoms.md` is present. Phase 10 is complete.
+- **MVP should-have:** Phase 9 through the staged implementation defined below; its 9.1-9.2 foundations and approved exact 9.3 source release are complete, while Phase 9.4 remains not started. Phase 10 is complete.
 - **Conditional MVP:** Phase 3 (My Circle and Managed Patient Profiles), because caregiver/dependent workflows require additional authorization, consent, minor/adult, and legal decisions and are not required for the core MVP/demo; and Phase 13 (Visit Recording), because it is valuable but high risk.
 - **Post-MVP:** Phase 15 and every capability explicitly deferred within earlier phases.
 
@@ -417,7 +417,7 @@ None until Andrea defines any relationship/consent mapping.
 
 ## 1. Objective
 
-Deliver a controlled AI-assisted symptom-intake demo for anonymous and authenticated users. The demo collects a minimum structured dataset for the three confirmed pathways `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`, completes it into an immutable episode, and returns a neutral symptom summary. `ABDOMINAL_PAIN` is displayed as "Stomach pain" in the frontend. Natural-language interpretation may make intake easier, but validated package-defined answers, deterministic questionnaire progression, and a deterministic completeness check remain authoritative. The current demo does not classify clinical urgency, calculate disposition, diagnose, prescribe, or approximate a production triage protocol.
+Deliver a controlled AI-assisted symptom-intake demo for anonymous and authenticated users. The current demo collects a minimum structured dataset for the five neutral-demo pathways `HEADACHE`, `ABDOMINAL_PAIN`, `CHEST_PAIN`, `FEVER`, and `OTHER_SYMPTOMS`, completes it into an immutable episode, and returns a neutral symptom summary. `ABDOMINAL_PAIN` is displayed as "Stomach pain" in the frontend. Natural-language interpretation may make intake easier, but validated package-defined answers, deterministic questionnaire progression, and a deterministic completeness check remain authoritative. Executability here is neutral-demo workflow support, not clinical decision authority: the demo does not classify clinical urgency, calculate disposition, diagnose, prescribe, or approximate a production triage protocol.
 
 ## 2. Scope
 
@@ -426,8 +426,8 @@ Deliver a controlled AI-assisted symptom-intake demo for anonymous and authentic
 - Application-level clinical-AI safety policies and schema/output validation before extracted data can affect workflow state.
 - Extraction of a selected primary symptom, duration, intensity from 1 through 10, and controlled additional-symptom selections from exactly `NAUSEA`, `DIARRHEA`, and `FEVER`; one message may populate multiple fields and no fourth additional-symptom option exists.
 - Immutable, versioned definition packages with explicit source, review, approval, activation, and detailed-clinical-versus-simplified-demo profile metadata.
-- A demo-supported-pathway registry containing exactly `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`. `CHEST_PAIN` and `OTHER_SYMPTOMS` remain recognized but unsupported for the frontend demo and receive no clinical protocol. The already recognized backend-only `RESPIRATORY_SYMPTOMS` and `BACK_PAIN` also remain unsupported and unchanged.
-- Simplified immutable questionnaire-package versions for the three supported demo pathways. Each package contains only the controlled demo fields and progression needed for symptom, duration, intensity, and selected additional symptoms. Applicability is deterministic: the `FEVER` primary pathway excludes `FEVER` from its additional-symptom choices, leaving only `NAUSEA` and `DIARRHEA` applicable for that pathway.
+- A demo-supported-pathway registry containing exactly `HEADACHE`, `ABDOMINAL_PAIN`, `CHEST_PAIN`, `FEVER`, and `OTHER_SYMPTOMS`. The recognized backend-only `RESPIRATORY_SYMPTOMS` and `BACK_PAIN` remain unsupported and unchanged.
+- Simplified immutable questionnaire-package versions for the five supported demo pathways. Each package contains only the controlled demo fields and progression needed for symptom, duration, intensity, and selected additional symptoms. Applicability is deterministic: the `FEVER` primary pathway excludes `FEVER` from its additional-symptom choices, leaving only `NAUSEA` and `DIARRHEA` applicable for that pathway.
 - Deterministic questionnaire progression, validation, already-answered-question skipping, and minimum-completeness evaluation.
 - Immutable completed episode/assessment persistence and secure neutral result retrieval.
 - Optional guarded AI-assisted neutral phrasing after the canonical structured summary exists.
@@ -441,7 +441,7 @@ Deliver a controlled AI-assisted symptom-intake demo for anonymous and authentic
 - Clinical disposition calculation, red-flag-based escalation, deterministic urgency-rule execution, emergency-level recommendations, diagnostic probabilities, treatment recommendations, or detailed symptom protocols intended to approximate production clinical triage.
 - Autonomous AI clinical decision-making, AI diagnoses, prescriptions, treatment invention, authoritative recommendations, autonomous agents, and AI changes to completed records.
 - Python, Google ADK, a separate AI microservice, or vendor-specific domain design without a later demonstrated requirement.
-- Supporting every frontend symptom option. Only `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER` receive simplified packages; `CHEST_PAIN` and `OTHER_SYMPTOMS` remain recognized but unsupported.
+- Supporting pathways beyond the five current neutral-demo options. `RESPIRATORY_SYMPTOMS`, `BACK_PAIN`, and unknown pathways remain unsupported and receive no borrowed package.
 - Invented or unapproved pathways, clinical thresholds, red flags, urgency rules, dispositions, emergency wording, or full protocols.
 - Dynamic AI questioning outside the controlled, versioned demo questionnaire.
 - FHIR generation, SNOMED production integration, and full Clinical History feature implementation.
@@ -488,7 +488,7 @@ Secure canonical result / optional neutral phrasing
 - UUID PKs; nullable patient FK before anonymous claim; unique session-to-episode; token hash unique; claim idempotency constraint.
 - Index token hash/expiry, patient/completed time, question/rule versions.
 - Preserve the completed Phase 4.1 and Phase 4.2 migrations and all existing clinical-rule/finding structures for future compatibility. Prefer additive definition imports and registry configuration; do not remove columns, tables, constraints, or the detailed abdominal package.
-- Add immutable simplified questionnaire/package versions for only `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`. Do not mutate the existing abdominal package in place.
+- Retain immutable simplified questionnaire/package versions for the original `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER` release and the later additive `CHEST_PAIN` and `OTHER_SYMPTOMS` expansion. Do not mutate the existing detailed abdominal package in place.
 - Migration `20260822061610_Phase45ConfirmedDemoPackages` additively extends the constrained provenance vocabulary with `PRODUCT_DEMO_DEFINED`, `NOT_APPLICABLE`, and `NOT_CLINICALLY_APPROVED`. The migration changes no table or column shape, preserves preexisting rows, and supports rollback/reapply of imported demo definitions without misrepresenting them after reapplication.
 - Phase 4.7 must make the current required `clinical_assessments.urgency_code` nullable, or implement an equally small truthful representation, so a neutral symptom summary does not persist a fabricated urgency. Prefer a nullable field with a dedicated neutral-assessment factory over a sentinel urgency code. No destructive migration is allowed.
 - If temporary AI-extraction provenance is persisted, keep it in temporary workflow/application-owned storage, exclude provider-specific fields from core Domain, apply minimum retention, and never treat raw or unvalidated extraction as a clinical fact.
@@ -537,7 +537,7 @@ The result contract contains primary symptom, duration, intensity, controlled ad
 - AI output is schema-, enum-, confidence-, pathway-, conflict-, and safety-validated before use. AI-supplied urgency, disposition, diagnosis, thresholds, red flags, prescriptions, treatment recommendations, or probabilities are rejected or ignored.
 - Prompt injection cannot disable application safety or deterministic questionnaire state. Optional neutral rendering cannot add clinical conclusions or alter canonical structured fields.
 - Provider requests, responses, errors, and logs exclude capability/bearer tokens, unnecessary demographics, raw health payloads, and prompts containing more clinical data than needed. Provider failure does not leak secrets or internals.
-- Unknown or unsupported symptoms are never silently mapped to a supported demo pathway. `OTHER_SYMPTOMS` remains unsupported and is not a clinical catch-all.
+- Unknown or insufficient input is never silently mapped to a supported demo pathway. `OTHER_SYMPTOMS` is a supported neutral-demo fallback only for a meaningful symptom outside the four named pathways; it is not authoritative for meaningless or insufficient input and carries no clinical interpretation.
 - Completed records cannot be overwritten.
 
 ## 10. External Integrations
@@ -553,13 +553,13 @@ Internal answers and the completed neutral assessment retain stable identifiers 
 
 ## 12. Tests
 
-- End-to-end anonymous, authenticated-primary, and authorized-managed flows for `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`.
+- End-to-end anonymous, authenticated-primary, and authorized-managed flows for `HEADACHE`, `ABDOMINAL_PAIN`, `CHEST_PAIN`, `FEVER`, and `OTHER_SYMPTOMS`.
 - Explicit structured flow remains usable during AI provider outage.
 - Duration extraction and unit validation; intensity integer/range validation from 1 through 10; controlled additional-symptom selection restricted to `NAUSEA`, `DIARRHEA`, and `FEVER`; deterministic exclusion of `FEVER` as an additional option when the primary pathway is `FEVER`; multi-field extraction from one message; and avoidance of questions already answered by reliably validated values.
 - Structured-output schema/enum/confidence validation; malformed, ambiguous, conflicting, unsupported, diagnosis/urgency/disposition/probability-bearing, and adversarial outputs cannot become authoritative answers.
 - Intent/safety fixtures for out-of-scope input, prescription requests, unsupported clinical requests, prompt injection, and ambiguous input.
 - Provider-unavailable behavior preserves explicit deterministic intake/completion and canonical result wording; no unsafe guessed extraction is accepted.
-- Registry tests prove exactly `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER` are demo-supported; `CHEST_PAIN`, `OTHER_SYMPTOMS`, and every other preexisting recognized-but-unsupported pathway remain safe; unknown pathways remain distinct; and no package is borrowed across pathways.
+- Registry tests prove exactly `HEADACHE`, `ABDOMINAL_PAIN`, `CHEST_PAIN`, `FEVER`, and `OTHER_SYMPTOMS` are demo-supported; `RESPIRATORY_SYMPTOMS`, `BACK_PAIN`, and unknown pathways remain distinct and unsupported; and no package is borrowed across pathways.
 - Deterministic questionnaire progression and completeness tests cover each simplified package, already-answered skipping, stale/concurrent submissions, and completion refusal until the minimum fields are present.
 - Negative contract/reflection tests prove no current demo response or completion path generates urgency, disposition, red-flag output, emergency recommendation, diagnosis, prescription, treatment recommendation, or numeric disease probability.
 - Temporary sessions/answers never appear in Clinical History before completion; abandoned anonymous and authenticated sessions create no permanent episode or history record.
@@ -577,7 +577,7 @@ Internal answers and the completed neutral assessment retain stable identifiers 
 - Authenticated users assess only authorized patients.
 - `PreTriageSession` remains temporary workflow state; only successful completion creates a permanent `PreTriageEpisode` + `ClinicalAssessment` and projects it into Clinical History.
 - Abandonment creates no Clinical History record; authenticated abandoned flows cannot resume in the MVP; unclaimed anonymous data expires after 24 hours.
-- `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER` pass the simplified vertical slice; `ABDOMINAL_PAIN` is presented as "Stomach pain" without changing its stable pathway code.
+- `HEADACHE`, `ABDOMINAL_PAIN`, `CHEST_PAIN`, `FEVER`, and `OTHER_SYMPTOMS` pass the simplified vertical slice; `ABDOMINAL_PAIN` is presented as "Stomach pain" without changing its stable pathway code.
 - Each supported pathway collects primary symptom, duration, intensity 1-10, and controlled additional symptoms through an exact immutable simplified questionnaire version. The complete controlled option catalog is exactly `NAUSEA`, `DIARRHEA`, and `FEVER`, with no fourth option.
 - The `FEVER` package deterministically excludes `FEVER` from applicable additional-symptom choices when `FEVER` is already the primary symptom; it must not ask or persist redundant fever-as-additional-symptom data.
 - Natural language may populate multiple valid fields and already answered questions are skipped; explicit structured entry works without AI.
@@ -593,13 +593,13 @@ Internal answers and the completed neutral assessment retain stable identifiers 
 - Phases 1-3 (Phase 3 only for dependent assessments).
 - Completed Phase 4.1-4.4 foundations.
 - Andrea's demo direction in this plan is authoritative for current Phase 4 execution.
-- Andrea-confirmed demo configuration: supported pathways are `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`; the controlled additional-symptom catalog is exactly `NAUSEA`, `DIARRHEA`, and `FEVER`; `FEVER` is excluded when it duplicates the primary pathway.
-- The frontend flow is a UX reference only; it is not authority to support all five choices or to create clinical protocols.
+- Current demo configuration: supported pathways are `HEADACHE`, `ABDOMINAL_PAIN`, `CHEST_PAIN`, `FEVER`, and `OTHER_SYMPTOMS`; the controlled additional-symptom catalog is exactly `NAUSEA`, `DIARRHEA`, and `FEVER`; `FEVER` is excluded when it duplicates the primary pathway.
+- The frontend flow is a UX reference only; Phase 4 support does not authorize clinical protocols or clinical decision output for any of the five choices.
 - `beeexy-phase4-provisional-clinical-definitions.md` remains provenance for the stored detailed abdominal package and future clinical work, but its red flags, urgency rules, dispositions, and emergency recommendations are not dependencies of current demo execution.
 
 ## 15. Deferred / Technical TBD Items
 
-- The demo pathway and additional-symptom product decisions are complete: `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER` are supported; `NAUSEA`, `DIARRHEA`, and `FEVER` are the complete additional-symptom catalog; no fourth option may be invented.
+- The demo pathway and additional-symptom product decisions are complete: `HEADACHE`, `ABDOMINAL_PAIN`, `CHEST_PAIN`, `FEVER`, and `OTHER_SYMPTOMS` are supported; `NAUSEA`, `DIARRHEA`, and `FEVER` are the complete additional-symptom catalog; no fourth option may be invented.
 - Truthful demo provenance is resolved: simplified packages persist `PRODUCT_DEMO_DEFINED`, `NOT_APPLICABLE`, and `NOT_CLINICALLY_APPROVED` and remain distinct from reference-platform-derived clinical content.
 - **TBD — neutral continuation wording:** optional product-approved message directing the user to the next Beeexy experience without clinical recommendation.
 - Concrete AI provider/vendor selection, production terminology normalization, localization, and future dynamic questioning.
@@ -611,9 +611,9 @@ Internal answers and the completed neutral assessment retain stable identifiers 
 
 Phase 4.1 through Phase 4.4 remain complete. Their persistence foundations, immutable versioning, provider-independent AI guardrails, anonymous capability security, 24-hour expiry metadata, authenticated authorization, IDOR protection, and exact-definition pinning are retained.
 
-### Ready for Phase 4.6 intake implementation
+### Current active demo-definition boundary
 
-Phase 4.5 is complete. The active demo-definition boundary supports `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER` using the exact `NAUSEA`, `DIARRHEA`, and `FEVER` option catalog and deterministic primary-symptom exclusion. No remaining product decision blocks Phase 4.6. Its intake implementation must consume the exact pinned simplified package schemas rather than inventing content or applying the stored detailed abdominal protocol.
+The active demo-definition boundary supports `HEADACHE`, `ABDOMINAL_PAIN`, `CHEST_PAIN`, `FEVER`, and `OTHER_SYMPTOMS` using the exact `NAUSEA`, `DIARRHEA`, and `FEVER` option catalog and deterministic primary-symptom exclusion. The implemented intake consumes exact pinned simplified package schemas rather than inventing content or applying the stored detailed abdominal protocol.
 
 ### Small additive compatibility work
 
@@ -621,7 +621,7 @@ Phase 4.5 added profile-aware provider/registry resolution and one narrow proven
 
 ### Must remain unavailable
 
-`CHEST_PAIN` and `OTHER_SYMPTOMS` remain recognized but unsupported for the demo and receive no protocol. Existing `RESPIRATORY_SYMPTOMS` and `BACK_PAIN` recognition remains unchanged and unsupported. Detailed clinical execution is unavailable for every pathway, including all three supported demo pathways: stored detailed abdominal rules remain versioned but are not invoked.
+Existing `RESPIRATORY_SYMPTOMS` and `BACK_PAIN` recognition remains unchanged and unsupported. Detailed clinical execution is unavailable for every pathway, including all five supported neutral-demo pathways: stored detailed abdominal rules remain versioned but are not invoked.
 
 ## Phase 4.1 — Pre-Triage Domain + Persistence Foundation
 
@@ -1533,7 +1533,7 @@ Allow a bearer-authenticated patient or currently authorized manager to voluntar
 - AI/LLM interpretation, summarization into clinical conclusions, advice generation, warning-sign generation, or any Phase 10 dependency.
 - Branching logic inferred from Andrea's material, answer-to-warning mappings, or rules borrowed from the Phase 4 detailed abdominal package.
 - Anonymous/capability-only diary access, edits/deletes/amendments, routine/task completion, a clinic portal, frontend work, or a content-administration API.
-- Activating `CHEST_PAIN` as a Phase 4 Pre-Triage pathway.
+- Changing the existing five-pathway Phase 4 neutral-demo registry as part of Phase 9.
 - Projecting diary entries into Phase 5 Clinical History, adding Phase 6 FHIR mappings, or emitting Phase 12 notification intents.
 
 ## 4. Domain Model
@@ -1647,21 +1647,21 @@ None. Phase 9 diary entries remain internal source data. Andrea's current FHIR m
 16. Sensitive answers, question/option text, warning-sign text, and complete clinical payloads are absent from application logs and technical telemetry.
 17. The original Pre-Triage result and frozen Phase 4 versions remain unchanged; no new Clinical History event is created.
 18. No unsupported FHIR mapping or export inclusion is introduced.
-19. `CHEST_PAIN` remains unsupported by executable Phase 4 Pre-Triage and cannot become enabled through a Phase 9 import.
+19. Phase 9 imports do not mutate the existing Phase 4 neutral-demo registry; `CHEST_PAIN` remains intentionally supported there and `OTHER_SYMPTOMS` has no Andrea Phase 9 package.
 20. Every Phase 9 endpoint passes the mandatory matrix and the complete regression suite passes.
 
 ## 14. Dependencies
 
 - Phases 1-2 for foundation/authentication; completed Phase 3 patient authority for managed access; completed Phase 4 immutable patient-owned episode and frozen pathway/version provenance; Phase 5 only as an immutability/separation convention, not as a projection target.
 - The medical-team-provided `symptoms.md` source and an immutable release identity/hash. Its exact questions, options, ordering, and warning-sign text are content dependencies for Phase 9.3, not inputs to a rule engine.
-- Existing `ClinicalContentStatus`, code/version/hash, canonical import, activation, and exact-version retrieval patterns. Andrea's source requires the truthful additive source value `MEDICAL_TEAM_PROVIDED`; its actual review/approval timestamp must come from clinical release provenance and must not be fabricated from import or implementation time.
+- Existing `ClinicalContentStatus`, code/version/hash, canonical import, activation, and exact-version retrieval patterns. Andrea's source uses the truthful additive source value `MEDICAL_TEAM_PROVIDED`; approval was recorded for 2026-09-07, represented at date precision as `2026-09-07T00:00:00Z` without attributing a reviewer or a more precise approval time.
 - No dependency on Phase 6, Phase 8, Phase 10, or Phase 12. In particular, Phase 9 neither consumes AI nor produces notification/reminder intents.
 
 ## 15. Deferred / TBD Items
 
-- **Repository input required for 9.3:** at this plan rewrite, the required `symptoms.md` file is not present in the backend workspace, its parent project, or Git history. It must be checked in/provided and read verbatim before exact package fixtures, counts, hashes, answer schemas, and approval provenance can be finalized. This does not block 9.1 or 9.2.
+- **Resolved for 9.3:** the authoritative `docs/symptoms.md` file is checked in and protected by byte-level checksum; Andrea's 2026-09-07 approval closes the release-provenance dependency without changing its content.
 - **Clinical/product TBD:** final versioned patient-facing heading/contextual copy around the supplied warning-sign lists if that wording is not already explicit in `symptoms.md`. The example wording in the redesign prompt is not approved copy and must not be shipped by default.
-- **Clinical/product TBD:** `CHEST_PAIN` Phase 4 activation and resulting Phase 9 integration. Andrea supplied Phase 9 source material for it, but Phase 4 continues to support only `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`.
+- **Resolved for 9.3:** `CHEST_PAIN` is an intentional member of the existing five-pathway Phase 4 neutral-demo registry and its Andrea Phase 9 package is approved and active. `OTHER_SYMPTOMS` remains Phase 4-supported but has no Andrea package and receives no invented Phase 9 content.
 - **Post-MVP / separately governed:** localization, content-administration/reviewer UI, emergency content-withdrawal workflow, diary correction/deletion and long-term retention rights, Phase 5 timeline projection, Phase 6/FHIR mapping, Phase 11 sharing/export, and any future notification behavior.
 - No follow-up rules, thresholds, intervals, red-flag mappings, escalation actions, or Care Guide recommendations are waiting to be filled in; those concepts are deliberately absent from Phase 9 rather than blockers.
 
@@ -1670,13 +1670,13 @@ None. Phase 9 diary entries remain internal source data. Andrea's current FHIR m
 - An eligible source is a completed `PreTriageEpisode` with non-null patient ownership, including an anonymously completed episode after successful Phase 4 claim. Active sessions, abandoned sessions, expired/unclaimed anonymous episodes, and capability-only callers are ineligible.
 - The diary pathway is derived from the episode's frozen `QuestionnaireDefinitionVersion.Pathway`; it is never supplied by the Phase 9 caller and is never inferred from new answers.
 - A Phase 9 entry references the original episode but does not rerun or rewrite its questionnaire, answers, rule-set reference, neutral `ClinicalAssessment`, result, completion time, provenance, or Clinical History projection. It creates no diagnosis, urgency, disposition, recommendation, or additional Pre-Triage episode.
-- `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`: Andrea has supplied Phase 9 questions/options and warning-sign information; these are the only currently executable Phase 4 pathways and are the planned active Phase 9 packages after exact source import and approval validation.
-- `CHEST_PAIN`: Andrea has supplied Phase 9 source material, which may be preserved as an immutable inactive package, but no current Phase 4 session/episode may execute this pathway. Importing or storing its Phase 9 content must not update the Phase 4 supported-pathway registry. Activation/integration remains an explicit separate decision.
+- `HEADACHE`, `ABDOMINAL_PAIN`, `FEVER`, and `CHEST_PAIN`: Andrea supplied and approved the exact Phase 9 questions/options and warning-sign information; all four immutable `andrea-symptoms-v1` packages are active for exact-pathway lookup.
+- `OTHER_SYMPTOMS`: remains executable in the existing Phase 4 neutral-demo registry but has no Andrea Phase 9 package. Phase 9 must fail closed rather than borrow content from another pathway or invent a fifth package.
 - Warning signs are stored as ordered, reviewed informational text. There are deliberately no conditions connecting them to questions/options and no result such as `redFlagDetected`.
 
 ## Implementation sequence
 
-The sequential dependency chain is `9.1 -> 9.2 -> 9.3 -> 9.4 -> 9.5 -> 9.6 -> 9.7`. Phase 9.1 is implementation-ready now because it is content-neutral; Phase 9.3 requires the missing source artifact and exact release provenance noted above.
+The sequential dependency chain is `9.1 -> 9.2 -> 9.3 -> 9.4 -> 9.5 -> 9.6 -> 9.7`. Phases 9.1 and 9.2 are complete, and Phase 9.3 has its source and approval dependencies resolved. Phase 9.4 remains not started and requires separate authorization.
 
 ## Phase 9.1 — Neutral Symptom Diary Domain + Persistence Foundation
 
@@ -1740,29 +1740,35 @@ The sequential dependency chain is `9.1 -> 9.2 -> 9.3 -> 9.4 -> 9.5 -> 9.6 -> 9.
 
 ## Phase 9.3 — Exact Andrea Symptom Content Import
 
-**Phase 9.3 status:** NOT STARTED
+**Phase 9.3 status:** COMPLETE (2026-09-07)
 
 **Objective:** Materialize Andrea's supplied questions/options and warning-sign information exactly as immutable Phase 9 packages, without translating the material into rules.
 
-**Exact scope:** Read the checked-in `symptoms.md` completely; create source-controlled canonical package fixtures for `HEADACHE`, `ABDOMINAL_PAIN`, `FEVER`, and `CHEST_PAIN`; preserve exact wording, Unicode, punctuation, options, and source order; assign only stable non-clinical technical IDs; record the source reference/hash and actual review/approval provenance; and import atomically. Activate the first three only after their reviewed/approved provenance validates. Preserve `CHEST_PAIN` as inactive until its separate integration decision.
+**Exact scope:** Read the checked-in `docs/symptoms.md` completely; create source-controlled canonical package fixtures for `HEADACHE`, `ABDOMINAL_PAIN`, `FEVER`, and `CHEST_PAIN`; preserve exact wording, Unicode, punctuation, options, and source order; assign only stable non-clinical technical IDs; record the source reference/hash and actual review/approval provenance; import atomically; and activate all four approved packages without changing the Phase 4 registry.
 
 **Explicitly out of scope:** Editing/normalizing Andrea's wording; extra symptoms/questions/options/warnings; invented requiredness, ranges, thresholds, branching, answer-to-warning mappings, urgency, recommendations, Phase 4 package/registry changes, and endpoints.
 
-**Dependencies:** Phase 9.2; the actual `symptoms.md` artifact; a truthful immutable release version/hash and clinical approval timestamp. The file absence recorded in Section 15 blocks this subphase only.
+**Dependencies:** Phase 9.2; the checked-in `docs/symptoms.md` artifact; immutable release version/hash; and Andrea's approval dated 2026-09-07. All Phase 9.3 dependencies are resolved.
 
 **Domain/database changes:** No schema change expected. Add source package definitions/fixtures and imported rows. If the source omits a display wrapper, leave it absent pending approved versioned copy rather than using the prompt's example sentence.
 
-**Application/use cases:** Invoke the 9.2 importer through the repository's established controlled import/bootstrap path; no public import command.
+**Application/use cases:** Invoke the 9.2 importer through the explicit production-only `import-phase9-andrea-symptom-content` CLI command. There is no HTTP import route or automatic startup seed.
 
-**Endpoints involved:** None; OpenAPI remains unchanged and Phase 4 still rejects `CHEST_PAIN`.
+**Endpoints involved:** None; OpenAPI remains unchanged. Phase 4's pre-existing five-pathway registry intentionally includes `CHEST_PAIN` and `OTHER_SYMPTOMS`.
 
 **Clinical-content dependencies:** Exclusively `symptoms.md`. The Phase 4 detailed abdominal package, prototype, generic medical knowledge, and AI are prohibited sources.
 
-**Security/privacy requirements:** Validate before persistence; never log source text; never mark unverified metadata approved; never activate Chest Pain indirectly; package text remains static display data with no executable condition fields.
+**Security/privacy requirements:** Validate before persistence; never log source text; mark only the explicitly approved 2026-09-07 release approved/active; package text remains static display data with no executable condition fields; and do not create an `OTHER_SYMPTOMS` package or cross-pathway fallback.
 
-**Tests:** Golden field-for-field comparison with the source; exact four-category inventory; exact counts/orders determined only after reading the file; no added/changed content; stable hashes/IDs; import idempotency/version coexistence; first-three activation; inactive Chest Pain; Phase 4 supported registry remains exactly `HEADACHE`, `ABDOMINAL_PAIN`, and `FEVER`; no warning/answer links or rule artifacts.
+**Tests:** Golden field-for-field comparison with the source; exact four-category inventory; exact counts/orders; no added/changed content; stable hashes/IDs; import idempotency/version coexistence; exact four-package approval and activation; exact-pathway active lookup for all four; no package/fallback for `OTHER_SYMPTOMS`; Phase 4 supported registry remains exactly `HEADACHE`, `ABDOMINAL_PAIN`, `CHEST_PAIN`, `FEVER`, and `OTHER_SYMPTOMS`; no warning/answer links or rule artifacts.
 
-**Acceptance/exit criteria:** The database can reconstruct Andrea's exact reviewed source and provenance, current eligible pathways have displayable approved packages, Chest Pain remains non-executable/inactive, and all tests pass.
+**Acceptance/exit criteria:** The database can reconstruct Andrea's exact reviewed source and approval provenance, all four source pathways have displayable approved packages, `OTHER_SYMPTOMS` remains package-less with no fallback, the Phase 4 registry is unchanged, and all tests pass.
+
+**Implementation (2026-09-07):** The supplied `docs/symptoms.md` remains protected by byte checksum `dd851aa5e1ee2daac98926314b287e713d2e6c13c6f646ad4f1fc0e260907a62` and direct Markdown-to-package fidelity tests. Four deterministic `andrea-symptoms-v1` package releases use `MEDICAL_TEAM_PROVIDED` and source reference `docs/symptoms.md`: `andrea-headache-symptom-diary` (`acdd3489902a53e411723097fd14844c91600484cd88a0ca0f2f06c2e18267ed`), `andrea-abdominal-pain-symptom-diary` (`78537e6f95cb1a3ee1bbe91f67361d5e7a5c140c28be0eb916dfe58cf9110418`), `andrea-fever-symptom-diary` (`1ba55348de268ace25b4d415ca6aacc1078b44a62900ac50edb0b94d4e36bb84`), and `andrea-chest-pain-symptom-diary` (`56bd1da0a9e50de50ebf63a256beb2c67773b2eeeb75b3cdc9d4659c1a9d5101`). Exact visible questions, options, punctuation, Unicode, symptom grouping, and semicolon-ordered warning text remain unchanged. Andrea's approval dated 2026-09-07 closes all four releases as `REVIEWED` + `APPROVED`, with the date represented at date precision as `2026-09-07T00:00:00Z` for approval and activation; no reviewer identity or more precise event time is asserted. The content-bearing canonical metadata changed, so the release hashes changed while the release identity, source checksum, source path, technical IDs, and medical text did not. The production-only explicit CLI imports all four through the Phase 9.2 importer; no startup seed, HTTP route, direct EF seed, clinical rule, answer mapping, `OTHER_SYMPTOMS` package, or cross-phase registry mutation was added.
+
+**Verification (2026-09-07):** Focused source-fidelity/CLI unit tests passed 16/16, focused architecture tests passed 3/3, and focused PostgreSQL import tests passed 9/9. Relevant Phase 4 definition and endpoint regressions passed 22/22 unit and 69/69 PostgreSQL integration tests. The complete unit suite passed 1,163/1,163 and the complete PostgreSQL integration suite passed 701/701, with zero failures and zero skipped tests. The dedicated migration regression suite passed 23/23 and the OpenAPI/CORS regression passed 6/6; OpenAPI remains exactly 51 paths before and after closure. EF reports no pending model changes; restore, the complete Debug build with zero warnings/errors, `dotnet format --verify-no-changes`, and `git diff --check` passed. No Phase 9.3 migration was required.
+
+**Remaining blockers (2026-09-07):** None for Phase 9.3. The source and approval dependencies are resolved, the existing five-pathway Phase 4 registry is intentional, and the full verification gate passed. Phase 9.4 remains not started.
 
 ## Phase 9.4 — Authorized Reviewed Content Retrieval
 
@@ -1860,7 +1866,7 @@ The sequential dependency chain is `9.1 -> 9.2 -> 9.3 -> 9.4 -> 9.5 -> 9.6 -> 9.
 
 **Endpoints involved:** All three Phase 9 endpoints; no fourth endpoint and no `/care-guide` alias.
 
-**Clinical-content dependencies:** Exact approved 9.3 fixtures for current eligible pathways. Chest Pain remains an inactive regression fixture unless separately authorized.
+**Clinical-content dependencies:** Exact approved active 9.3 fixtures for `HEADACHE`, `ABDOMINAL_PAIN`, `FEVER`, and `CHEST_PAIN`. `OTHER_SYMPTOMS` remains an explicit no-package/fail-closed regression case.
 
 **Security/privacy requirements:** Full primary/managed/revoked/unrelated matrix, concurrency and IDOR review, sensitive-log scan, immutable-history verification, fail-closed content behavior, and zero AI/external/notification/FHIR/Clinical History side effects.
 
@@ -2825,7 +2831,7 @@ When a phase is explicitly authorized:
 - **Phase 2:** Final demographic requirements beyond the fields explicitly documented in `Backend/docs/fhir/` remain TBD.
 - **Phase 4:** medically approved questionnaire, urgency model, red flags, rules, and messages.
 - **Phase 7:** product approval of a synthetic/demo directory dataset and deterministic demo matching factors/weights is required; authoritative real directory data, real credentialing, and production matching rules/validation do not block the MVP/demo.
-- **Phase 9:** 9.1 and 9.2 are content-neutral and implementation-ready. Phase 9.3 requires the checked-in `symptoms.md` artifact plus truthful immutable release/approval provenance; final wrapper copy and `CHEST_PAIN` activation remain scoped TBDs and do not authorize rules, intervals, escalation, recommendations, or reminders.
+- **Phase 9:** Phases 9.1 and 9.2 are complete, and Phase 9.3's checked-in source plus 2026-09-07 approval provenance are resolved. Phase 9.4 and later remain not started pending explicit authorization; no rules, intervals, escalation, recommendations, reminders, or invented `OTHER_SYMPTOMS` content are authorized.
 - **Phase 10:** COMPLETE. Production NVIDIA credentials and a credentialed deployment smoke check remain operational deployment concerns, not implementation or standard acceptance blockers. Provider selection, versioned prompt content, restricted-audit handling, MVP inputs/limits, safety semantics, disclaimers, private storage, and retention behavior are implemented and covered with credential-free fakes in the repository suite.
 - **Phase 11:** share duration defaults and frontend public share URL.
 - **Phase 12:** VAPID keys and approved notification copy/rules.

@@ -36,6 +36,7 @@ var provisionDemoGuestCommand = PrivateAccessCli.IsProvisionDemoGuestCommand(arg
 var phase7DemoDirectoryCommand = Phase7DemoDirectoryCli.IsCommand(args);
 var phase8DemoAvailabilityCommand = Phase8DemoAvailabilityCli.IsCommand(args);
 var appointmentAdministrationCommand = AppointmentAdministrationCli.IsCommand(args);
+var phase9SymptomContentCommand = Phase9SymptomContentCli.IsCommand(args);
 if (PrivateAccessCli.TryRun(args))
 {
     return;
@@ -101,6 +102,17 @@ if (appointmentAdministrationCommand)
         args,
         commandConfiguration,
         commandEnvironmentName,
+        cancellationToken: CancellationToken.None);
+    return;
+}
+
+if (phase9SymptomContentCommand)
+{
+    var commandConfiguration = new ConfigurationManager();
+    commandConfiguration.AddEnvironmentVariables();
+    await Phase9SymptomContentCli.ExecuteAsync(
+        commandConfiguration,
+        commandConfiguration["ASPNETCORE_ENVIRONMENT"],
         cancellationToken: CancellationToken.None);
     return;
 }
