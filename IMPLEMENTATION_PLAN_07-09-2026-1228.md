@@ -1710,7 +1710,7 @@ The sequential dependency chain is `9.1 -> 9.2 -> 9.3 -> 9.4 -> 9.5 -> 9.6 -> 9.
 
 ## Phase 9.2 — Immutable Reviewed Symptom-Diary Package Infrastructure
 
-**Phase 9.2 status:** NOT STARTED
+**Phase 9.2 status:** COMPLETE
 
 **Objective:** Implement package validation, canonical hashing, immutable import, and active/exact-version retrieval without supplying medical content.
 
@@ -1733,6 +1733,10 @@ The sequential dependency chain is `9.1 -> 9.2 -> 9.3 -> 9.4 -> 9.5 -> 9.6 -> 9.
 **Tests:** A test-only synthetic package fixture that is never production-imported; invalid identity/order/reference/schema/status/timestamp/hash cases; atomic import rollback; identical import no-op; changed-content/same-version rejection; concurrent import convergence; active-versus-exact retrieval; no executable rule/condition/action fields; migration/OpenAPI/full regressions.
 
 **Acceptance/exit criteria:** A later source package can be imported idempotently and retrieved only under truthful approval rules, while no medical content or clinical behavior exists and all tests pass.
+
+**Implementation (2026-09-07):** Added provider-neutral symptom-diary package/import/read contracts; deterministic structural/provenance validation; canonical JSON serialization and lowercase SHA-256 content identity; transactional immutable package-graph import with no-op identical retry, fail-closed same-version conflict handling, and unique-constraint concurrency recovery; and distinct exact historical and exact-pathway active providers. Active selection is deterministic by activation timestamp, import timestamp, and immutable ID and admits only reviewed, approved, activated content. Phase 9.1 already represented the complete graph and immutable identity, so no Phase 9.2 migration or advisory lock was required. No medical package, source parser, endpoint, check-in behavior, clinical evaluator, reminder, AI, FHIR, Clinical History, or notification integration was added.
+
+**Verification (2026-09-07):** Focused Phase 9.2 unit/architecture tests passed 22/22 and focused PostgreSQL package-infrastructure tests passed 11/11. The complete unit suite passed 1,144/1,144 and the complete PostgreSQL integration suite passed 692/692, with zero failures and zero skipped tests. The migration chain plus Phase 9.1 rollback/reapply regression and the OpenAPI regression passed 3/3; OpenAPI remained 51 paths with no Phase 9 route. EF reported no pending model changes; the complete Debug solution build completed with zero warnings/errors; restore, `dotnet format --verify-no-changes`, and `git diff --check` passed.
 
 ## Phase 9.3 — Exact Andrea Symptom Content Import
 

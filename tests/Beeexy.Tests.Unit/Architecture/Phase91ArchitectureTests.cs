@@ -1,5 +1,5 @@
 using Beeexy.Api.Middleware;
-using Beeexy.Application.Patients;
+using Beeexy.Application.Care;
 using Beeexy.Domain.Care;
 using Beeexy.Infrastructure.Persistence;
 
@@ -29,28 +29,35 @@ public sealed class Phase91ArchitectureTests
     }
 
     [Fact]
-    [Trait("Category", "Phase91")]
-    public void Phase91_IntroducesNoApplicationUseCaseOrApiEndpointType()
+    [Trait("Category", "Phase92")]
+    public void Phase92_IntroducesProviderContractsButNoApiEndpointType()
     {
-        var applicationTypes = typeof(AuthorizePatientAccess).Assembly.GetTypes();
+        var applicationTypes = typeof(ISymptomDiaryContentProvider).Assembly.GetTypes();
         var apiTypes = typeof(CorrelationIdMiddleware).Assembly.GetTypes();
 
-        Assert.DoesNotContain(applicationTypes, type =>
-            type.Name.Contains("SymptomDiary", StringComparison.OrdinalIgnoreCase) ||
-            type.Name.Contains("SymptomCheckIn", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(applicationTypes, type => type == typeof(ISymptomDiaryContentProvider));
+        Assert.Contains(applicationTypes, type => type == typeof(ISymptomDiaryContentImporter));
         Assert.DoesNotContain(apiTypes, type =>
             type.Name.Contains("SymptomDiary", StringComparison.OrdinalIgnoreCase) ||
             type.Name.Contains("SymptomCheckIn", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    [Trait("Category", "Phase91")]
-    public void Phase91Persistence_HasNoProductServiceOrExternalIntegrationType()
+    [Trait("Category", "Phase92")]
+    public void Phase92_InfrastructureContainsOnlyPackageInfrastructureNotProductServices()
     {
         var infrastructureTypes = typeof(BeeexyDbContext).Assembly.GetTypes()
             .Where(type => type.Namespace?.Contains("Care", StringComparison.Ordinal) == true)
             .ToArray();
 
-        Assert.Empty(infrastructureTypes);
+        Assert.Contains(infrastructureTypes, type => type.Name == "SymptomDiaryContentImporter");
+        Assert.Contains(infrastructureTypes, type => type.Name == "SymptomDiaryContentProvider");
+        Assert.DoesNotContain(infrastructureTypes, type =>
+            type.Name.Contains("Reminder", StringComparison.OrdinalIgnoreCase) ||
+            type.Name.Contains("FollowUp", StringComparison.OrdinalIgnoreCase) ||
+            type.Name.Contains("CareGuide", StringComparison.OrdinalIgnoreCase) ||
+            type.Name.Contains("Notification", StringComparison.OrdinalIgnoreCase) ||
+            type.Name.Contains("Diagnosis", StringComparison.OrdinalIgnoreCase) ||
+            type.Name.Contains("Recommendation", StringComparison.OrdinalIgnoreCase));
     }
 }

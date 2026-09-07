@@ -1,4 +1,5 @@
 using Beeexy.Application.Ai;
+using Beeexy.Application.Care;
 using Beeexy.Application.Directory;
 using Beeexy.Application.Identity;
 using Beeexy.Application.History;
@@ -8,6 +9,7 @@ using Beeexy.Application.Scheduling;
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
 using Beeexy.Infrastructure.Ai;
+using Beeexy.Infrastructure.Care;
 using Beeexy.Infrastructure.DirectoryServices;
 using Beeexy.Infrastructure.Identity;
 using Beeexy.Infrastructure.History;
@@ -132,6 +134,11 @@ public static class DependencyInjection
         services.AddSingleton<ClinicalDefinitionPackageValidator>();
         services.AddScoped<IClinicalDefinitionImporter, ClinicalDefinitionImporter>();
         services.AddScoped<IClinicalDefinitionProvider, ClinicalDefinitionProvider>();
+        services.AddSingleton<SymptomDiaryPackageValidator>();
+        services.AddSingleton<SymptomDiaryPackageCanonicalSerializer>();
+        services.AddSingleton<SymptomDiaryPackageHashCalculator>();
+        services.AddScoped<ISymptomDiaryContentImporter, SymptomDiaryContentImporter>();
+        services.AddScoped<ISymptomDiaryContentProvider, SymptomDiaryContentProvider>();
         services.AddScoped<IClinicalPathwayRegistry, ClinicalPathwayRegistry>();
         if (clinicalAiProviderOptions.TryCreateNvidia(out var nvidiaOptions))
         {
