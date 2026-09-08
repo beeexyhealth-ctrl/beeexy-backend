@@ -30,7 +30,7 @@ public sealed class Phase91ArchitectureTests
 
     [Fact]
     [Trait("Category", "Phase92")]
-    public void Phase92_ProviderContractsRemainWhilePhase94AddsOnlyTheReadEndpoint()
+    public void Phase92_ProviderContractsRemainWhileLaterPhasesUseTheApprovedEndpoints()
     {
         var applicationTypes = typeof(ISymptomDiaryContentProvider).Assembly.GetTypes();
         var apiTypes = typeof(CorrelationIdMiddleware).Assembly.GetTypes();
@@ -38,8 +38,8 @@ public sealed class Phase91ArchitectureTests
         Assert.Contains(applicationTypes, type => type == typeof(ISymptomDiaryContentProvider));
         Assert.Contains(applicationTypes, type => type == typeof(ISymptomDiaryContentImporter));
         Assert.Contains(apiTypes, type => type.Name == "SymptomDiaryEndpointExtensions");
+        Assert.Contains(apiTypes, type => type.Name == "SymptomCheckInResponse");
         Assert.DoesNotContain(apiTypes, type =>
-            type.Name.Contains("SymptomCheckIn", StringComparison.OrdinalIgnoreCase) ||
             type.Name.Contains("CareGuide", StringComparison.OrdinalIgnoreCase));
     }
 

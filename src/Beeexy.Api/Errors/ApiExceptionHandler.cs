@@ -485,6 +485,32 @@ internal sealed class ApiExceptionHandler(
             return problem;
         }
 
+        if (exception is SymptomDiaryAnswerValidationException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status422UnprocessableEntity,
+                Title = "Symptom diary answers are invalid.",
+                Detail =
+                    "The submitted answers do not match the selected symptom diary package."
+            };
+            problem.Extensions["errorCode"] = "symptom_diary.answers_invalid";
+            return problem;
+        }
+
+        if (exception is SymptomCheckInIdempotencyConflictException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Symptom diary idempotency conflict.",
+                Detail =
+                    "The idempotency key was already used for a different symptom diary entry."
+            };
+            problem.Extensions["errorCode"] = "symptom_diary.idempotency_conflict";
+            return problem;
+        }
+
         if (exception is PreTriageInterpretationUnavailableException)
         {
             var problem = new ProblemDetails

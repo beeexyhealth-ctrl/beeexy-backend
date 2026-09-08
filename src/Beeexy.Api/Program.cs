@@ -236,6 +236,8 @@ builder.Services.AddScoped<ListCareRelationships>();
 builder.Services.AddScoped<RevokeCareRelationship>();
 builder.Services.AddScoped<AuthorizePatientAccess>();
 builder.Services.AddScoped<GetSymptomDiaryContent>();
+builder.Services.AddScoped<RecordSymptomCheckIn>();
+builder.Services.AddSingleton<SymptomDiaryAnswerStructureValidator>();
 builder.Services.AddScoped<GetPatientProfile>();
 builder.Services.AddScoped<UpdateManagedPatient>();
 builder.Services.AddSingleton(aiConversationOptions);

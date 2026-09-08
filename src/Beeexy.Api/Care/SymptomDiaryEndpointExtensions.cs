@@ -11,6 +11,8 @@ internal static class SymptomDiaryEndpointExtensions
 {
     internal const string ContentRoute =
         "/api/v1/pre-triage/episodes/{episodeId:guid}/symptom-diary-content";
+    internal const string CheckInRoute =
+        "/api/v1/pre-triage/episodes/{episodeId:guid}/check-ins";
 
     public static IEndpointRouteBuilder MapBeeexySymptomDiaryEndpoints(
         this IEndpointRouteBuilder endpoints)
@@ -28,6 +30,26 @@ internal static class SymptomDiaryEndpointExtensions
             .Produces<SymptomDiaryContentResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        endpoints.MapPost(CheckInRoute, RecordCheckInAsync)
+            .WithName("RecordSymptomCheckIn")
+            .WithTags("Symptom Diary")
+            .WithDescription(
+                "Voluntarily records one immutable symptom-diary entry against an eligible " +
+                "completed patient-owned Pre-Triage episode. The body supplies a non-empty " +
+                "UUID idempotencyKey, the exact immutable packageVersionId previously " +
+                "presented, and structurally validated answers. First creation returns 201; " +
+                "an identical retry returns 200; incompatible key reuse returns 409. The " +
+                "operation performs no clinical interpretation or downstream action.")
+            .RequireAuthorization()
+            .Produces<SymptomCheckInResponse>(StatusCodes.Status201Created)
+            .Produces<SymptomCheckInResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
@@ -65,6 +87,48 @@ internal static class SymptomDiaryEndpointExtensions
         return Results.Ok(ToResponse(result));
     }
 
+    private static async Task<IResult> RecordCheckInAsync(
+        Guid episodeId,
+        HttpRequest httpRequest,
+        RecordSymptomCheckInRequest request,
+        RecordSymptomCheckIn useCase,
+        CancellationToken cancellationToken)
+    {
+        if (episodeId == Guid.Empty)
+        {
+            throw new SymptomDiaryEpisodeNotFoundException();
+        }
+
+        if (httpRequest.Query.Count != 0)
+        {
+            throw new RequestValidationException(
+                "symptom_diary.unsupported_query",
+                "Symptom-diary check-in creation does not accept query parameters.");
+        }
+
+        var answers = request.Answers?.Select(answer =>
+            answer is null
+                ? new SymptomDiarySubmittedAnswer(null, default, HasUnsupportedFields: true)
+                : new SymptomDiarySubmittedAnswer(
+                    answer.QuestionCode,
+                    answer.Value,
+                    answer.AdditionalFields is { Count: > 0 }))
+            .ToArray() ?? [];
+        var result = await useCase.ExecuteAsync(
+            new RecordSymptomCheckInCommand(
+                EntityId.From(episodeId),
+                EntityId.From(request.PackageVersionId),
+                EntityId.From(request.IdempotencyKey),
+                answers,
+                AnswersProvided: request.Answers is not null,
+                HasUnsupportedFields: request.AdditionalFields is { Count: > 0 }),
+            cancellationToken);
+        var response = ToResponse(result);
+        return result.NewlyCreated
+            ? Results.Json(response, statusCode: StatusCodes.Status201Created)
+            : Results.Ok(response);
+    }
+
     private static SymptomDiaryContentResponse ToResponse(
         SymptomDiaryContentForEpisode result)
     {
@@ -100,6 +164,56 @@ internal static class SymptomDiaryEndpointExtensions
                                 option.SourceOrder))
                             .ToArray()))
                     .ToArray()),
+            new SymptomDiaryInformationResponse(
+                definition.SymptomInformationCode.Value,
+                definition.SymptomInformationVersion.Value,
+                definition.InformationalHeading,
+                definition.InformationalBody,
+                definition.WarningSigns.Select(warning =>
+                    new SymptomDiaryWarningSignResponse(
+                        warning.Code.Value,
+                        warning.DisplayText,
+                        warning.SourceOrder))
+                    .ToArray()));
+    }
+
+    private static SymptomCheckInResponse ToResponse(RecordSymptomCheckInResult result)
+    {
+        var definition = result.Package.Definition;
+        return new SymptomCheckInResponse(
+            result.CheckInId.Value,
+            result.EpisodeId.Value,
+            result.CreatedAt,
+            result.Pathway.Value,
+            result.PackageVersionId.Value,
+            definition.PackageCode.Value,
+            definition.PackageVersion.Value,
+            result.Package.CanonicalContentHash.Value,
+            new SymptomDiaryContentProvenanceResponse(
+                ToApiValue(definition.ContentStatus.Source),
+                ToApiValue(definition.ContentStatus.ReviewStatus),
+                ToApiValue(definition.ContentStatus.ApprovalStatus),
+                definition.ApprovedAt!.Value),
+            new SymptomDiaryCheckInQuestionSetResponse(
+                definition.QuestionSetCode.Value,
+                definition.QuestionSetVersion.Value),
+            result.Answers.Select(answer =>
+                new SymptomDiaryAcceptedAnswerResponse(
+                    answer.Question.Code.Value,
+                    answer.Question.PromptText,
+                    answer.Question.SourceOrder,
+                    answer.Question.IsRequired,
+                    JsonSerializer.Deserialize<JsonElement>(
+                        answer.Question.AnswerSchemaJson),
+                    answer.Question.Options.Select(option =>
+                        new SymptomDiaryQuestionOptionResponse(
+                            option.Code.Value,
+                            option.Value,
+                            option.DisplayText,
+                            option.SourceOrder))
+                        .ToArray(),
+                    answer.Value))
+                .ToArray(),
             new SymptomDiaryInformationResponse(
                 definition.SymptomInformationCode.Value,
                 definition.SymptomInformationVersion.Value,
@@ -179,3 +293,52 @@ internal sealed record SymptomDiaryWarningSignResponse(
     string Code,
     string DisplayText,
     int SourceOrder);
+
+internal sealed record RecordSymptomCheckInRequest
+{
+    public Guid PackageVersionId { get; init; }
+
+    public Guid IdempotencyKey { get; init; }
+
+    public IReadOnlyList<SymptomDiarySubmittedAnswerRequest?>? Answers { get; init; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? AdditionalFields { get; init; }
+}
+
+internal sealed record SymptomDiarySubmittedAnswerRequest
+{
+    public string? QuestionCode { get; init; }
+
+    public JsonElement Value { get; init; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? AdditionalFields { get; init; }
+}
+
+internal sealed record SymptomCheckInResponse(
+    Guid CheckInId,
+    Guid EpisodeId,
+    DateTimeOffset CreatedAt,
+    string Pathway,
+    Guid PackageVersionId,
+    string PackageCode,
+    string PackageVersion,
+    string ContentHash,
+    SymptomDiaryContentProvenanceResponse Provenance,
+    SymptomDiaryCheckInQuestionSetResponse QuestionSet,
+    IReadOnlyList<SymptomDiaryAcceptedAnswerResponse> Answers,
+    SymptomDiaryInformationResponse Information);
+
+internal sealed record SymptomDiaryCheckInQuestionSetResponse(
+    string Code,
+    string Version);
+
+internal sealed record SymptomDiaryAcceptedAnswerResponse(
+    string QuestionCode,
+    string Prompt,
+    int SourceOrder,
+    bool IsRequired,
+    JsonElement AnswerSchema,
+    IReadOnlyList<SymptomDiaryQuestionOptionResponse> Options,
+    JsonElement Value);

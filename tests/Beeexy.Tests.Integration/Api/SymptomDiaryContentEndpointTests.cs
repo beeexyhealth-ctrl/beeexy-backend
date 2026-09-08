@@ -23,7 +23,7 @@ namespace Beeexy.Tests.Integration.Api;
 
 [Collection(PostgreSqlCollection.Name)]
 [Trait("Category", "Phase94")]
-public sealed class SymptomDiaryContentEndpointTests(
+public sealed partial class SymptomDiaryContentEndpointTests(
     PostgreSqlContainerFixture postgres) : IAsyncLifetime
 {
     private static readonly DateTimeOffset Now =
@@ -325,10 +325,11 @@ public sealed class SymptomDiaryContentEndpointTests(
             .GetProperty("get");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(52, paths.EnumerateObject().Count());
-        Assert.False(paths.TryGetProperty(
-            "/api/v1/pre-triage/episodes/{episodeId}/check-ins",
-            out _));
+        Assert.Equal(53, paths.EnumerateObject().Count());
+        var checkInPath = paths.GetProperty(
+            "/api/v1/pre-triage/episodes/{episodeId}/check-ins");
+        Assert.True(checkInPath.TryGetProperty("post", out _));
+        Assert.False(checkInPath.TryGetProperty("get", out _));
         Assert.Contains(operation.GetProperty("security").EnumerateArray(), value =>
             value.TryGetProperty("Bearer", out _));
         var parameter = Assert.Single(operation.GetProperty("parameters").EnumerateArray());
@@ -743,7 +744,7 @@ public sealed class SymptomDiaryContentEndpointTests(
         public Task<SymptomDiaryPackageContent?> GetExactPackageAsync(
             EntityId packageVersionId,
             CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            throw new SymptomDiaryPackageIntegrityException("internal-package-secret");
     }
 
     private sealed record AuthenticationResult(

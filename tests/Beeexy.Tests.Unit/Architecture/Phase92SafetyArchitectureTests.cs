@@ -8,7 +8,7 @@ namespace Beeexy.Tests.Unit.Architecture;
 public sealed class Phase92SafetyArchitectureTests
 {
     [Fact]
-    public void CarePackageInfrastructure_HasNoForbiddenProductOrClinicalService()
+    public void CareInfrastructure_HasNoForbiddenClinicalOrCrossSystemService()
     {
         var careTypes = typeof(SymptomDiaryContentProvider).Assembly.GetTypes()
             .Where(type => type.Namespace == "Beeexy.Infrastructure.Care")
@@ -63,6 +63,5 @@ public sealed class Phase92SafetyArchitectureTests
         value.Contains("Notification", StringComparison.OrdinalIgnoreCase) ||
         value.Contains("ArtificialIntelligence", StringComparison.OrdinalIgnoreCase) ||
         value.Contains("Fhir", StringComparison.OrdinalIgnoreCase) ||
-        value.Contains("ClinicalHistory", StringComparison.OrdinalIgnoreCase) ||
-        value.Contains("CheckIn", StringComparison.OrdinalIgnoreCase);
+        value.Contains("ClinicalHistory", StringComparison.OrdinalIgnoreCase);
 }

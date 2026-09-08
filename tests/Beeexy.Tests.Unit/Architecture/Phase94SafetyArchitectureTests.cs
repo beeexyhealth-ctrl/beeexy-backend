@@ -39,7 +39,6 @@ public sealed class Phase94SafetyArchitectureTests
 
         var apiTypes = typeof(SymptomDiaryEndpointExtensions).Assembly.GetTypes();
         Assert.DoesNotContain(apiTypes, type =>
-            type.Name.Contains("CheckInEndpoint", StringComparison.OrdinalIgnoreCase) ||
             type.Name.Contains("CareGuide", StringComparison.OrdinalIgnoreCase));
 
         var responseProperties = typeof(SymptomDiaryContentResponse)
@@ -56,8 +55,9 @@ public sealed class Phase94SafetyArchitectureTests
     public void Phase94AddsNoLaterPhaseOrCrossSystemService()
     {
         var applicationTypes = typeof(GetSymptomDiaryContent).Assembly.GetTypes();
+        Assert.Contains(applicationTypes, type => type == typeof(RecordSymptomCheckIn));
         Assert.DoesNotContain(applicationTypes, type =>
-            type.Name is "RecordSymptomCheckIn" or "ListSymptomCheckIns" ||
+            type.Name is "ListSymptomCheckIns" ||
             type.Name.Contains("WarningMatcher", StringComparison.OrdinalIgnoreCase) ||
             type.Name.Contains("SymptomTrend", StringComparison.OrdinalIgnoreCase) ||
             type.Name.Contains("SymptomRecommendation", StringComparison.OrdinalIgnoreCase));

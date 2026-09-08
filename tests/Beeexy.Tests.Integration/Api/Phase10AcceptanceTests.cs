@@ -98,7 +98,7 @@ public sealed class Phase10AcceptanceTests(PostgreSqlContainerFixture postgres)
                 StringComparer.Ordinal);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(52, paths.EnumerateObject().Count());
+        Assert.Equal(53, paths.EnumerateObject().Count());
         Assert.Equal(expected.Keys.Order(), actualAiPaths.Keys.Order());
         foreach (var (path, methods) in expected)
         {

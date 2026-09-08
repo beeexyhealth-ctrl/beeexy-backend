@@ -32,6 +32,30 @@ public sealed class ApiExceptionHandlerTests
             StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [Trait("Category", "Phase95")]
+    [InlineData(typeof(SymptomDiaryAnswerValidationException),
+        StatusCodes.Status422UnprocessableEntity, "symptom_diary.answers_invalid")]
+    [InlineData(typeof(SymptomCheckInIdempotencyConflictException),
+        StatusCodes.Status409Conflict, "symptom_diary.idempotency_conflict")]
+    public void MapException_MapsCheckInFailuresWithoutSensitiveAnswers(
+        Type exceptionType,
+        int expectedStatus,
+        string expectedCode)
+    {
+        var problem = ApiExceptionHandler.MapException(
+            Assert.IsAssignableFrom<Exception>(Activator.CreateInstance(exceptionType)));
+
+        Assert.Equal(expectedStatus, problem.Status);
+        Assert.Equal(expectedCode, problem.Extensions["errorCode"]);
+        Assert.DoesNotContain("prompt", problem.ToString(),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("option", problem.ToString(),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("warning", problem.ToString(),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     [Trait("Category", "Phase107")]
     public void MapException_MapsSecondOpinionConflictWithoutProviderDetails()

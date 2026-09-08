@@ -142,6 +142,8 @@ public static class DependencyInjection
         services.AddScoped<
             ISymptomDiaryEpisodeReadRepository,
             SymptomDiaryEpisodeReadRepository>();
+        services.AddScoped<ISymptomCheckInTransaction, SymptomCheckInTransaction>();
+        services.AddSingleton<ISymptomCheckInAuditLogger, SymptomCheckInAuditLogger>();
         services.AddScoped<IClinicalPathwayRegistry, ClinicalPathwayRegistry>();
         if (clinicalAiProviderOptions.TryCreateNvidia(out var nvidiaOptions))
         {
