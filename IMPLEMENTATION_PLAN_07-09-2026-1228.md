@@ -1504,7 +1504,7 @@ No FHIR Appointment is generated or exported in Phase 8, and scheduling never im
 # Phase 9 — Longitudinal Symptom Diary and Reviewed Symptom Information
 
 **Priority:** MVP SHOULD-HAVE
-**Status:** IN PROGRESS
+**Status:** COMPLETE (2026-09-08)
 **Clinical/product direction:** APPROVED FOR PLANNING — Phase 9 is a voluntary symptom diary and static reviewed-information capability, not a clinical assessment, recommendation, escalation, or reminder engine.
 
 ## 1. Objective
@@ -1868,7 +1868,7 @@ The sequential dependency chain is `9.1 -> 9.2 -> 9.3 -> 9.4 -> 9.5 -> 9.6 -> 9.
 
 ## Phase 9.7 — Clinical-Safety, Privacy, and Acceptance Closure
 
-**Phase 9.7 status:** NOT STARTED
+**Phase 9.7 status:** COMPLETE (2026-09-08)
 
 **Objective:** Close Phase 9 with end-to-end evidence that the implemented feature is only a voluntary diary plus reviewed static information.
 
@@ -1891,6 +1891,14 @@ The sequential dependency chain is `9.1 -> 9.2 -> 9.3 -> 9.4 -> 9.5 -> 9.6 -> 9.
 **Tests:** Execute every Section 12 test, all three mandatory endpoint matrices, structural allow-list/deny-list tests, migration chain/rollback/reapply, EF pending-model check, OpenAPI snapshot, format/static checks, and the complete backend suite.
 
 **Acceptance/exit criteria:** All 20 Section 13 criteria pass objectively; all Phase 9 subphases and regressions pass; documentation records real verification evidence; and only then may Phase 9 change from `NOT STARTED` to complete.
+
+**Implementation (2026-09-08):** Closed Phase 9 through an acceptance, clinical-safety, privacy, authorization, provenance, immutability, and downstream-isolation audit without changing production behavior, database schema, migration history, public DTOs, or API routes. Dedicated Phase 9.7 semantic architecture coverage now locks the exact neutral dependency chain for the three use cases, excludes clinical evaluators and deferred AI/FHIR/Clinical History/scheduling/notification integrations, preserves warning signs as standalone static display information, and proves the diary domain and public surface expose no update/delete/cadence behavior. Consolidated real-PostgreSQL acceptance coverage exercises reviewed-content retrieval, explicit voluntary creation, exact frozen-history reconstruction, exact values and hashes, and zero cross-phase mutation for HEADACHE, ABDOMINAL_PAIN, FEVER, and CHEST_PAIN; verifies raw answer and reviewed medical text exclusion from technical logs; locks the exact three-operation Bearer-secured OpenAPI surface; and applies concealed behavior across all three operations to unrelated and reverse relationships, incomplete and unclaimed episodes, unknown UUIDs, and malformed route identifiers. Existing Phase 9.1-9.6 coverage remains authoritative for primary and active-managed access, immediate revocation, OTHER_SYMPTOMS fail-closed behavior, exact synthetic A-to-B historical evolution, structural-only validation, atomicity, immutable PostgreSQL guards, deterministic idempotency/concurrency, protected bounded cursor traversal, sanitized errors, and zero Clinical History/FHIR/scheduling/notification/outbox/AI effects. The audit found no production-code or schema defect; no fourth endpoint, `/care-guide` alias, medical inference, recommendation, escalation, reminder, automatic check-in, projection, or external call was added.
+
+**Verification (2026-09-08):** Locked restore succeeded with dependency auditing disabled because the configured vulnerability feed is unavailable in the execution environment; dependency resolution remained locked. The final Debug solution build completed with 0 warnings and 0 errors. Focused Phase 9.7 coverage passed 7/7 real-PostgreSQL acceptance cases and 4/4 semantic architecture/safety cases. Complete non-overlapping Phase 9.1-9.6 regressions passed 112/112 unit and 68/68 PostgreSQL/API cases. Targeted authorization/Pre-Triage regressions passed 142/142 unit and 159/159 PostgreSQL cases; Clinical History isolation passed 29/29 unit and 18/18 PostgreSQL cases; FHIR isolation passed 72/72 unit and 25/25 PostgreSQL cases; and Phase 10 AI isolation passed 247/247 unit and 69/69 PostgreSQL cases. The final complete backend suite passed 1,971 tests: 1,224 unit and 747 PostgreSQL integration, with 0 failures and 0 skipped. Focused migration regressions passed 31/31 and OpenAPI/CORS regressions passed 29/29. OpenAPI remains exactly 53 paths and contains exactly GET symptom-diary content plus POST/GET check-ins for Phase 9, with no update/delete/trend/reminder operation. The full migration chain and rollback/reapply coverage passed; EF reported no pending model changes; no Phase 9.7 migration or snapshot change exists. `docs/symptoms.md` retained SHA-256 `DD851AA5E1EE2DAAC98926314B287E713D2E6C13C6F646AD4F1FC0E260907A62`; active immutable package hashes remain HEADACHE `acdd3489902a53e411723097fd14844c91600484cd88a0ca0f2f06c2e18267ed`, ABDOMINAL_PAIN `78537e6f95cb1a3ee1bbe91f67361d5e7a5c140c28be0eb916dfe58cf9110418`, FEVER `1ba55348de268ace25b4d415ca6aacc1078b44a62900ac50edb0b94d4e36bb84`, and CHEST_PAIN `56bd1da0a9e50de50ebf63a256beb2c67773b2eeeb75b3cdc9d4659c1a9d5101`. Whole-solution formatting verification and `git diff --check` passed.
+
+**Remaining blockers (2026-09-08):** None. Phase 9 is complete.
+
+**Phase 9 overall status:** COMPLETE (2026-09-08). Phase 9 is closed; no later phase was started by this closure.
 
 ---
 
