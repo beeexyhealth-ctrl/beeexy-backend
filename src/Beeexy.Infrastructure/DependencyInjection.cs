@@ -139,6 +139,9 @@ public static class DependencyInjection
         services.AddSingleton<SymptomDiaryPackageHashCalculator>();
         services.AddScoped<ISymptomDiaryContentImporter, SymptomDiaryContentImporter>();
         services.AddScoped<ISymptomDiaryContentProvider, SymptomDiaryContentProvider>();
+        services.AddScoped<
+            ISymptomDiaryEpisodeReadRepository,
+            SymptomDiaryEpisodeReadRepository>();
         services.AddScoped<IClinicalPathwayRegistry, ClinicalPathwayRegistry>();
         if (clinicalAiProviderOptions.TryCreateNvidia(out var nvidiaOptions))
         {

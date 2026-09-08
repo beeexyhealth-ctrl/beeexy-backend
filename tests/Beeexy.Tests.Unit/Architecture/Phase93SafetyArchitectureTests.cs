@@ -29,11 +29,10 @@ public sealed class Phase93SafetyArchitectureTests
     }
 
     [Fact]
-    public void Phase93_AddsNoPatientEndpointOrCrossPhaseIntegration()
+    public void Phase93_AddsNoCheckInEndpointOrCrossPhaseIntegration()
     {
         var apiTypes = typeof(CorrelationIdMiddleware).Assembly.GetTypes();
         Assert.DoesNotContain(apiTypes, type =>
-            type.Name.Contains("SymptomDiaryEndpoint", StringComparison.OrdinalIgnoreCase) ||
             type.Name.Contains("CheckInEndpoint", StringComparison.OrdinalIgnoreCase) ||
             type.Name.Contains("CareGuide", StringComparison.OrdinalIgnoreCase));
 

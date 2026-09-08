@@ -1,5 +1,6 @@
 using Beeexy.Api.Errors;
 using Beeexy.Application.Ai;
+using Beeexy.Application.Care;
 using Beeexy.Application.Interoperability;
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
@@ -9,6 +10,28 @@ namespace Beeexy.Tests.Unit.Api;
 
 public sealed class ApiExceptionHandlerTests
 {
+    [Theory]
+    [Trait("Category", "Phase94")]
+    [InlineData(typeof(SymptomDiaryEpisodeNotFoundException),
+        StatusCodes.Status404NotFound, "symptom_diary.episode_not_found")]
+    [InlineData(typeof(SymptomDiaryContentUnavailableException),
+        StatusCodes.Status422UnprocessableEntity, "symptom_diary.content_unavailable")]
+    public void MapException_MapsSymptomDiaryFailuresWithoutInternalContent(
+        Type exceptionType,
+        int expectedStatus,
+        string expectedCode)
+    {
+        var problem = ApiExceptionHandler.MapException(
+            Assert.IsAssignableFrom<Exception>(Activator.CreateInstance(exceptionType)));
+
+        Assert.Equal(expectedStatus, problem.Status);
+        Assert.Equal(expectedCode, problem.Extensions["errorCode"]);
+        Assert.DoesNotContain("package", problem.ToString(),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("source", problem.ToString(),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     [Trait("Category", "Phase107")]
     public void MapException_MapsSecondOpinionConflictWithoutProviderDetails()

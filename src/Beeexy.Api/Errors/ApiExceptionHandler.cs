@@ -1,4 +1,5 @@
 using Beeexy.Application.Common;
+using Beeexy.Application.Care;
 using Beeexy.Application.Ai;
 using Beeexy.Application.Directory;
 using Beeexy.Application.History;
@@ -458,6 +459,30 @@ internal sealed class ApiExceptionHandler(
                 Title = "Pre-triage session not found.",
                 Detail = "The requested pre-triage session could not be found."
             };
+        }
+
+        if (exception is SymptomDiaryEpisodeNotFoundException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Symptom diary content not found.",
+                Detail = "The requested symptom diary content could not be found."
+            };
+            problem.Extensions["errorCode"] = "symptom_diary.episode_not_found";
+            return problem;
+        }
+
+        if (exception is SymptomDiaryContentUnavailableException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status422UnprocessableEntity,
+                Title = "Symptom diary content unavailable.",
+                Detail = "No eligible reviewed symptom diary content is available for this episode."
+            };
+            problem.Extensions["errorCode"] = "symptom_diary.content_unavailable";
+            return problem;
         }
 
         if (exception is PreTriageInterpretationUnavailableException)

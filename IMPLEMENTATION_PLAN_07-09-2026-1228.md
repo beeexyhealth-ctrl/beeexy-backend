@@ -1772,7 +1772,7 @@ The sequential dependency chain is `9.1 -> 9.2 -> 9.3 -> 9.4 -> 9.5 -> 9.6 -> 9.
 
 ## Phase 9.4 — Authorized Reviewed Content Retrieval
 
-**Phase 9.4 status:** NOT STARTED
+**Phase 9.4 status:** COMPLETE (2026-09-07)
 
 **Objective:** Let an authorized patient retrieve the current questions/options and separate general warning-sign information before voluntarily creating an entry.
 
@@ -1795,6 +1795,12 @@ The sequential dependency chain is `9.1 -> 9.2 -> 9.3 -> 9.4 -> 9.5 -> 9.6 -> 9.
 **Tests:** Primary/manager/claimed success; anonymous/unclaimed/nonexistent/revoked/unrelated/reverse/IDOR denial; malformed UUID; no-content/unapproved/corrupt/cross-pathway failure; exact order/version/provenance; warning/answer separation; forbidden-response fields; zero AI/external calls; OpenAPI and full regressions.
 
 **Acceptance/exit criteria:** Authorized callers receive only exact approved static content for the episode pathway, warning signs remain informational, inaccessible resources are concealed, and all tests pass.
+
+**Implementation (2026-09-07):** Added exactly one bearer-protected route, `GET /api/v1/pre-triage/episodes/{episodeId}/symptom-diary-content`. `GetSymptomDiaryContent` resolves only a persisted completed `PreTriageEpisode` with persisted patient ownership, delegates current primary/managed access to Phase 3 `AuthorizePatientAccess`, derives the pathway from the episode's frozen questionnaire-definition version, and then requests the exact active package through the Phase 9.2 `ISymptomDiaryContentProvider`. HEADACHE, ABDOMINAL_PAIN, FEVER, and CHEST_PAIN return their active reviewed/approved Andrea packages; OTHER_SYMPTOMS has no package and returns safe `422` without fallback. The allow-listed DTO exposes the episode/pathway, immutable package UUID/code/version/hash, question-set code/version, ordered questions/answer schemas/options, separate information code/version/heading/body/ordered warnings, and medical-team/review/approval provenance. It omits source/importer internals, patient-answer interpretation, and all later-phase fields. Unauthenticated requests are `401`; unknown, incomplete, unclaimed, unrelated, reverse, or revoked access is concealed as `404` with `symptom_diary.episode_not_found`; missing, inactive, unapproved, cross-pathway, or corrupt content is `422` with `symptom_diary.content_unavailable`. Query/body selectors are rejected with safe `422`. The operation is read-only and adds no check-in, answer, view, history, notification, FHIR, Clinical History, AI, evaluator, recommendation, escalation, or reminder behavior. No Phase 9.4 migration was required.
+
+**Verification (2026-09-07):** Restore and the complete Debug build passed with zero warnings/errors. Focused Phase 9.4 tests passed 14/14 unit, 3/3 architecture/safety, and 11/11 real-PostgreSQL API tests. Relevant Phase 9.2-9.3 regressions passed 41/41 unit and 20/20 PostgreSQL tests; relevant Phase 4 regressions passed 22/22 unit and 69/69 PostgreSQL tests. The complete unit suite passed 1,177/1,177 and the complete PostgreSQL integration suite passed 712/712, with zero failures and zero skipped tests. Dedicated migration regressions passed 23/23 and OpenAPI/CORS regressions passed 6/6. OpenAPI changed only from 51 to 52 paths by adding the intended retrieval route. EF reports no pending model changes; `dotnet format --verify-no-changes` and `git diff --check` passed; no migration file or model snapshot changed; `docs/symptoms.md` retained SHA-256 `DD851AA5E1EE2DAAC98926314B287E713D2E6C13C6F646AD4F1FC0E260907A62`.
+
+**Remaining blockers (2026-09-07):** None for Phase 9.4. Phase 9 remains in progress and Phase 9.5 remains not started.
 
 ## Phase 9.5 — Voluntary Immutable Diary-Entry Creation
 
