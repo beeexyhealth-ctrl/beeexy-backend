@@ -329,7 +329,7 @@ public sealed partial class SymptomDiaryContentEndpointTests(
         var checkInPath = paths.GetProperty(
             "/api/v1/pre-triage/episodes/{episodeId}/check-ins");
         Assert.True(checkInPath.TryGetProperty("post", out _));
-        Assert.False(checkInPath.TryGetProperty("get", out _));
+        Assert.True(checkInPath.TryGetProperty("get", out _));
         Assert.Contains(operation.GetProperty("security").EnumerateArray(), value =>
             value.TryGetProperty("Bearer", out _));
         var parameter = Assert.Single(operation.GetProperty("parameters").EnumerateArray());

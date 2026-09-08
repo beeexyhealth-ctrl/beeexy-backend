@@ -138,11 +138,21 @@ public static class DependencyInjection
         services.AddSingleton<SymptomDiaryPackageCanonicalSerializer>();
         services.AddSingleton<SymptomDiaryPackageHashCalculator>();
         services.AddScoped<ISymptomDiaryContentImporter, SymptomDiaryContentImporter>();
-        services.AddScoped<ISymptomDiaryContentProvider, SymptomDiaryContentProvider>();
+        services.AddScoped<SymptomDiaryContentProvider>();
+        services.AddScoped<ISymptomDiaryContentProvider>(provider =>
+            provider.GetRequiredService<SymptomDiaryContentProvider>());
+        services.AddScoped<ISymptomDiaryExactContentBatchProvider>(provider =>
+            provider.GetRequiredService<SymptomDiaryContentProvider>());
         services.AddScoped<
             ISymptomDiaryEpisodeReadRepository,
             SymptomDiaryEpisodeReadRepository>();
         services.AddScoped<ISymptomCheckInTransaction, SymptomCheckInTransaction>();
+        services.AddScoped<ISymptomCheckInReadRepository, SymptomCheckInReadRepository>();
+        services.AddSingleton<ISymptomDiaryHistoryCursorCodec>(
+            new SymptomDiaryHistoryCursorCodec(authenticationTokenPolicy.SigningKey));
+        services.AddSingleton<
+            ISymptomDiaryHistoryAuditLogger,
+            SymptomDiaryHistoryAuditLogger>();
         services.AddSingleton<ISymptomCheckInAuditLogger, SymptomCheckInAuditLogger>();
         services.AddScoped<IClinicalPathwayRegistry, ClinicalPathwayRegistry>();
         if (clinicalAiProviderOptions.TryCreateNvidia(out var nvidiaOptions))

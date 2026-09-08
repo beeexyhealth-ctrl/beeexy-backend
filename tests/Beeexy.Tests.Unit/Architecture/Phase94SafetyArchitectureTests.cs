@@ -56,8 +56,8 @@ public sealed class Phase94SafetyArchitectureTests
     {
         var applicationTypes = typeof(GetSymptomDiaryContent).Assembly.GetTypes();
         Assert.Contains(applicationTypes, type => type == typeof(RecordSymptomCheckIn));
+        Assert.Contains(applicationTypes, type => type == typeof(ListSymptomCheckIns));
         Assert.DoesNotContain(applicationTypes, type =>
-            type.Name is "ListSymptomCheckIns" ||
             type.Name.Contains("WarningMatcher", StringComparison.OrdinalIgnoreCase) ||
             type.Name.Contains("SymptomTrend", StringComparison.OrdinalIgnoreCase) ||
             type.Name.Contains("SymptomRecommendation", StringComparison.OrdinalIgnoreCase));

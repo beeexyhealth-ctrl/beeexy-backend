@@ -4,11 +4,15 @@ using Beeexy.Application.Care;
 using Beeexy.Application.Common;
 using Beeexy.Domain.Common;
 using Beeexy.Domain.Triage;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Beeexy.Api.Care;
 
 internal static class SymptomDiaryEndpointExtensions
 {
+    private static readonly HashSet<string> HistoryQueryParameters =
+        ["cursor", "pageSize"];
+
     internal const string ContentRoute =
         "/api/v1/pre-triage/episodes/{episodeId:guid}/symptom-diary-content";
     internal const string CheckInRoute =
@@ -50,6 +54,22 @@ internal static class SymptomDiaryEndpointExtensions
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        endpoints.MapGet(CheckInRoute, ListCheckInsAsync)
+            .WithName("ListSymptomCheckIns")
+            .WithTags("Symptom Diary")
+            .WithDescription(
+                "Returns an oldest-first opaque-cursor page of immutable symptom-diary " +
+                "entries for an eligible patient-owned Pre-Triage episode. Each entry is " +
+                "reconstructed only from its own exact frozen package version; no trend, " +
+                "comparison, clinical interpretation, or current-content substitution is " +
+                "performed. Page size defaults to 20 and is limited to 100.")
+            .RequireAuthorization()
+            .Produces<SymptomCheckInHistoryPageResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
@@ -129,6 +149,53 @@ internal static class SymptomDiaryEndpointExtensions
             : Results.Ok(response);
     }
 
+    private static async Task<IResult> ListCheckInsAsync(
+        Guid episodeId,
+        [FromQuery(Name = "cursor")] string? cursorQuery,
+        [FromQuery(Name = "pageSize")] string? pageSizeQuery,
+        HttpRequest request,
+        ListSymptomCheckIns useCase,
+        CancellationToken cancellationToken)
+    {
+        if (episodeId == Guid.Empty)
+        {
+            throw new SymptomDiaryEpisodeNotFoundException();
+        }
+
+        var hasUnsupportedQuery =
+            request.Query.Keys.Any(key => !HistoryQueryParameters.Contains(key)) ||
+            request.Query.Any(parameter => parameter.Value.Count > 1);
+        var hasUnsupportedBody =
+            request.ContentLength is > 0 || request.Headers.TransferEncoding.Count > 0;
+
+        int? pageSize = null;
+        var hasInvalidPageSize = false;
+        if (pageSizeQuery is not null)
+        {
+            if (!int.TryParse(pageSizeQuery, out var parsedPageSize))
+            {
+                hasInvalidPageSize = true;
+            }
+            else
+            {
+                pageSize = parsedPageSize;
+            }
+        }
+
+        var result = await useCase.ExecuteAsync(
+            new ListSymptomCheckInsQuery(
+                EntityId.From(episodeId),
+                cursorQuery,
+                pageSize,
+                hasUnsupportedQuery,
+                hasUnsupportedBody,
+                hasInvalidPageSize),
+            cancellationToken);
+        return Results.Ok(new SymptomCheckInHistoryPageResponse(
+            result.Items.Select(ToResponse).ToArray(),
+            result.NextCursor));
+    }
+
     private static SymptomDiaryContentResponse ToResponse(
         SymptomDiaryContentForEpisode result)
     {
@@ -186,6 +253,56 @@ internal static class SymptomDiaryEndpointExtensions
             result.CreatedAt,
             result.Pathway.Value,
             result.PackageVersionId.Value,
+            definition.PackageCode.Value,
+            definition.PackageVersion.Value,
+            result.Package.CanonicalContentHash.Value,
+            new SymptomDiaryContentProvenanceResponse(
+                ToApiValue(definition.ContentStatus.Source),
+                ToApiValue(definition.ContentStatus.ReviewStatus),
+                ToApiValue(definition.ContentStatus.ApprovalStatus),
+                definition.ApprovedAt!.Value),
+            new SymptomDiaryCheckInQuestionSetResponse(
+                definition.QuestionSetCode.Value,
+                definition.QuestionSetVersion.Value),
+            result.Answers.Select(answer =>
+                new SymptomDiaryAcceptedAnswerResponse(
+                    answer.Question.Code.Value,
+                    answer.Question.PromptText,
+                    answer.Question.SourceOrder,
+                    answer.Question.IsRequired,
+                    JsonSerializer.Deserialize<JsonElement>(
+                        answer.Question.AnswerSchemaJson),
+                    answer.Question.Options.Select(option =>
+                        new SymptomDiaryQuestionOptionResponse(
+                            option.Code.Value,
+                            option.Value,
+                            option.DisplayText,
+                            option.SourceOrder))
+                        .ToArray(),
+                    answer.Value))
+                .ToArray(),
+            new SymptomDiaryInformationResponse(
+                definition.SymptomInformationCode.Value,
+                definition.SymptomInformationVersion.Value,
+                definition.InformationalHeading,
+                definition.InformationalBody,
+                definition.WarningSigns.Select(warning =>
+                    new SymptomDiaryWarningSignResponse(
+                        warning.Code.Value,
+                        warning.DisplayText,
+                        warning.SourceOrder))
+                    .ToArray()));
+    }
+
+    private static SymptomCheckInResponse ToResponse(SymptomCheckInHistoryItem result)
+    {
+        var definition = result.Package.Definition;
+        return new SymptomCheckInResponse(
+            result.CheckInId.Value,
+            result.EpisodeId.Value,
+            result.CreatedAt,
+            result.Pathway.Value,
+            result.Package.PackageVersionId.Value,
             definition.PackageCode.Value,
             definition.PackageVersion.Value,
             result.Package.CanonicalContentHash.Value,
@@ -342,3 +459,7 @@ internal sealed record SymptomDiaryAcceptedAnswerResponse(
     JsonElement AnswerSchema,
     IReadOnlyList<SymptomDiaryQuestionOptionResponse> Options,
     JsonElement Value);
+
+internal sealed record SymptomCheckInHistoryPageResponse(
+    IReadOnlyList<SymptomCheckInResponse> Items,
+    string? NextCursor);

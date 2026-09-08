@@ -550,7 +550,7 @@ public sealed partial class SymptomDiaryContentEndpointTests
 
     [Fact]
     [Trait("Category", "Phase95")]
-    public async Task OpenApiAddsOnlyBearerProtectedPostAndDefersHistoryGet()
+    public async Task OpenApiRetainsBearerProtectedPostAlongsideHistoryGet()
     {
         await ImportApprovedContentAsync();
         using var factory = new BeeexyApiFactory(ConnectionString);
@@ -564,7 +564,7 @@ public sealed partial class SymptomDiaryContentEndpointTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(53, paths.EnumerateObject().Count());
-        Assert.False(checkIns.TryGetProperty("get", out _));
+        Assert.True(checkIns.TryGetProperty("get", out _));
         Assert.Contains(operation.GetProperty("security").EnumerateArray(), value =>
             value.TryGetProperty("Bearer", out _));
         Assert.Equal(

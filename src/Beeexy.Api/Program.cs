@@ -237,6 +237,7 @@ builder.Services.AddScoped<RevokeCareRelationship>();
 builder.Services.AddScoped<AuthorizePatientAccess>();
 builder.Services.AddScoped<GetSymptomDiaryContent>();
 builder.Services.AddScoped<RecordSymptomCheckIn>();
+builder.Services.AddScoped<ListSymptomCheckIns>();
 builder.Services.AddSingleton<SymptomDiaryAnswerStructureValidator>();
 builder.Services.AddScoped<GetPatientProfile>();
 builder.Services.AddScoped<UpdateManagedPatient>();
@@ -367,6 +368,7 @@ builder.Services.AddSwaggerGen(options =>
         });
     options.DocumentFilter<BearerAuthorizationDocumentFilter>();
     options.DocumentFilter<PreTriageIntakeOpenApiDocumentFilter>();
+    options.DocumentFilter<SymptomDiaryHistoryOpenApiDocumentFilter>();
     options.SchemaFilter<PatientDemographicsSchemaFilter>();
 });
 

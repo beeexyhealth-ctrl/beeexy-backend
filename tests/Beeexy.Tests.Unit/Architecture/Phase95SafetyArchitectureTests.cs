@@ -42,7 +42,7 @@ public sealed class Phase95SafetyArchitectureTests
     }
 
     [Fact]
-    public void ApiAddsOnlyPostCreationShapeAndNoHistoryOrMutationSurface()
+    public void ApiRetainsPostCreationShapeAndAddsNoMutationSurface()
     {
         Assert.Equal(
             "/api/v1/pre-triage/episodes/{episodeId:guid}/check-ins",
@@ -50,9 +50,9 @@ public sealed class Phase95SafetyArchitectureTests
         var applicationTypes = typeof(RecordSymptomCheckIn).Assembly.GetTypes()
             .Where(type => type.Namespace == "Beeexy.Application.Care")
             .ToArray();
+        Assert.Contains(applicationTypes, type => type == typeof(ListSymptomCheckIns));
         Assert.DoesNotContain(applicationTypes, type =>
-            type.Name is "ListSymptomCheckIns" or "UpdateSymptomCheckIn" or
-                "DeleteSymptomCheckIn" ||
+            type.Name is "UpdateSymptomCheckIn" or "DeleteSymptomCheckIn" ||
             type.Name.Contains("WarningMatcher", StringComparison.OrdinalIgnoreCase) ||
             type.Name.Contains("SymptomTrend", StringComparison.OrdinalIgnoreCase) ||
             type.Name.Contains("Recommendation", StringComparison.OrdinalIgnoreCase) ||

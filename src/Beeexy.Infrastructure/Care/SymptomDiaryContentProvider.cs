@@ -10,7 +10,9 @@ namespace Beeexy.Infrastructure.Care;
 public sealed class SymptomDiaryContentProvider(
     BeeexyDbContext dbContext,
     SymptomDiaryPackageValidator validator,
-    SymptomDiaryPackageHashCalculator hashCalculator) : ISymptomDiaryContentProvider
+    SymptomDiaryPackageHashCalculator hashCalculator) :
+    ISymptomDiaryContentProvider,
+    ISymptomDiaryExactContentBatchProvider
 {
     public async Task<SymptomDiaryPackageContent?> GetActivePackageAsync(
         ClinicalPathwayCode pathway,
@@ -46,6 +48,34 @@ public sealed class SymptomDiaryContentProvider(
             value => value.Id == packageVersionId,
             cancellationToken);
         return entity is null ? null : BuildVerifiedContent(entity, requireEligible: false);
+    }
+
+    public async Task<IReadOnlyDictionary<EntityId, SymptomDiaryPackageContent>>
+        GetExactPackagesAsync(
+            IReadOnlyCollection<EntityId> packageVersionIds,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(packageVersionIds);
+        if (packageVersionIds.Count == 0)
+        {
+            return new Dictionary<EntityId, SymptomDiaryPackageContent>();
+        }
+
+        if (packageVersionIds.Any(id => id.Value == Guid.Empty) ||
+            packageVersionIds.Count > ListSymptomCheckIns.MaximumPageSize)
+        {
+            throw new ArgumentException(
+                "A bounded collection of non-empty package identifiers is required.",
+                nameof(packageVersionIds));
+        }
+
+        var ids = packageVersionIds.Distinct().ToArray();
+        var entities = await GraphQuery()
+            .Where(entity => ids.Contains(entity.Id))
+            .ToArrayAsync(cancellationToken);
+        return entities.ToDictionary(
+            entity => entity.Id,
+            entity => BuildVerifiedContent(entity, requireEligible: false));
     }
 
     private IQueryable<SymptomDiaryPackageVersion> GraphQuery()

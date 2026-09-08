@@ -29,7 +29,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         var symptomCheckIns = paths.GetProperty(
             "/api/v1/pre-triage/episodes/{episodeId}/check-ins");
         Assert.True(symptomCheckIns.TryGetProperty("post", out _));
-        Assert.False(symptomCheckIns.TryGetProperty("get", out _));
+        Assert.True(symptomCheckIns.TryGetProperty("get", out _));
         Assert.DoesNotContain(paths.EnumerateObject(), path =>
             path.Name.Contains("care-guide", StringComparison.OrdinalIgnoreCase));
         Assert.True(paths.GetProperty("/health/live").TryGetProperty("get", out _));
