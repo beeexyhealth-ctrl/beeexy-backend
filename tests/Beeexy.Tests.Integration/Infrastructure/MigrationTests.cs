@@ -12,7 +12,8 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
     [Trait("Category", "Phase91")]
     [Trait("Category", "Phase101")]
     [Trait("Category", "Phase108")]
-    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase91DiaryFoundation()
+    [Trait("Category", "Phase111")]
+    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase111SharingFoundation()
     {
         var options = new DbContextOptionsBuilder<BeeexyDbContext>()
             .UseNpgsql(postgres.ConnectionString)
@@ -51,7 +52,8 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                     "20260831183703_Phase82AvailabilityInventory",
                     "20260901051351_Phase8OpsAppointmentAdministration",
                     "20260901223517_Phase101AiPlatformPersistenceFoundation",
-                    "20260907180355_Phase91NeutralSymptomDiaryFoundation"
+                    "20260907180355_Phase91NeutralSymptomDiaryFoundation",
+                    "20260909221246_Phase111SharingPersistenceFoundation"
                 ],
                 appliedMigrations);
             Assert.Empty(pendingMigrations);
@@ -124,6 +126,10 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                 "scheduling.appointments",
                 "scheduling.availability_slots",
                 "scheduling.demo_availability_imports",
+                "sharing.export_artifacts",
+                "sharing.share_access_events",
+                "sharing.share_grant_items",
+                "sharing.share_grants",
                 "triage.answers",
                 "triage.clinical_assessments",
                 "triage.clinical_findings",

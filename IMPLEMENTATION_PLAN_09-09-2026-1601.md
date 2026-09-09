@@ -2365,104 +2365,705 @@ Phase 10 is complete only when only safety-approved output can be displayed; the
 
 **Priority:** MVP CORE
 
+**Phase 11 overall status:** IN PROGRESS (2026-09-09). Phase 11.1 is complete; Phase 11.2–11.8 have not started.
+
 ## 1. Objective
 
-Provide secure, expiring, revocable, unauthenticated read-only sharing plus human-readable PDF, Beeexy JSON, and validated FHIR JSON exports.
+Provide capability-secured, expiring, revocable, unauthenticated read-only sharing and immutable human-readable PDF, Beeexy JSON, and validated Phase 6 FHIR JSON exports. Preserve the backend-wide `/api/v1`, Problem Details, patient-scoped authorization, concealed `404`, UUID, PostgreSQL/EF Core migration, immutable clinical/AI snapshot, privacy-safe logging, endpoint-test-matrix, and build/migration/test acceptance rules.
 
 ## 2. Scope
 
-- Initial `FullProfile` QR share.
-- Extensible granular scopes/items.
-- Token exchange, shared read-only projection, expiry/revocation, access events.
-- PDF, Beeexy JSON, and FHIR JSON export.
+- `FullProfile` is the initial main share experience and means an allow-listed shareable health profile, not every row or feature associated with an account.
+- `PreTriage` and `SpecificRecords` are executable backend scopes. `PreTriage` is isolated to the exact authorized completed Pre-Triage records; `SpecificRecords` is isolated to exact persisted `ShareGrantItem` entries.
+- The domain vocabulary also retains `Case` and `Visit`, but both are reserved and fail closed. `Case` remains unavailable until exact product semantics are approved. `Visit` remains unavailable until Phase 13 exists and its Phase 11 integration contract is explicitly implemented. Neither may fall back to another scope.
+- The caller may create only expiring shares. The server-authoritative default lifetime is 24 hours, the maximum is 7 days, and a positive shorter lifetime within policy may be requested. Permanent shares are not supported.
+- A cryptographically random, reusable capability may be exchanged without a recipient account for a temporary read-only share-access token. Every recipient operation revalidates the current grant and its exact scope/items.
+- The backend returns a configured frontend URL safe for QR rendering. Production uses `https://beeexy.ai/share#<capability>`; development and test use validated configuration. Capability transport never depends on a query string, and QR image rendering remains frontend-only.
+- `FullProfile` includes only approved basic demographics, Clinical History, completed Pre-Triage, Phase 9 Symptom Diary entries with their separately presented approved informational content, displayable/succeeded patient-visible Second Opinion results, and minimum immutable version/provenance metadata needed for interpretation, when present and currently authorized.
+- One provider-neutral canonical health snapshot/projection boundary supplies the `FullProfile` shared web projection, Beeexy JSON export, and human-readable PDF export. It is allow-listed, deterministic, read-only, patient-authorized, and does not reinterpret clinical or AI content.
+- PDF, Beeexy JSON, and validated Phase 6 FHIR JSON are immutable, checksummed private artifacts. The MVP operational artifact-retention period is 30 days and configurable.
+- External sharing is read-only. Share recipients can download an export only when that exact artifact is explicitly covered by the grant scope/items; `FullProfile` never grants all historical exports automatically.
 
 ## 3. Explicitly Out of Scope
 
-- Recipient editing, Beeexy-ID access, authenticated provider portal, guarantees about copies downloaded outside Beeexy, and granular frontend UI beyond initial FullProfile.
+- Recipient mutation of patient, appointment, Pre-Triage, Clinical History, Symptom Diary, AI, export, sharing, or any other Beeexy state; recipient accounts; authenticated provider access; and a provider portal.
+- Beeexy-ID-based sharing/export authority, authority based only on a UUID or frontend URL, and external sharing authority inferred from Phase 3 management/caregiver authority.
+- Full free-form AI Conversation history, prompts, provider/model configuration, raw or rejected provider output, safety-decision internals, restricted audit artifacts, or reinterpretation/regeneration of Second Opinion output during sharing/export.
+- Account/security/session data, Account IDs, refresh sessions, tokens/capabilities, logs, internal hashes except an approved public checksum, internal source/import paths, storage identities, notification preferences, scheduling/appointment history, and doctor/clinic directory data.
+- New Phase 11 FHIR resources, mappings, terminology, profiles, validation claims, or fallback from FHIR to Beeexy JSON.
+- Executable `Case` or `Visit` scope, automatic inclusion of every `ExportArtifact`, public artifact hosting, permanent shares, a QR code embedded in the PDF, a backend QR provider, and an external SaaS PDF service.
+- Guarantees or remote deletion for copies already downloaded outside Beeexy; granular frontend share-management UI; long-term legal/compliance retention policy beyond the configurable MVP operational rule.
 
 ## 4. Domain Model
 
-- Entities: `ShareGrant`, `ShareGrantItem`, `ShareAccessEvent`, `ExportArtifact`.
-- Scopes: `FullProfile`, `Case`, `PreTriage`, `Visit`, `SpecificRecords`.
-- Events: `ShareCreated`, `ShareAccessed`, `ShareRevoked`, `ShareExpired`.
-- Invariants: token random/hashed; read-only; scope filters every projection; revocation/expiry blocks future access; QR contains no clinical data.
+- `ShareGrant` owns the patient, creator, scope, capability hash identity, creation and expiry timestamps, optional revocation metadata, and concurrency/lifecycle state. Active validity is determined from authoritative server time and revocation/expiry facts; a reusable capability remains usable only while the grant is active.
+- `ShareGrantItem` stores the exact allow-listed record or artifact references authorized by `SpecificRecords` or another scope that explicitly requires items. Item type plus UUID is authorization input, not authority by itself. An export requires explicit artifact coverage.
+- `ShareAccessEvent` records technical event concepts equivalent to `ShareCreated`, `ShareAccessed`, `ShareDownloaded`, `ShareRevoked`, and `ShareExpired`, with timestamp, privacy-safe outcome/action category, and only minimized technical metadata permitted by backend-wide audit policy.
+- `ExportArtifact` represents immutable bytes and stable metadata: patient, format, media type, checksum, private storage identity, creation time, retention eligibility/expiry, source/snapshot identity, lifecycle/completion state where required, and concurrency information.
+- Scope vocabulary remains `FullProfile`, `Case`, `PreTriage`, `Visit`, and `SpecificRecords`. Only `FullProfile`, `PreTriage`, and `SpecificRecords` execute in the MVP; reserved values remain representable but unavailable.
+- Domain invariants prohibit plaintext capability persistence, post-creation capability recovery, recipient writes, silent scope fallback, mutation of completed export bytes, and using grant/patient/resource identifiers as authority.
+- No recipient identity/account aggregate is introduced. The model remains extensible for a future explicit sharing permission without granting one now.
 
 ## 5. Database Changes
 
-- `sharing.share_grants`, `share_grant_items`, `share_access_events`, `export_artifacts`.
-- UUID PKs; patient/creator/source FKs; scope; token hash; expiry/revocation; access timestamps/outcome; export format/checksum/private URI.
-- Unique active token hash; indexes patient, expiry, event time.
-- No plaintext capability storage.
+- Add the `sharing` schema tables `sharing.share_grants`, `sharing.share_grant_items`, `sharing.share_access_events`, and `sharing.export_artifacts` through additive PostgreSQL/EF Core migration(s).
+- Use UUID primary keys and safe patient/creator/grant/item/artifact foreign keys. Use restrictive delete behavior for permanent clinical, grant, event, and artifact metadata whose deletion would destroy authorization/audit history.
+- Persist capability hash only; never persist plaintext capability, derived share-access bearer tokens, or frontend URLs containing capabilities. Enforce the necessary unique/valid capability-hash identity constraints.
+- Persist exact scope, creation/expiry/revocation facts, safe event type/time/outcome/action category, export format/media type/checksum/private storage key or URI, creation/completion and configurable retention eligibility/expiry metadata, and minimum snapshot/provenance identity.
+- Add only lifecycle/security/concurrency indexes and constraints required for patient listing, capability-hash lookup, active-expiry processing, grant-item uniqueness, chronological activity, artifact lookup/retention, idempotency, and immutable/checksum validity. Do not overdesign the schema.
+- Private storage identity is internal and is never exposed through normal API DTOs. Physical artifact deletion never deletes source clinical data; only minimum metadata/audit remains according to backend-wide retention/security rules.
 
 ## 6. API Endpoints
 
+The final Phase 11 surface contains exactly these eight versioned operations; a subphase exposes only the operations assigned to it.
+
 | Method / route | Authentication | Authorization | Purpose | Response | Validation and errors |
 |---|---|---|---|---|---|
-| `POST /api/v1/shares` | Bearer | Patient owner/authorized manager with sharing capability | Create grant | `201` token returned once + frontend URL | Invalid scope/expiry `422`; duplicate idempotency `409` |
-| `GET /api/v1/shares` | Bearer | Patient authority | List grants/status | `200` | `401/404` |
-| `POST /api/v1/shares/{id}/revoke` | Bearer | Grant creator/patient authority | Revoke | `204` | `404`; repeat idempotent |
-| `GET /api/v1/shares/{id}/activity` | Bearer | Patient authority | User-facing access events | `200` | `404` |
-| `POST /api/v1/shared-access/exchange` | None; rate limited | Possession of valid capability | Exchange QR token for short read-only token | `200` | Invalid/expired/revoked `401`; throttle `429` |
-| `GET /api/v1/shared-access/profile` | Share-access token | Grant scope | Read shared projection | `200` | Expired/revoked `401`; out-of-scope `403` |
-| `POST /api/v1/patients/{id}/exports` | Bearer | Patient authority | Generate PDF/Beeexy JSON/FHIR JSON | `201` metadata | Format/mapping unavailable `422`; duplicate `409`; `404` |
-| `GET /api/v1/exports/{id}/content` | Bearer patient authority or permitted share token | Artifact scope | Download | `200` correct media type | `403/404`; incomplete `409` |
+| `POST /api/v1/shares` | Bearer | Patient's own Primary Patient only | Create expiring grant | First creation `201` with one-time capability plus configured fragment URL; identical idempotent replay `200` with safe grant metadata and no capability | Reserved/invalid scope or expiry `422`; incompatible idempotency-key reuse `409`; patient concealment per backend rules |
+| `GET /api/v1/shares` | Bearer | Patient's own Primary Patient | List safe grant metadata/status | `200` | `401`; inaccessible patient/grant data concealed |
+| `POST /api/v1/shares/{id}/revoke` | Bearer | Primary Patient always; creator only while retaining explicit sharing authority | Idempotently revoke | `204` | Concealed `404` where required; repeat is successful/idempotent |
+| `GET /api/v1/shares/{id}/activity` | Bearer | Patient's own Primary Patient | List patient-safe activity | `200` | `401`; concealed `404` |
+| `POST /api/v1/shared-access/exchange` | None; rate limited | Possession of valid active capability | Exchange capability from non-URL body transport | `200` short-lived read-only token | Invalid/expired/revoked/corrupt grant fails safely without enumeration; `429` throttle |
+| `GET /api/v1/shared-access/profile` | Share-access token | Current active grant plus exact scope/items | Read allow-listed shared projection | `200` | Invalid/expired/revoked token/grant rejected; out-of-scope denied with safe Problem Details |
+| `POST /api/v1/patients/{id}/exports` | Bearer | Primary Patient only for MVP export creation | Generate immutable PDF/Beeexy JSON/FHIR JSON artifact | `201` safe metadata | Format/mapping unavailable `422`; duplicate/conflict `409`; concealed `404` |
+| `GET /api/v1/exports/{id}/content` | Bearer patient authority or share-access token | Current patient authority, or active grant with explicit artifact coverage | Download stored bytes | `200` exact media type | Concealed/denied access; incomplete artifact `409`; revoked/expired grant rejected |
+
+All failures use the established Problem Details contract. Anonymous/bearer rejection ordering, patient concealment, validation, idempotency, and status codes must be locked by endpoint tests rather than inferred from identifier possession.
 
 ## 7. Application / Use Cases
 
-- `CreateShare`, `ListShares`, `RevokeShare`, `ExpireShares`, `ListShareActivity`, `ExchangeShareCapability`, `BuildSharedProfile`, `GenerateExport`, `DownloadExport`.
-- Scope evaluator reusable for future granular UI.
+- Implement `CreateShare`, `ListShares`, `RevokeShare`, `ExpireShares`, `ListShareActivity`, `ExchangeShareCapability`, `BuildSharedProfile`, `GenerateExport`, and `DownloadExport` in the subphases below.
+- Add a single canonical shared/export health snapshot builder used by FullProfile web, Beeexy JSON, and PDF; an allow-listing scope evaluator used at every projection/download boundary; and capability generation, hashing, lifetime, and derived-token policies.
+- Add provider-neutral share repositories, export repository, `IPrivateArtifactStorage` (or equivalent), Beeexy JSON renderer, and `IPdfExportRenderer` (or equivalent). Domain/Application logic must not depend on a PDF library, filesystem path, cloud vendor, or provider SDK.
+- Delegate FHIR export exclusively to the existing Phase 6 validated interoperability/export pipeline. No Phase 11 mapper or downgrade path is permitted.
+- Export flow is authorization → canonical approved snapshot or Phase 6 validated snapshot → renderer → immutable bytes → checksum → private storage → durable `ExportArtifact`. Download reads stored bytes and never silently regenerates against current source state.
 
 ## 8. Authentication and Authorization
 
-- Creator operations require bearer and patient authority.
-- Recipient needs no account; capability exchange grants temporary read-only scope.
-- Beeexy ID is never accepted.
-- Management authority and sharing recipient status remain distinct.
+- Only the patient's own Primary Patient may create a share in the MVP. Active Managed authority alone does not confer external sharing authority; revoked managers and unrelated accounts have none. No granular manager sharing permission is invented.
+- The Primary Patient always may revoke their own shares. A creator may revoke only while they still hold explicit sharing authority; because creation is Primary-only, the normal MVP creator is the Primary Patient.
+- Recipient access requires no Beeexy account. Capability exchange issues a temporary read-only share-access token with effective expiry `min(now + 15 minutes, ShareGrant.ExpiresAt)` and no mutation permission.
+- Every protected recipient profile/download request resolves the token's grant and rechecks its current not-revoked/not-expired state, patient binding, scope, and exact items. Token expiry alone is insufficient; grant A can never authorize grant B.
+- Primary Patient authority is required to create exports in the MVP. Bearer download follows existing current patient-authority policy for the artifact patient. Share-token download additionally requires explicit artifact coverage.
+- Beeexy ID, ShareGrant UUID, Patient UUID, resource UUID, export UUID, frontend URL without capability, and internal storage identity never grant sharing/export authority. Inaccessible patient-scoped resources preserve concealed `404` behavior.
 
 ## 9. Security and Privacy
 
-- Prefer frontend QR URL fragment so token is exchanged in POST body and avoided in server/referrer logs.
-- Store token hash; rate-limit exchange; audit access/download/revoke/expire.
-- Patient-facing activity contains approved metadata only.
-- Warn that revocation cannot remove external downloaded copies.
+- Generate capabilities with a cryptographically secure random source and adequate tested entropy. Return plaintext only in the first successful share-creation response; persist only a secure hash and never expose the hash.
+- Production share URLs use configured base `https://beeexy.ai/share` and place the capability only in the fragment: `https://beeexy.ai/share#<capability>`. Development/test bases are configured. The exchange accepts capability in the POST body or equivalent non-URL transport; no query-string capability is required.
+- Capabilities are reusable while a grant is active. Exchange is rate limited. Derived share-access tokens last at most 15 minutes and are read-only; all operations revalidate current grant state so revocation or expiry blocks future Beeexy access immediately after the state transaction commits.
+- Capability plaintext, hashes/hash material, bearer/share tokens, fragment URLs containing capabilities, full IP addresses, full User-Agent values, private storage identities, prompts, provider output, and internal security diagnostics must not enter application logs or patient-facing activity.
+- `FullProfile` is an allow-listed projection. It excludes full AI Conversations and all backend-only, operational, security, provider, prompt, rejected-output, restricted-audit, and unrelated account/product data.
+- Private artifacts are never stored in a public static-files directory. Normal DTOs expose stable safe metadata and checksum where approved, not object keys/URIs. Storage failure is compensated or represented safely without exposing partial content.
+- Patient activity may expose only event type, timestamp, success/outcome category, and useful high-level action/resource category. Additional privacy-minimized technical telemetry follows backend-wide audit rules and is not returned by this API.
+- Revocation prevents future Beeexy access but cannot erase a copy already downloaded outside Beeexy; disclosures must say so without claiming control the backend does not have.
 
 ## 10. External Integrations
 
-- **IMPLEMENT NOW:** PDF renderer and private artifact storage.
-- **INTERFACE/PLACEHOLDER:** frontend QR rendering (not backend concern).
-- **POST-MVP:** authenticated provider access.
+- **IMPLEMENT NOW:** server-side PDF rendering behind `IPdfExportRenderer` or an equivalent provider-neutral boundary. Select a repository-compatible, appropriately licensed local library during implementation; do not call an external SaaS renderer without later approval.
+- **IMPLEMENT NOW:** private artifact storage behind `IPrivateArtifactStorage` or equivalent. Development/test uses a private local filesystem adapter suitable for automation and outside public static files. Production uses a configured private object-storage adapter behind the same boundary; S3-compatible/R2-style storage is an acceptable direction, but vendor selection remains Infrastructure configuration.
+- **INTERFACE/FRONTEND:** frontend QR rendering from the returned fragment URL. Phase 11 requires no QR provider and creates no QR image on the backend.
+- **EXISTING INTERNAL INTEGRATION:** Phase 6 is the sole FHIR export/validation authority. Phase 10 contributes only already immutable, displayable, patient-visible Second Opinion results to the canonical non-FHIR snapshot.
+- **POST-MVP:** authenticated recipient/provider access, provider portal, and granular frontend share management.
 
 ## 11. FHIR Impact
 
-FHIR export delegates to Phase 6 and returns only validated Andrea-compliant snapshots.
+FHIR JSON export delegates exclusively to the approved Phase 6 interoperability/export pipeline. Only a validated Andrea-compliant Phase 6 snapshot/export may become a Phase 11 artifact. If Phase 6 cannot truthfully produce the requested validated export, Phase 11 returns the documented safe `422` mapping/format-unavailable result. Phase 11 must not add resources, mappings, terminology, profile URLs, clinical mapping authority, or fallback to Beeexy JSON, and sharing/export must not mutate Phase 6 source records.
 
 ## 12. Tests
 
-- Token entropy/hash/no-log tests.
-- Exchange, expiry, revocation, rate limiting, and concurrent revoke/access behavior.
-- Beeexy ID access rejection.
-- FullProfile projection and granular-scope isolation.
-- Read-only enforcement and access-event idempotency.
-- PDF, Beeexy JSON, and validated FHIR JSON content/media type.
-- Cross-patient share/export IDOR tests.
-- Mandatory endpoint test matrix for all eight endpoints.
+- Apply the mandatory anonymous/authenticated/authorization/validation/success/not-found-or-concealment/conflict/error/privacy matrix to all eight endpoints, including malformed identifiers/tokens, disabled account where relevant, Primary, Active Managed, Revoked Managed, unrelated Account, active recipient, revoked recipient, expired recipient, and anonymous access without capability.
+- Prove Primary-only share/export creation, Beeexy-ID and UUID non-authority, cross-patient/grant/artifact IDOR protection, exact patient concealment, recipient read-only enforcement, current-grant revalidation, and explicit share-to-artifact authorization.
+- Prove capability entropy, hash-only persistence, single disclosure, URL-fragment behavior, no query dependency, reusable exchange, rate limiting, maximum/effective 15-minute token expiry, token/grant binding, and secret/log/DTO exclusion.
+- Prove FullProfile allow-list and canonical snapshot consistency, PreTriage isolation, SpecificRecords exact-item isolation, no full AI Conversation exposure, and fail-closed `Case`/`Visit` without cross-scope fallback.
+- Prove idempotent revoke/expiry/activity behavior and exchange/access/download concurrency against revoke/expiry, including immediate post-commit denial and privacy-safe event projection.
+- Prove Beeexy JSON/PDF content, immutable bytes, checksums, correct media types, readable PDF sections/disclosure/pagination, Phase 6 FHIR success and unavailable `422`, absence of a Phase 11 FHIR mapper, private storage, no storage-key exposure, failure safety, retention eligibility, and no source clinical mutation.
+- Prove same-key share creation and export generation idempotency/concurrency, incompatible key reuse `409`, artifact non-regeneration, cleanup/expiry repeat safety, and migration apply/rollback/reapply plus EF pending-model checks.
+- Run focused cross-phase regressions for Phases 2, 3, 4, 5, 6, 9, 10, and reserved Phase 13 behavior; complete Debug build, unit and PostgreSQL suites, exact OpenAPI surface, formatting, and `git diff --check`.
 
 ## 13. Acceptance Criteria
 
-- QR capability opens a read-only view without recipient login.
-- Expiry/revocation immediately prevents future Beeexy access.
-- Patient sees sharing activity.
-- All three formats export with correct authorization.
-- All tests pass.
+1. The Primary Patient can create an expiring share with a 24-hour default, a server-enforced 7-day maximum, and a valid shorter requested lifetime; no permanent share is possible.
+2. A QR capability in the configured frontend URL fragment can be exchanged without recipient login and without a query-string dependency.
+3. Capability plaintext is disclosed only at initial creation, only its secure hash is persisted, and no capability/hash/token material is logged.
+4. Share access is temporary, scope-bound, and read-only; every operation revalidates the current grant.
+5. `FullProfile` is allow-listed and excludes full AI Conversations, raw/rejected/provider/internal data, and unrelated account/product data.
+6. `PreTriage` and `SpecificRecords` enforce exact isolation.
+7. `Case` and `Visit` fail closed while unavailable and never fall back.
+8. Revocation and expiry immediately block future capability exchange, shared profile access, and share-authorized downloads after commit.
+9. The Primary Patient can inspect privacy-safe Created, Accessed, Downloaded, Revoked, and Expired activity where applicable.
+10. Beeexy JSON, human-readable PDF, and validated Phase 6 FHIR JSON export correctly without reinterpreting or mutating source data.
+11. Export artifacts are private, immutable, checksummed, and retention-aware under the configurable 30-day MVP rule.
+12. Share-token artifact download requires explicit stored artifact authorization; `FullProfile` alone exposes no historical artifact.
+13. Cross-patient IDOR, Beeexy-ID authority attempts, identifier-only attempts, manager creation attempts, and revoked/expired recipients fail safely.
+14. Required migrations, rollback/reapply, EF model check, build, all tests, exact eight-endpoint OpenAPI acceptance, formatting, and `git diff --check` pass before Phase 11 is complete.
 
 ## 14. Dependencies
 
-- Phases 5-6; Phase 10 to include AI history; Phase 13 for Visit scopes.
-- Product decision for default/max share duration and public frontend share URL.
+- Phase 2 authentication/account status and backend-wide security conventions.
+- Phase 3 patient authority for patient-scoped bearer authorization, while explicitly withholding external sharing authority from management authority.
+- Phases 4, 5, and 9 for completed Pre-Triage, Clinical History, and Symptom Diary shareable data.
+- Phase 6 exclusively for validated Andrea-compliant FHIR export.
+- Phase 10 only for explicitly approved immutable patient-visible artifacts such as displayable/succeeded Second Opinion results; not full AI Conversations.
+- Phase 13 only for future `Visit` scope execution. Its absence does not block Phase 11 when `Visit` fails closed.
+- Validated configuration for capability/share/token policy, environment-specific frontend base URL, private artifact storage, PDF infrastructure, and 30-day-default artifact retention. Share duration and the production frontend URL are approved and are no longer product blockers.
 
 ## 15. Deferred / TBD Items
 
-- Share-duration defaults, granular UI, recipient identity, long-term export retention, and downloaded-copy governance beyond disclosure.
+- Granular frontend share-management UI and any frontend experience beyond consuming the initial backend contract.
+- Authenticated recipient/provider identity, provider portal, and recipient accounts.
+- Exact `Case` sharing semantics and execution.
+- `Visit` execution until Phase 13 exists and an explicit integration contract is approved and implemented.
+- Any future explicit manager/caregiver sharing permission; Phase 3 management authority alone remains insufficient.
+- Long-term post-MVP artifact/download governance, final production/legal/compliance retention policy beyond the configurable 30-day MVP operational rule, and downloaded-copy governance beyond disclosure.
+- Production object-storage vendor choice and the concrete compatible PDF library are Infrastructure implementation choices, not unresolved Domain or product semantics.
+
+## Implementation sequence and dependency graph
+
+The planned sequential implementation order is `11.1 -> 11.2 -> 11.3 -> 11.4 -> 11.5 -> 11.6 -> 11.7 -> 11.8`. Subphase 11.1 establishes the common persistence/security boundaries; 11.2 creates grants; 11.3 exchanges capabilities; 11.4 projects scoped content; 11.5 closes grant lifecycle and activity; 11.6 establishes immutable Beeexy JSON exports; 11.7 adds PDF, Phase 6 FHIR, and download; and 11.8 performs closure only. No subphase may expose an endpoint assigned to a later subphase.
+
+## Phase 11.1 — Sharing and Export Domain + Persistence Foundation
+
+### Status
+
+**COMPLETE (2026-09-09).**
+
+**Implementation (2026-09-09):** Added the provider-neutral `Beeexy.Domain.Sharing` foundation for `ShareGrant`, `ShareGrantItem`, immutable `ShareAccessEvent`, and lifecycle-controlled immutable-snapshot `ExportArtifact`; exact `FullProfile`, `Case`, `PreTriage`, `Visit`, and `SpecificRecords` scope vocabulary; typed Created/Accessed/Downloaded/Revoked/Expired activity and Beeexy JSON/PDF/FHIR JSON artifact formats; stable resource-type and artifact-content metadata value objects; finite UTC share expiry; irreversible idempotent revocation; exact grant-item identity; configurable retention-eligibility timestamps; Pending-to-Available/Failed and retention-gated Available-to-Deleted artifact transitions; immutable checksum/private-storage/snapshot metadata; and optimistic concurrency versions. Capability persistence reuses the existing `TokenHash` security primitive, requires a non-whitespace hash of at least 32 characters, and contains no plaintext capability/token field. Added EF mappings and DbSets for exactly `sharing.share_grants`, `sharing.share_grant_items`, `sharing.share_access_events`, and `sharing.export_artifacts` through migration `20260909221246_Phase111SharingPersistenceFoundation`, with UUID keys, restrictive patient/account/grant FKs, stable enum checks, lifecycle/timestamp/hash/media/checksum constraints, unique capability/grant-item/idempotency/private-storage identities, patient/time and expiry/retention/event indexes, application guards, and PostgreSQL triggers protecting append-only items/events, immutable grant facts/first-only revocation, immutable artifact facts/legal lifecycle, and permanent grant/artifact metadata. No repository/use-case interface was added before it has a Phase 11.2+ consumer. No endpoint, capability generation/disclosure, recipient authentication/JWT, authorization change, scope projection/evaluator, expiry/retention worker, export byte generation, storage adapter/write, PDF/QR implementation, or FHIR mapper/Phase 6 change was introduced.
+
+**Verification (2026-09-09):** Dependency restore succeeded with dependency auditing disabled; this repository has no lock files. The final Debug solution build completed with 0 warnings and 0 errors. Focused Phase 11.1 coverage passed 27/27 unit cases and 9/9 real-PostgreSQL integration/OpenAPI/migration cases, including all four table round trips, constraints/indexes/FKs/triggers, hash-only schema, reserved-scope representation, lifecycle/immutability guards, private artifact metadata, fresh full-chain apply, Phase 11.1 rollback/reapply with prior Account/Patient preservation, and exact absence of Phase 11 routes. The complete backend suite passed 2,017 tests: 1,262 unit and 755 real-PostgreSQL integration, with 0 failures and 0 skipped. OpenAPI remains exactly 53 paths and contains no `/api/v1/shares`, `/api/v1/shared-access`, Phase 11 export-creation, or artifact-content route. EF reported no pending model changes. `dotnet format --verify-no-changes` and `git diff --check` passed.
+
+**Phase 11.2 status:** NOT STARTED.
+
+### Objective
+
+Create the provider-neutral Domain and PostgreSQL foundation required by Phase 11 without exposing any Phase 11 HTTP endpoint.
+
+### Exact Scope
+
+- Add/finalize `ShareGrant`, `ShareGrantItem`, `ShareAccessEvent`, and `ExportArtifact` with the lifecycle, immutable snapshot, explicit-item authorization, and safe audit semantics in the phase-wide model.
+- Retain all five scope values while marking `Case` and `Visit` unavailable for execution and preventing fallback.
+- Represent creation, active validity, revocation, expiry, read-only recipient access, artifact generation/completion/retention lifecycle, and event concepts `ShareCreated`, `ShareAccessed`, `ShareDownloaded`, `ShareRevoked`, and `ShareExpired` or exact technical equivalents.
+- Define provider-neutral repository, capability generator/hasher, lifetime policy, scope evaluator, canonical snapshot, export renderer, private storage, and artifact boundaries needed by later subphases. Concrete storage/PDF providers are not required here.
+
+### Explicitly Out of Scope
+
+All Phase 11 HTTP endpoints, plaintext capability generation responses, token issuance, profile projection execution, concrete export rendering/storage, background expiry execution, and changes to Phase 6 mappings or source clinical records.
+
+### Dependencies
+
+Existing UUID/domain/time/concurrency conventions; Phase 2 account references; Phase 3 patient references and authority concepts; EF Core/PostgreSQL migration conventions; backend-wide audit, error, and privacy rules.
+
+### Domain and Database Changes
+
+- Create exactly the four `sharing` tables described in Section 5 with safe UUID FKs, restrictive delete behavior, capability hash, scope/items, expiry/revocation, safe events, export format/media/checksum/private storage identity, timestamps, retention metadata, snapshot identity, and concurrency/idempotency fields only as required.
+- Add constraints/indexes for valid lifecycle timestamps, unique capability hash identity, exact grant-item uniqueness, artifact checksum/media/storage validity, patient listing, capability lookup, due expiry/retention processing, chronological activity, and idempotent concurrency.
+- Capability plaintext and derived share tokens have no persistence column. Storage identity stays internal. Migrations must be additive and rollback/reapply cleanly.
+
+### Application / Use Cases
+
+Define interfaces and policy objects only; no externally executable `CreateShare`, exchange, profile, export, or download behavior. Aggregate methods must use the existing time abstraction and enforce legal transitions/idempotency.
+
+### Endpoints Involved
+
+None. OpenAPI remains unchanged, and architecture tests must prove no Phase 11 route/controller registration exists.
+
+### Authentication and Authorization
+
+No request path exists. Structural boundaries must ensure patient/grant/resource UUIDs and Beeexy IDs are non-authoritative and leave a future explicit sharing-permission extension point without granting managers authority.
+
+### Security and Privacy
+
+Hash-only capability persistence, no secret/token logging contract, immutable/checksummed artifact metadata, restrictive deletion, safe event metadata, and no public storage identity are structural requirements.
+
+### External Integrations
+
+Interfaces only. No QR, PDF library, cloud vendor, public filesystem, or external service integration is introduced.
+
+### FHIR Impact
+
+None. Preserve a future delegation boundary to Phase 6 and prohibit any Phase 11 FHIR mapper/reference-resource implementation.
+
+### Tests
+
+- Aggregate lifecycle/invariant tests, five-value scope vocabulary, reserved-scope representation, revocation/expiry behavior, artifact immutability metadata, and event validity.
+- Capability hash-only model/persistence, uniqueness/validity, absence of plaintext/token columns, privacy-safe logging contracts, safe FK/delete behavior, item uniqueness, checksum/media/storage/retention constraints, and repository round trips.
+- Migration full-chain apply, Phase 11.1 rollback/reapply with data-preservation checks, EF pending-model-change check, and architecture/OpenAPI tests proving no Phase 11 endpoint.
+
+### Acceptance / Exit Criteria
+
+11.1 is complete only when the Domain/persistence foundation supports all later workflows without provider-specific dependencies or plaintext secrets, migration/build/all focused and regression tests are green, EF has no pending changes, and the HTTP surface is unchanged.
+
+## Phase 11.2 — Primary-Patient Share Creation + Share Listing
+
+### Status
+
+**NOT STARTED.** It depends on verified 11.1 completion.
+
+### Objective
+
+Allow only the patient's own Primary Patient to create an expiring external share and list that patient's existing shares safely.
+
+### Exact Scope
+
+- Implement Primary-only `CreateShare` for executable `FullProfile`, `PreTriage`, and `SpecificRecords`; require exact valid items where the chosen scope requires them and reject unsupported item types.
+- Use validated server-authoritative policy: 24-hour default, 7-day maximum, valid positive shorter request, and no non-expiring option.
+- Generate a cryptographically random capability, persist only its hash, disclose plaintext once in the first successful `201`, and return the configured frontend base with `#<capability>`.
+- Implement idempotency so a successful retry does not generate a second grant/capability. The first committed creation returns `201` with plaintext capability once; an identical replay returns `200` with the original safe grant metadata, explicitly indicates that the capability was previously issued, and omits capability/URL-fragment/hash material. Incompatible key reuse is `409`. This follows the established first-create/idempotent-replay convention without persisting recoverable capability plaintext.
+- Implement `ListShares` with grant ID, contract-permitted patient reference, scope, derived/current status, creation/expiry/revocation times, and other approved non-secret metadata only.
+
+### Explicitly Out of Scope
+
+Manager/caregiver creation, reserved `Case`/`Visit` execution, capability exchange, recipient access, revocation/activity endpoints, QR rendering, profile content, and exports.
+
+### Dependencies
+
+11.1; Phase 2 bearer/account state; Phase 3 Primary-vs-managed patient authority; validated lifetime and frontend URL options; existing idempotency, time, Problem Details, concealment, and logging conventions.
+
+### Domain and Database Changes
+
+Use 11.1 aggregates/repositories. Add only migration/model corrections objectively required by implementation; do not broaden the schema. Persist creator/patient/scope/items/hash/timestamps and idempotency identity atomically; derive lifecycle status truthfully from persisted facts and authoritative time.
+
+### Application / Use Cases
+
+Implement `CreateShare` and `ListShares`, capability policy/generator/hasher, configured lifetime policy, URL-fragment builder, scope availability/item validation, Primary-only sharing-authority policy, and safe DTO mapping.
+
+### Endpoints Involved
+
+- Add `POST /api/v1/shares`.
+- Add `GET /api/v1/shares`.
+- No other Phase 11 endpoint is introduced; OpenAPI must contain exactly these two new operations at this stage.
+
+### Authentication and Authorization
+
+Bearer is mandatory. The requested patient must be resolved using the established patient-scoped route/body style. Only the patient's own Primary Patient succeeds; Active Managed, Revoked Managed, unrelated/disabled accounts, Beeexy-ID-only callers, and identifier-only callers fail according to the established concealed/policy contract.
+
+### Security and Privacy
+
+Return capability only on first successful creation, never hash; never log the capability, hash material, fragment URL, request authorization, or tokens. Validate configured bases and lifetime at startup/boundary. The fragment contains no clinical data and the backend does not render QR images.
+
+### External Integrations
+
+None. The frontend URL is configuration, not a network call; production value is `https://beeexy.ai/share` and development/test values remain configurable.
+
+### FHIR Impact
+
+None. Creating/listing a share does not generate, validate, mutate, or expose FHIR.
+
+### Tests
+
+- Primary success; Active Managed explicit non-authority; Revoked Managed; unrelated/disabled/anonymous; Beeexy-ID and UUID non-authority; patient/record IDOR and concealment.
+- Each executable scope; required exact items; invalid/unknown items; `Case`/`Visit` `422` fail-closed; no scope fallback.
+- Exact default expiry, valid shorter expiry, exact 7-day boundary, greater-than-7-day and permanent/invalid expiry rejection using fixed time.
+- Entropy/randomness contract, persisted secure hash not plaintext, one-time response disclosure, no-log/DTO leak, exact configured fragment URL, no query convention, and environment configuration validation.
+- First creation `201`, identical replay `200` without capability or capability-bearing URL, incompatible key reuse `409`, concurrent same-key requests with exactly one grant/one disclosure-eligible winning response, atomic grant/items/event creation, and listing order/status/ownership with secret-free metadata.
+- Mandatory endpoint matrices, exact two-operation OpenAPI delta, build, PostgreSQL, and regressions.
+
+### Acceptance / Exit Criteria
+
+11.2 is complete only when Primary-only share creation and safe listing satisfy every policy/authorization/idempotency/privacy test, reserved scopes fail closed, the capability is irrecoverable from persistence, and no later endpoint exists.
+
+## Phase 11.3 — Anonymous Capability Exchange + Short-Lived Read-Only Access Token
+
+### Status
+
+**NOT STARTED.** It depends on verified 11.2 completion.
+
+### Objective
+
+Allow a recipient without a Beeexy account to exchange a valid active capability for a temporary read-only share-access token.
+
+### Exact Scope
+
+- Accept the capability in the POST body or an equivalent non-URL transport, hash it, perform constant-time/appropriate secure resolution, and require a supported grant that is active, not revoked, and not expired.
+- Issue a token bound to exactly one grant with effective expiry `min(now + 15 minutes, ShareGrant.ExpiresAt)`, a distinct read-only authentication identity/scheme, and no patient mutation authority.
+- Keep the capability reusable for repeated rate-limited exchanges while the grant is active. Exchange is not one-time consumption.
+- Normalize invalid, random, malformed, expired, revoked, and corrupt/unsupported grant failures so secrets and grant existence are not enumerated.
+
+### Explicitly Out of Scope
+
+Recipient accounts, refresh tokens, capability query strings, one-time QR consumption, shared profile content, downloads, writes, revocation/activity, and exports.
+
+### Dependencies
+
+11.1-11.2 capability/grant policies; existing authentication infrastructure adapted to a distinct share token; time abstraction; validated token options/key management; rate limiting and safe Problem Details/logging conventions.
+
+### Domain and Database Changes
+
+No token row or plaintext capability is persisted. Add no migration unless an objectively missing 11.1 lifecycle/index requirement is found. Exchange may append a privacy-safe access attempt/event only under the approved event model and anti-spam/idempotency policy.
+
+### Application / Use Cases
+
+Implement `ExchangeShareCapability`, secure hash lookup, current-grant validator, share-token issuer/validator, token/grant binding, exact effective-expiry calculation, and exchange rate-limit partitioning that does not log or echo the capability.
+
+### Endpoints Involved
+
+Add only `POST /api/v1/shared-access/exchange`; it requires no Bearer login. At this stage OpenAPI contains the two 11.2 operations plus this exchange operation.
+
+### Authentication and Authorization
+
+Possession of a valid active capability is the only recipient credential for exchange. ShareGrant UUID, Patient UUID, Beeexy ID, resource UUID, or frontend base URL alone fails. The issued principal has only the Phase 11 read-only share scheme and cannot satisfy bearer patient-authority policies.
+
+### Security and Privacy
+
+Rate limit exchange; never accept/require capability in query; never log/echo capabilities, hashes, token content, bearer material, or full request bodies; use safe indistinguishable invalid-state errors. Token maximum is 15 minutes and never exceeds grant expiry.
+
+### External Integrations
+
+None. Token cryptography and rate limiting use configured backend infrastructure; no identity provider or QR service is required.
+
+### FHIR Impact
+
+None. Exchange conveys no clinical content and invokes no Phase 6 behavior.
+
+### Tests
+
+- Valid exchange, repeated valid exchange, exact 15-minute maximum, near-grant-expiry truncation, exact expiry boundary, claim/scheme/audience validation, and read-only principal behavior.
+- Random/wrong/malformed/empty capability, invalid hash identity, expired/revoked/corrupt/unsupported grant, grant UUID only, Beeexy ID only, and non-enumerating safe Problem Details.
+- Rate-limit threshold/partitioning/recovery, no query-string dependency, capability body redaction, no logs/telemetry/DTO secret leak, and no plaintext/token persistence.
+- Token for grant A cannot authenticate as grant B, cannot satisfy Bearer policies, and cannot invoke any existing mutation route.
+- Mandatory anonymous/auth endpoint matrix, concurrent exchanges, exact OpenAPI/security scheme, and regressions.
+
+### Acceptance / Exit Criteria
+
+11.3 is complete only when a reusable active capability safely produces a grant-bound read-only token whose expiry is correct, all invalid/revoked/expired paths fail without enumeration or logging secrets, rate limiting works, and no profile/download/write capability exists.
+
+## Phase 11.4 — Shared Read-Only Profile + Scope Evaluator
+
+### Status
+
+**NOT STARTED.** It depends on verified 11.3 completion and the listed clinical read dependencies.
+
+### Objective
+
+Build the recipient-facing read-only projection through one canonical allow-listed snapshot boundary while enforcing the current grant scope/items at every projection boundary.
+
+### Exact Scope
+
+- Implement `BuildSharedProfile`, the canonical shared/export health snapshot builder, `IShareScopeEvaluator` or equivalent, and allow-listed shared DTO mapping.
+- For `FullProfile`, include only approved basic demographics, Clinical History, completed Pre-Triage, Phase 9 Symptom Diary plus separately presented approved informational content, displayable/succeeded immutable patient-visible Second Opinion results, and minimum necessary version/provenance metadata.
+- For `PreTriage`, include only the exact authorized completed Pre-Triage record(s), with no Clinical History, diary, AI, or unrelated records.
+- For `SpecificRecords`, require and evaluate every exact persisted grant item; unsupported, missing, foreign-patient, or out-of-scope items do not broaden access and fail safely according to the contract.
+- Keep `Case` and `Visit` unavailable and fail closed. Record privacy-safe access outcome events under deterministic/idempotent rules that prevent duplicate internal execution from producing event spam.
+
+### Explicitly Out of Scope
+
+Full AI Conversations; prompts/provider/rejected/safety-audit data; exports/download; any mutation; clinical reinterpretation; FHIR generation; `Case`/`Visit`; scheduling/directory/account/security/notification data.
+
+### Dependencies
+
+11.1-11.3; Phase 3 current patient authorization semantics; Phase 4 completed Pre-Triage reads; Phase 5 Clinical History reads; Phase 9 immutable diary/content-version reads; Phase 10 immutable patient-visible Second Opinion reads; existing time/privacy/logging conventions.
+
+### Domain and Database Changes
+
+Use existing grant/items/events. Add no new content-copy tables. The canonical projection is constructed read-only from authorized immutable/current patient-visible sources and carries only minimum approved source/version provenance; any event persistence remains privacy minimized.
+
+### Application / Use Cases
+
+Implement `BuildSharedProfile`, canonical snapshot builder, source-specific allow-listed readers/mappers, scope/item evaluator, current-grant revalidator, deterministic event recorder, and shared response DTOs. The same canonical snapshot contract must be reusable by 11.6-11.7 rather than re-created there.
+
+### Endpoints Involved
+
+Add only `GET /api/v1/shared-access/profile`, authenticated by the Phase 11 share-access token.
+
+### Authentication and Authorization
+
+Validate token and resolve its exact grant; recheck current active/not-expired/not-revoked state, patient binding, executable scope, and items on every request. A valid token for another grant/patient or an identifier without a matching token grants nothing. The share principal remains unable to authenticate to mutation routes.
+
+### Security and Privacy
+
+Use positive field allow-lists and structural deny-list regression scans. Do not serialize Account IDs, internal hashes, import paths, storage identities, prompts/provider metadata/raw/rejected output, audit internals, logs, tokens, full AI messages, or operational metadata. Logging identifies only privacy-safe categories/correlation data.
+
+### External Integrations
+
+None. All reads are internal repository/application boundaries; no provider call, PDF/storage call, QR service, or live AI execution occurs.
+
+### FHIR Impact
+
+None. Building a shared profile creates no FHIR resource, mapping, validation claim, or Phase 6 mutation.
+
+### Tests
+
+- FullProfile positive allow-list for every approved category and absence of every prohibited category, including complete free-form conversation history and internal/provider/safety data.
+- Deterministic canonical snapshot ordering/version/provenance, current authorization, optional/missing data behavior, immutable Second Opinion reuse without provider call/reinterpretation, and Phase 9 content presented separately as approved.
+- PreTriage exact isolation; SpecificRecords exact-item/type/patient isolation; scope A cannot read B; cross-patient IDOR; unsupported item failure; `Case`/`Visit` fail closed without fallback.
+- Valid access, token/grant mismatch, random UUIDs, revoked/expired grant after token issue, exact expiry boundary, read-only enforcement across existing write endpoints, and concurrent access/revoke preparation.
+- Access-event success/denial/idempotency/privacy behavior, no sensitive logs/DTO fields, mandatory endpoint matrix, OpenAPI, PostgreSQL, and cross-phase no-mutation regressions.
+
+### Acceptance / Exit Criteria
+
+11.4 is complete only when the canonical builder exposes exactly authorized patient-readable data, every scope is isolated/fail-closed, current grant validity is rechecked, full AI Conversations/internal data are absent, share tokens cannot write, and all tests pass.
+
+## Phase 11.5 — Share Revocation + Expiry + Patient-Facing Activity
+
+### Status
+
+**NOT STARTED.** It depends on verified 11.4 completion.
+
+### Objective
+
+Close the share lifecycle with immediate revocation/expiry enforcement and privacy-safe patient-visible activity.
+
+### Exact Scope
+
+- Implement idempotent `RevokeShare`: the Primary Patient always may revoke their share; a creator may revoke only while retaining valid explicit sharing authority. Do not delete grant/items/events.
+- Revalidate grant state so revocation blocks future exchange/profile/export download immediately after the revocation transaction commits, including tokens already issued.
+- Implement non-HTTP idempotent `ExpireShares` state reconciliation/background processing using the existing time abstraction. Expired grants remain auditable and repeated runs do not duplicate state/events.
+- Implement patient-facing activity containing only Created, Accessed, Downloaded, Revoked, and Expired concepts where present, timestamp, safe success/outcome, and approved high-level action/resource category.
+
+### Explicitly Out of Scope
+
+Deleting downloaded external copies, grant deletion, recipient identity, manager sharing permissions, mutation by recipients, artifact generation/content download, retention cleanup, or new scopes/endpoints.
+
+### Dependencies
+
+11.1-11.4; Primary/creator sharing-authority policy; current-grant validation shared by exchange/profile; existing hosted-worker/time/concurrency/idempotency/telemetry conventions.
+
+### Domain and Database Changes
+
+Use revocation timestamp/actor/reason category and expiry/event facts already modeled. Add no destructive cascade. Concurrency control must produce one authoritative revocation/expiry transition and at most the intended event under repeat/concurrent processing.
+
+### Application / Use Cases
+
+Implement `RevokeShare`, `ExpireShares`, and `ListShareActivity`; reuse current-grant validation everywhere; project patient-safe events separately from richer minimized technical audit telemetry; schedule expiry reconciliation without exposing HTTP control.
+
+### Endpoints Involved
+
+- Add `POST /api/v1/shares/{id}/revoke`.
+- Add `GET /api/v1/shares/{id}/activity`.
+- `ExpireShares` is non-HTTP. No other route is added.
+
+### Authentication and Authorization
+
+Both endpoints require Bearer. The own Primary Patient is the MVP caller; creator revocation requires current explicit sharing authority and does not make managed authority sufficient. Missing/foreign grant IDs are concealed. Recipient/share tokens cannot revoke or inspect activity.
+
+### Security and Privacy
+
+Activity never returns capability/hash, JWT, access token, full IP, full User-Agent, infrastructure/storage identity, or internal diagnostics. Revocation state changes and event persistence are atomic where required; logs use only safe IDs/categories and never secret material.
+
+### External Integrations
+
+None. Use an internal hosted/background worker or equivalent repository-standard scheduling boundary; no external scheduler is required by Domain/Application.
+
+### FHIR Impact
+
+None. Revocation, expiry, and activity do not mutate or generate FHIR or source health records.
+
+### Tests
+
+- Primary revoke, current-authorized creator policy boundary, Active/Revoked Managed and unrelated/disabled/anonymous/share-token denial, concealed foreign/missing grant, first/repeat revoke idempotency.
+- Already-expired revoke behavior, exact expiry reconciliation, multiple pages/batches if applicable, repeated worker runs, concurrent revoke, and concurrent expiry workers without duplicate events.
+- Exchange vs revoke, profile vs revoke, future download vs revoke, expire vs exchange, and expire vs profile at transaction boundaries; all post-commit accesses fail.
+- Activity ownership/IDOR/order/pagination if used, exact safe event projection, Downloaded readiness, no secret/IP/User-Agent/storage/diagnostic fields, and event idempotency.
+- Mandatory matrices for both endpoints, background-service failure/retry/cancellation/privacy, OpenAPI exactness, and regression tests.
+
+### Acceptance / Exit Criteria
+
+11.5 is complete only when revocation and expiry are idempotent/auditable, current grant checks make their effect immediate after commit, patient-visible activity is useful but privacy-safe, concurrency tests pass, and no history/source data is deleted.
+
+## Phase 11.6 — Export Foundation + Beeexy JSON
+
+### Status
+
+**NOT STARTED.** It depends on verified 11.4 canonical projection and 11.5 lifecycle behavior.
+
+### Objective
+
+Create the common immutable private export pipeline and deliver Beeexy JSON as the first executable format.
+
+### Exact Scope
+
+- Implement Primary-only export creation for Beeexy JSON using the same approved canonical FullProfile snapshot used by shared profile projection.
+- Render a Beeexy-native immutable snapshot without backend-only fields, capabilities, audit internals, provider metadata, or unapproved clinical content; persist stable media type, checksum, source/snapshot identity, timestamps, private storage identity, and retention metadata.
+- Execute authorization → canonical snapshot → deterministic Beeexy JSON bytes → checksum → private storage → durable artifact with compensation/failure-safe behavior. Never regenerate an old artifact after source changes.
+- Add `IPrivateArtifactStorage` or equivalent, a private local development/test filesystem adapter, and a production private-object-storage adapter/configuration boundary. Default operational retention is 30 days and configurable; physical deletion eligibility does not delete source clinical data.
+- PDF/FHIR requests remain unavailable with safe `422` until 11.7 unless their verified implementation is completed as part of that subphase; no silent format fallback.
+
+### Explicitly Out of Scope
+
+PDF rendering, FHIR mapping/export implementation, artifact content download, public/static storage, share-recipient artifact access, source-data mutation, historical-artifact regeneration, or final long-term legal retention policy.
+
+### Dependencies
+
+11.1 artifact model/repository/storage boundary; 11.4 canonical snapshot and scope allow-list; Phase 3 Primary authority; existing idempotency/Problem Details/time/configuration; writable private local storage in development/test and deployable private object storage configuration.
+
+### Domain and Database Changes
+
+Use `ExportArtifact` lifecycle, format/media/checksum, private storage key, created/completed/failure state as required, source snapshot identity, retention eligibility/expiry, idempotency, and concurrency fields from 11.1. Any correction must remain additive/minimal. Storage keys never enter public DTOs.
+
+### Application / Use Cases
+
+Implement the Beeexy JSON branch of `GenerateExport`, deterministic renderer, checksum service, private storage interface/adapters, configuration validation, atomic/compensated metadata-and-byte workflow, and retention eligibility boundary. Document exact idempotency semantics and `409` incompatible reuse.
+
+### Endpoints Involved
+
+Add/implement `POST /api/v1/patients/{id}/exports` with Beeexy JSON executable. No content-download endpoint exists until 11.7.
+
+### Authentication and Authorization
+
+Bearer and the patient's own Primary Patient are required for creation. Active/Revoked Managed, unrelated/disabled/anonymous/share-token callers, Beeexy-ID-only requests, and inaccessible patient IDs fail safely with established concealment. Artifact IDs/storage keys provide no authority.
+
+### Security and Privacy
+
+Store artifacts privately outside static files with opaque internal identities and restrictive filesystem/object permissions. Bound serialization/memory as appropriate, expose checksum and approved metadata only, sanitize storage errors/logs, and compensate orphan bytes or incomplete metadata safely without exposing partial downloads.
+
+### External Integrations
+
+- Development/test: local private filesystem adapter suitable for deterministic automated tests and not web served.
+- Production: configured private object-storage adapter behind the same boundary; vendor-neutral Domain/Application and private-by-default Infrastructure.
+- No PDF SaaS, QR provider, or FHIR integration in this subphase.
+
+### FHIR Impact
+
+None. A FHIR format request returns safe unavailable `422`; no mapper, Phase 6 call, resource creation, validation claim, or Beeexy JSON downgrade is added.
+
+### Tests
+
+- Authorized Beeexy JSON creation, exact canonical FullProfile semantic consistency/deterministic ordering, approved metadata, media type, checksum over stored bytes, and absence of prohibited/backend/provider fields.
+- Immutable snapshot behavior: source changes do not alter bytes/checksum/metadata or cause download-time regeneration; repeated same input under the idempotency contract behaves exactly as documented.
+- Primary/manager/revoked/unrelated/disabled/anonymous/share-token matrix, cross-patient IDOR, concealed UUID/Beeexy-ID non-authority, invalid format, PDF/FHIR safe unavailable `422`.
+- Local storage traversal/symlink/public-path safety as applicable, opaque key/path non-exposure, permissions, write/read simulation, storage failure before/after metadata, compensation/orphan handling, cancellation, and privacy-safe logs.
+- Exact 30-day-default/configurable retention metadata and boundary eligibility without source deletion; same-key concurrency and incompatible reuse `409`.
+- Mandatory creation endpoint matrix, PostgreSQL/artifact round trips, OpenAPI, configuration/startup, and cross-phase no-mutation regressions.
+
+### Acceptance / Exit Criteria
+
+11.6 is complete only when Primary-authorized Beeexy JSON is produced from the canonical snapshot as private immutable checksummed bytes with safe idempotency/failure/retention behavior, source changes cannot rewrite it, and PDF/FHIR/download remain safely unavailable until 11.7.
+
+## Phase 11.7 — Human-Readable PDF + Phase-6 FHIR JSON + Artifact Download
+
+### Status
+
+**NOT STARTED.** It depends on verified 11.6 completion and Phase 6's validated export boundary.
+
+### Objective
+
+Complete all three export formats and securely return stored artifact bytes to an authorized patient or an active share recipient with explicit artifact coverage.
+
+### Exact Scope
+
+- Implement a provider-neutral PDF renderer from the canonical snapshot, including Beeexy title/branding, patient name, approved demographics, generation time, Clinical History, completed Pre-Triage, Symptom Diary and separately approved informational content, patient-visible Second Opinion results, minimal useful provenance/version context, concise exported-snapshot disclosure/disclaimer, and appropriate pagination/footer metadata when present.
+- Complete FHIR JSON creation solely by calling Phase 6's validated Andrea-compliant snapshot/export pipeline. Store only its validated immutable output; return safe `422` when Phase 6 cannot produce it.
+- Implement download of stored Beeexy JSON, PDF, or validated FHIR JSON bytes with exact established media type/checksum consistency and no regeneration.
+- Bearer download requires current patient authority for the artifact patient. Share-token download requires current active grant plus an exact persisted grant item that covers the artifact. `FullProfile` does not imply historical-artifact access.
+- Record a privacy-safe patient-visible `Downloaded` event after successful share-token delivery according to the event/idempotency contract.
+
+### Explicitly Out of Scope
+
+New FHIR mapping/profile/terminology, unvalidated FHIR, fallback formats, QR-in-PDF, external PDF SaaS, public URLs/storage, download mutation, regenerated content, automatic artifact inclusion in `FullProfile`, and control over external downloaded copies.
+
+### Dependencies
+
+11.1-11.6; `IPdfExportRenderer`; private storage; Phase 6 approved validated export/media-type contract; existing bearer patient-authority policy; current share-token/grant/scope/item validation; repository-compatible PDF library and deployment configuration.
+
+### Domain and Database Changes
+
+Use existing format/media/checksum/lifecycle and explicit grant-item references. Add no duplicate FHIR tables/mappings. Any format-specific metadata must remain provider-neutral, minimal, and immutable; artifact completion/storage metadata must prevent serving incomplete bytes.
+
+### Application / Use Cases
+
+Complete PDF and delegated-FHIR branches of `GenerateExport`; implement `DownloadExport`, exact media response mapping, stored checksum/content validation as required, explicit artifact scope evaluation, current-grant revalidation, and safe Downloaded event recording.
+
+### Endpoints Involved
+
+- Complete PDF and FHIR JSON support on `POST /api/v1/patients/{id}/exports`.
+- Add `GET /api/v1/exports/{id}/content`.
+- This establishes the final exact eight-operation Phase 11 HTTP surface.
+
+### Authentication and Authorization
+
+Export creation remains Bearer/Primary-only. Download accepts either established Bearer patient authority or the distinct share-access token, never ambiguous mixed authority. The share path revalidates grant state and exact artifact item every time. Missing/foreign/unauthorized artifacts preserve safe concealment/denial and UUID/Beeexy ID/storage identity alone grants nothing.
+
+### Security and Privacy
+
+PDF/JSON contain only allowed canonical fields; FHIR contains only Phase 6-approved validated content. Prevent content-type confusion, header/filename injection, range/caching leakage where applicable, storage-key exposure, incomplete artifact delivery, and sensitive download logs. Revoked/expired grants fail even with unexpired tokens.
+
+### External Integrations
+
+- Concrete local server-side PDF library behind the provider-neutral renderer after license/repository compatibility review; no SaaS call.
+- Existing private local/object storage adapter for byte retrieval.
+- Existing Phase 6 internal interoperability/export pipeline exclusively for FHIR.
+
+### FHIR Impact
+
+Strict delegation only. Architecture tests must prove Phase 11 has no FHIR mapper, resource-construction, terminology, profile URL, or independent validation implementation. Phase 6 unavailable/unmappable/unvalidated output maps to documented safe `422`, never Beeexy JSON.
+
+### Tests
+
+- PDF parses/renders as valid and human-readable with every applicable required section, disclosure, page/footer behavior, no QR, no unsupported data, and semantic equivalence to the canonical snapshot/Beeexy JSON without new interpretation.
+- Phase 6 validated FHIR success with its exact media type and bytes; Phase 6 unavailable/unmappable/invalid result `422`; static/architecture proof of no new mapper/profile/resource path or downgrade.
+- Beeexy JSON/PDF/FHIR stored download media types, checksums, byte equality, immutable historical bytes, private retrieval, safe content headers, missing artifact, incomplete `409`, storage failure, and no URI/key exposure.
+- Bearer Primary/current authorized patient path as established; manager/revoked/unrelated/disabled/anonymous matrix; cross-patient/export IDOR and concealment.
+- Share token with exact artifact item succeeds; FullProfile-only, wrong artifact/type/grant/patient, revoked/expired grant, expired/malformed token, identifier only, and concurrent download-vs-revoke/expiry fail as required.
+- Successful Downloaded event and no event on unauthorized/incomplete transfer according to contract; event privacy/idempotency; mandatory matrices for both endpoint behaviors and exact final OpenAPI surface.
+
+### Acceptance / Exit Criteria
+
+11.7 is complete only when all three formats create and download as immutable private checksummed artifacts, PDF is readable and canonical, FHIR is exclusively Phase 6 validated or safely `422`, every download is currently authorized, explicit artifact sharing is enforced, and all format/auth/privacy tests pass.
+
+## Phase 11.8 — Security, Privacy, Concurrency, Migration, and Acceptance Closure
+
+### Status
+
+**NOT STARTED.** It may begin only after 11.1-11.7 have verified implementation evidence.
+
+### Objective
+
+Close Phase 11 with end-to-end evidence that all eight operations and background boundaries are capability-secure, read-only, scope-isolated, immediately revocable/expiring, privacy-safe, and correct across all three export formats.
+
+### Exact Scope
+
+- Audit and test exactly the eight endpoints in Section 6 and the non-HTTP expiry/retention boundaries.
+- Close only defects necessary to meet already approved requirements. Verify authorization, capability/token security, scope isolation, canonical projection, event privacy, artifact immutability/private storage/retention, FHIR delegation, concurrency, migrations, OpenAPI, and cross-phase non-mutation.
+- Record actual implementation and verification evidence in this plan only after commands/tests have completed successfully.
+
+### Explicitly Out of Scope
+
+Any new endpoint, product behavior, scope, clinical content/interpretation, FHIR mapping, recipient account, manager permission, provider portal, frontend UI, notification/scheduling behavior, or later-phase capability.
+
+### Dependencies
+
+Verified 11.1-11.7; complete Phases 2, 3, 4, 5, 6, 9, and 10 regressions; Phase 13 remains absent/reserved for `Visit`; production-like PostgreSQL and test private-storage/PDF/Phase 6 fakes or adapters.
+
+### Domain and Database Changes
+
+No planned new model behavior or migration. Add only narrow fixes proven necessary by audit. Verify the complete migration chain, Phase 11 rollback/reapply, constraints/indexes/immutability, retention eligibility, and EF no pending model changes.
+
+### Application / Use Cases
+
+Audit `CreateShare`, `ListShares`, `RevokeShare`, `ExpireShares`, `ListShareActivity`, `ExchangeShareCapability`, `BuildSharedProfile`, `GenerateExport`, `DownloadExport`, the canonical snapshot/scope/capability policies, storage/PDF boundaries, and Phase 6 delegation as one end-to-end system.
+
+### Endpoints Involved
+
+Audit exactly: `POST /api/v1/shares`, `GET /api/v1/shares`, `POST /api/v1/shares/{id}/revoke`, `GET /api/v1/shares/{id}/activity`, `POST /api/v1/shared-access/exchange`, `GET /api/v1/shared-access/profile`, `POST /api/v1/patients/{id}/exports`, and `GET /api/v1/exports/{id}/content`. Add none.
+
+### Authentication and Authorization
+
+Execute the complete matrix for Primary Patient, Active Managed, Revoked Managed, unrelated and disabled Account, valid anonymous share recipient, expired/revoked recipient, anonymous request without capability, malformed/invalid Bearer/share tokens, cross-grant/cross-patient/cross-artifact IDs, and Beeexy-ID/UUID-only attempts. Confirm Primary-only share/export creation and explicit artifact coverage.
+
+### Security and Privacy
+
+Audit capability entropy/hash-only/single-disclosure/no-query/no-log behavior; rate limiting; token replay/grant binding/current-state revalidation; exact expiry and immediate revocation; Problem Details/concealment/IDOR; allow-listed DTOs; no AI conversation/provider/prompt/rejected/audit leakage; no storage URI or full network-agent telemetry; private permissions; and read-only enforcement.
+
+### External Integrations
+
+Verify configured local private storage and PDF renderer in tests, production private-object-storage configuration/startup boundary, frontend URL configuration without QR provider, and Phase 6 internal FHIR delegation. No live external SaaS is required for standard acceptance.
+
+### FHIR Impact
+
+Run Phase 6 validation/export regressions and architecture checks proving exclusive delegation, exact media contract, safe `422`, no Phase 11 mapper, no new clinical mapping authority, and zero mutation of Phase 6 source records.
+
+### Tests
+
+- All mandatory endpoint matrices and Section 12 capability, scope, export, privacy, authorization, activity, retention, failure, and IDOR tests.
+- Concurrency: same-key share creation; exchange/profile/download vs revoke; expiry vs exchange/profile/download; concurrent revoke; repeated/concurrent expiry; concurrent artifact generation/idempotency; storage failure/compensation; repeated retention cleanup eligibility/processing.
+- Scope: FullProfile allow-list; PreTriage isolation; SpecificRecords exact items; `Case`/`Visit` fail closed; no fallback; no full AI Conversations.
+- Export: Beeexy JSON, PDF, validated Phase 6 FHIR, checksums/media types/immutable bytes/private storage, explicit share artifact authorization, 30-day-default configurable retention and cleanup eligibility.
+- Cross-phase focused regressions for Phase 2 identity, Phase 3 authority, Phase 4 Pre-Triage, Phase 5 Clinical History, Phase 6 FHIR, Phase 9 diary/content, Phase 10 patient-visible Second Opinion and restricted AI boundaries, and Phase 13 absence/reserved Visit. Prove Phase 11 mutates none of their source records.
+- Locked restore where repository policy uses it; full Debug build with zero errors; complete unit and PostgreSQL integration suites; migration fresh apply and Phase 11 rollback/reapply; EF pending-model check; exact OpenAPI; `dotnet format --verify-no-changes`; `git diff --check`.
+
+### Acceptance / Exit Criteria
+
+11.8 and Phase 11 are complete only when every Section 13 criterion and all required tests/checks pass with recorded evidence, OpenAPI contains exactly the eight approved operations, no deferred behavior or source mutation was introduced, and no Phase 11 responsibility remains ambiguous. A partial test run or documentation update alone cannot change any subphase status to complete.
 
 ---
 
@@ -2859,7 +3460,7 @@ When a phase is explicitly authorized:
 - **Phase 7:** product approval of a synthetic/demo directory dataset and deterministic demo matching factors/weights is required; authoritative real directory data, real credentialing, and production matching rules/validation do not block the MVP/demo.
 - **Phase 9:** Phases 9.1 and 9.2 are complete, and Phase 9.3's checked-in source plus 2026-09-07 approval provenance are resolved. Phase 9.4 and later remain not started pending explicit authorization; no rules, intervals, escalation, recommendations, reminders, or invented `OTHER_SYMPTOMS` content are authorized.
 - **Phase 10:** COMPLETE. Production NVIDIA credentials and a credentialed deployment smoke check remain operational deployment concerns, not implementation or standard acceptance blockers. Provider selection, versioned prompt content, restricted-audit handling, MVP inputs/limits, safety semantics, disclaimers, private storage, and retention behavior are implemented and covered with credential-free fakes in the repository suite.
-- **Phase 11:** share duration defaults and frontend public share URL.
+- **Phase 11:** Approved for planning: 24-hour default and 7-day maximum share lifetime, production frontend base `https://beeexy.ai/share` with fragment capability, and configurable 30-day MVP artifact retention. Remaining deferred decisions are exact `Case` semantics, `Visit` execution after Phase 13 integration, any future manager sharing permission, authenticated recipient/provider access, granular frontend management, and long-term production/legal retention and downloaded-copy governance.
 - **Phase 12:** VAPID keys and approved notification copy/rules.
 - **Phase 13:** recording consent/attestation text, speech provider, media constraints, and structured-extraction retention decision.
 - **Production:** long-term retention/deletion, legal/privacy/compliance controls, deployment, backup, and disaster-recovery requirements.

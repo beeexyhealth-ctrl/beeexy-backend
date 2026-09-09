@@ -6,6 +6,7 @@ using Beeexy.Domain.History;
 using Beeexy.Domain.Interoperability;
 using Beeexy.Domain.Patients;
 using Beeexy.Domain.Scheduling;
+using Beeexy.Domain.Sharing;
 using Beeexy.Domain.Triage;
 using Microsoft.EntityFrameworkCore;
 
@@ -27,6 +28,14 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
     public DbSet<AiUploadedDocument> AiUploadedDocuments => Set<AiUploadedDocument>();
 
     public DbSet<AiSafetyValidation> AiSafetyValidations => Set<AiSafetyValidation>();
+
+    public DbSet<ShareGrant> ShareGrants => Set<ShareGrant>();
+
+    public DbSet<ShareGrantItem> ShareGrantItems => Set<ShareGrantItem>();
+
+    public DbSet<ShareAccessEvent> ShareAccessEvents => Set<ShareAccessEvent>();
+
+    public DbSet<ExportArtifact> ExportArtifacts => Set<ExportArtifact>();
 
     public DbSet<SymptomDiaryPackageVersion> SymptomDiaryPackageVersions =>
         Set<SymptomDiaryPackageVersion>();
@@ -148,6 +157,7 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
         EnsureSchedulingAuditIsAppendOnly();
         EnsureAiHistoryIsProtected();
         EnsureSymptomDiaryHistoryIsAppendOnly();
+        EnsureSharingHistoryIsProtected();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
@@ -158,6 +168,7 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
         EnsureSchedulingAuditIsAppendOnly();
         EnsureAiHistoryIsProtected();
         EnsureSymptomDiaryHistoryIsAppendOnly();
+        EnsureSharingHistoryIsProtected();
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
@@ -226,6 +237,29 @@ public sealed class BeeexyDbContext(DbContextOptions<BeeexyDbContext> options)
         {
             throw new InvalidOperationException(
                 "Symptom-diary packages and check-in history are append-only and cannot be changed or deleted.");
+        }
+    }
+
+    private void EnsureSharingHistoryIsProtected()
+    {
+        var appendOnlyMutation = ChangeTracker.Entries()
+            .FirstOrDefault(entry =>
+                entry.Entity is ShareGrantItem or ShareAccessEvent &&
+                entry.State is EntityState.Modified or EntityState.Deleted);
+        if (appendOnlyMutation is not null)
+        {
+            throw new InvalidOperationException(
+                "Share grant items and access events are append-only and cannot be changed or deleted.");
+        }
+
+        var destructiveDeletion = ChangeTracker.Entries()
+            .FirstOrDefault(entry =>
+                entry.Entity is ShareGrant or ExportArtifact &&
+                entry.State == EntityState.Deleted);
+        if (destructiveDeletion is not null)
+        {
+            throw new InvalidOperationException(
+                "Sharing grants and export artifact metadata cannot be physically deleted.");
         }
     }
 }
