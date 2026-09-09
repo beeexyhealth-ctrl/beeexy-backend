@@ -79,6 +79,76 @@ public sealed class AndreaSymptomDiaryImportTests(
     }
 
     [Fact]
+    public async Task ControlledDevelopmentCommand_PrintsSafeTargetImportsExactReleaseAndRerunsIdempotently()
+    {
+        var databaseName = $"phase93_dev_cli_{Guid.NewGuid():N}";
+        var connectionString = ConnectionStringFor(databaseName);
+        await CreateDatabaseAsync(databaseName);
+        try
+        {
+            await using (var migrate = CreateDbContext(connectionString))
+            {
+                await migrate.Database.MigrateAsync();
+                Assert.Empty(await migrate.SymptomDiaryPackageVersions.ToArrayAsync());
+            }
+
+            var connectionTarget = new NpgsqlConnectionStringBuilder(connectionString);
+            var firstOutput = new StringWriter();
+            await Phase9SymptomContentCli.ExecuteDevelopmentAsync(
+                Configuration(connectionString),
+                Environments.Development,
+                firstOutput);
+            var firstLines = OutputLines(firstOutput);
+            Assert.Equal(
+                $"targetDatabaseHost={connectionTarget.Host} targetDatabase={databaseName}",
+                firstLines[0]);
+            Assert.False(string.IsNullOrEmpty(connectionTarget.Username));
+            Assert.False(string.IsNullOrEmpty(connectionTarget.Password));
+            Assert.DoesNotContain(connectionTarget.Username!, firstOutput.ToString(),
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(connectionTarget.Password!, firstOutput.ToString(),
+                StringComparison.Ordinal);
+            Assert.Equal(5, firstLines.Length);
+            Assert.All(firstLines[1..], line => Assert.Contains("status=Imported", line));
+
+            var persistedImportedAt = await PackageImportedTimesAsync(connectionString);
+            var secondOutput = new StringWriter();
+            await Phase9SymptomContentCli.ExecuteDevelopmentAsync(
+                Configuration(connectionString),
+                Environments.Development,
+                secondOutput);
+            var secondLines = OutputLines(secondOutput);
+            Assert.Equal(firstLines[0], secondLines[0]);
+            Assert.Equal(5, secondLines.Length);
+            Assert.All(secondLines[1..], line =>
+                Assert.Contains("status=AlreadyImported", line));
+            Assert.Equal(persistedImportedAt, await PackageImportedTimesAsync(connectionString));
+
+            await using var verify = CreateDbContext(connectionString);
+            var persisted = await verify.SymptomDiaryPackageVersions
+                .AsNoTracking()
+                .Include(value => value.Questions)
+                .ThenInclude(value => value.Options)
+                .Include(value => value.WarningSigns)
+                .OrderBy(value => value.PackageCode)
+                .ToArrayAsync();
+            Assert.Equal(4, persisted.Length);
+            foreach (var entity in persisted)
+            {
+                var content = await CreateProvider(verify).GetExactPackageAsync(entity.Id);
+                Assert.NotNull(content);
+                var expected = AndreaSymptomDiaryPackages.Create(content.Definition.Pathway);
+                AssertDefinition(expected, content.Definition);
+                Assert.Equal(expected.ExpectedContentHash, content.CanonicalContentHash);
+            }
+        }
+        finally
+        {
+            await DropDatabaseAsync(databaseName);
+        }
+    }
+
+    [Fact]
     public async Task ExactLookup_RoundTripsEveryReleaseWithTextOrderHashAndProvenance()
     {
         var imported = await ImportAllAsync();

@@ -39,6 +39,8 @@ var phase7DemoDirectoryCommand = Phase7DemoDirectoryCli.IsCommand(args);
 var phase8DemoAvailabilityCommand = Phase8DemoAvailabilityCli.IsCommand(args);
 var appointmentAdministrationCommand = AppointmentAdministrationCli.IsCommand(args);
 var phase9SymptomContentCommand = Phase9SymptomContentCli.IsCommand(args);
+var phase9DevelopmentSymptomContentCommand =
+    Phase9SymptomContentCli.IsDevelopmentCommand(args);
 if (PrivateAccessCli.TryRun(args))
 {
     return;
@@ -115,6 +117,33 @@ if (phase9SymptomContentCommand)
     await Phase9SymptomContentCli.ExecuteAsync(
         commandConfiguration,
         commandConfiguration["ASPNETCORE_ENVIRONMENT"],
+        cancellationToken: CancellationToken.None);
+    return;
+}
+
+if (phase9DevelopmentSymptomContentCommand)
+{
+    var environmentConfiguration = new ConfigurationManager();
+    environmentConfiguration.AddEnvironmentVariables();
+    var commandEnvironmentName = environmentConfiguration["ASPNETCORE_ENVIRONMENT"];
+    IConfiguration commandConfiguration = environmentConfiguration;
+    if (string.Equals(
+        commandEnvironmentName,
+        Environments.Development,
+        StringComparison.OrdinalIgnoreCase))
+    {
+        var developmentCommandBuilder = WebApplication.CreateBuilder(
+            new WebApplicationOptions
+            {
+                Args = [],
+                EnvironmentName = commandEnvironmentName
+            });
+        commandConfiguration = developmentCommandBuilder.Configuration;
+    }
+
+    await Phase9SymptomContentCli.ExecuteDevelopmentAsync(
+        commandConfiguration,
+        commandEnvironmentName,
         cancellationToken: CancellationToken.None);
     return;
 }
