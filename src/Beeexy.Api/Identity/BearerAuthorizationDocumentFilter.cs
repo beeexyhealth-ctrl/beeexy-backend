@@ -33,9 +33,17 @@ internal sealed class BearerAuthorizationDocumentFilter : IDocumentFilter
                 continue;
             }
 
+            var authorizeData = metadata.OfType<IAuthorizeData>().ToArray();
+            var securityScheme = authorizeData.Any(value =>
+                (value.AuthenticationSchemes ?? string.Empty)
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries |
+                        StringSplitOptions.TrimEntries)
+                    .Contains("ShareAccess", StringComparer.Ordinal))
+                ? "ShareAccess"
+                : "Bearer";
             var bearerRequirement = new OpenApiSecurityRequirement
             {
-                [new OpenApiSecuritySchemeReference("Bearer", document, null)] = []
+                [new OpenApiSecuritySchemeReference(securityScheme, document, null)] = []
             };
             operation.Security = optionalBearer
                 ? [new OpenApiSecurityRequirement(), bearerRequirement]

@@ -251,6 +251,10 @@ builder.Services.AddSingleton(shareUrlOptions);
 builder.Services.AddScoped<CreateShare>();
 builder.Services.AddScoped<ListShares>();
 builder.Services.AddScoped<ExchangeShareCapability>();
+builder.Services.AddSingleton<IShareScopeEvaluator, ShareScopeEvaluator>();
+builder.Services.AddScoped<ICanonicalSharedHealthSnapshotBuilder,
+    CanonicalSharedHealthSnapshotBuilder>();
+builder.Services.AddScoped<BuildSharedProfile>();
 builder.Services.AddShareExchangeRateLimiting(shareAccessSettings.RateLimitPolicy);
 builder.Services.AddScoped<TransitionAppointment>();
 builder.Services.AddScoped<ConfirmAppointment>();

@@ -24,7 +24,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(55, paths.EnumerateObject().Count());
+        Assert.Equal(56, paths.EnumerateObject().Count());
         var sharesPath = paths.GetProperty("/api/v1/shares");
         Assert.True(sharesPath.TryGetProperty("post", out _));
         Assert.True(sharesPath.TryGetProperty("get", out _));
@@ -36,7 +36,8 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
             (path.Name.StartsWith("/api/v1/shares", StringComparison.Ordinal) &&
                 path.Name != "/api/v1/shares") ||
             (path.Name.StartsWith("/api/v1/shared-access", StringComparison.Ordinal) &&
-                path.Name != "/api/v1/shared-access/exchange") ||
+                path.Name != "/api/v1/shared-access/exchange" &&
+                path.Name != "/api/v1/shared-access/profile") ||
             path.Name.Equals("/api/v1/patients/{id}/exports", StringComparison.Ordinal) ||
             path.Name.StartsWith("/api/v1/exports/", StringComparison.Ordinal));
         Assert.True(paths

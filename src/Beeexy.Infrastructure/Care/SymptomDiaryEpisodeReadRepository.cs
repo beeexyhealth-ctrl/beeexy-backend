@@ -35,4 +35,21 @@ internal sealed class SymptomDiaryEpisodeReadRepository(BeeexyDbContext dbContex
             patientProfileId,
             source.Pathway);
     }
+
+    public async Task<IReadOnlyList<EligibleSymptomDiaryEpisode>> ListEligibleAsync(
+        EntityId patientProfileId,
+        CancellationToken cancellationToken = default)
+    {
+        return await (
+                from episode in dbContext.PreTriageEpisodes.AsNoTracking()
+                join questionnaire in dbContext.QuestionnaireVersions.AsNoTracking()
+                    on episode.QuestionnaireVersionId equals questionnaire.Id
+                where episode.PatientProfileId == patientProfileId
+                orderby episode.CompletedAt, episode.Id
+                select new EligibleSymptomDiaryEpisode(
+                    episode.Id,
+                    patientProfileId,
+                    questionnaire.Pathway))
+            .ToArrayAsync(cancellationToken);
+    }
 }

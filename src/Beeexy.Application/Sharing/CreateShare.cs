@@ -117,18 +117,27 @@ public sealed class CreateShare(
                 $"A share cannot contain more than {MaximumItemCount} explicit items.");
         }
 
-        if (command.Scope == ShareScope.SpecificRecords && command.Items.Count == 0)
+        if (command.Scope is ShareScope.PreTriage or ShareScope.SpecificRecords &&
+            command.Items.Count == 0)
         {
             throw new RequestValidationException(
                 "sharing.items_required",
-                "SpecificRecords requires at least one explicit item.");
+                "The selected share scope requires at least one explicit item.");
         }
 
-        if (command.Scope != ShareScope.SpecificRecords && command.Items.Count != 0)
+        if (command.Scope == ShareScope.FullProfile && command.Items.Count != 0)
         {
             throw new RequestValidationException(
                 "sharing.items_not_allowed",
-                "Explicit items are allowed only for SpecificRecords.");
+                "FullProfile does not accept explicit items.");
+        }
+
+        if (command.Scope == ShareScope.PreTriage && command.Items.Any(item =>
+                item.ResourceType.Value != SupportedShareResourceTypes.PreTriageEpisode))
+        {
+            throw new RequestValidationException(
+                "sharing.item_type_invalid",
+                "PreTriage accepts only completed Pre-Triage episode items.");
         }
 
         if (command.Items.Any(item =>

@@ -171,8 +171,16 @@ public sealed class ShareUseCasesTests
         var original = Command(ShareScope.FullProfile);
         fixture.Transaction.Existing = CreateExisting(fixture, original);
 
+        var preTriageItem = new ShareItemReference(
+            ShareResourceType.Create(SupportedShareResourceTypes.PreTriageEpisode),
+            EntityId.New());
+
         await Assert.ThrowsAsync<ShareIdempotencyConflictException>(() =>
-            fixture.Create.ExecuteAsync(original with { Scope = ShareScope.PreTriage }));
+            fixture.Create.ExecuteAsync(original with
+            {
+                Scope = ShareScope.PreTriage,
+                Items = [preTriageItem]
+            }));
 
         Assert.Equal(0, fixture.Capabilities.GenerateCalls);
         Assert.Null(fixture.Transaction.AddedGrant);
@@ -267,11 +275,19 @@ public sealed class ShareUseCasesTests
     private static CreateShareCommand Command(
         ShareScope scope,
         int? lifetimeMinutes = null,
-        IReadOnlyList<ShareItemReference>? items = null) => new(
-        scope,
-        lifetimeMinutes,
-        EntityId.New(),
-        items ?? []);
+        IReadOnlyList<ShareItemReference>? items = null)
+    {
+        var resolvedItems = items ?? (scope == ShareScope.PreTriage
+            ? [new ShareItemReference(
+                ShareResourceType.Create(SupportedShareResourceTypes.PreTriageEpisode),
+                EntityId.New())]
+            : []);
+        return new CreateShareCommand(
+            scope,
+            lifetimeMinutes,
+            EntityId.New(),
+            resolvedItems);
+    }
 
     private static ShareCreationState CreateExisting(
         Fixture fixture,

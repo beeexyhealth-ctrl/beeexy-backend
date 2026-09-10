@@ -63,6 +63,11 @@ public interface ISymptomDiaryEpisodeReadRepository
     Task<EligibleSymptomDiaryEpisode?> GetEligibleAsync(
         EntityId episodeId,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<EligibleSymptomDiaryEpisode>> ListEligibleAsync(
+        EntityId patientProfileId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<EligibleSymptomDiaryEpisode>>([]);
 }
 
 public sealed record EligibleSymptomDiaryEpisode(

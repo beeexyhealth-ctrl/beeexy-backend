@@ -10,7 +10,11 @@ using Microsoft.EntityFrameworkCore.Storage;
 namespace Beeexy.Infrastructure.Sharing;
 
 internal sealed class ShareRepository(BeeexyDbContext dbContext)
-    : IShareCreationTransaction, IShareReadRepository, IShareExchangeRepository
+    : IShareCreationTransaction,
+      IShareReadRepository,
+      IShareExchangeRepository,
+      ISharedProfileGrantRepository,
+      IShareAccessEventRecorder
 {
     private IDbContextTransaction? transaction;
 
@@ -160,6 +164,55 @@ internal sealed class ShareRepository(BeeexyDbContext dbContext)
                 grant,
                 dbContext.ShareGrantItems.Count(item => item.ShareGrantId == grant.Id)))
             .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<SharedProfileGrantState?> FindAsync(
+        EntityId shareGrantId,
+        CancellationToken cancellationToken = default)
+    {
+        var grant = await dbContext.ShareGrants
+            .AsNoTracking()
+            .SingleOrDefaultAsync(value => value.Id == shareGrantId, cancellationToken);
+        if (grant is null)
+        {
+            return null;
+        }
+
+        var items = await dbContext.ShareGrantItems
+            .AsNoTracking()
+            .Where(value => value.ShareGrantId == shareGrantId)
+            .OrderBy(value => value.ResourceType)
+            .ThenBy(value => value.ResourceId)
+            .ToArrayAsync(cancellationToken);
+        return new SharedProfileGrantState(grant, items);
+    }
+
+    public async Task RecordSuccessfulAccessAsync(
+        ShareGrant grant,
+        EntityId eventId,
+        DateTimeOffset occurredAt,
+        CancellationToken cancellationToken = default)
+    {
+        var accessEvent = ShareAccessEvent.Create(
+            grant,
+            ShareAccessEventType.ShareAccessed,
+            ShareAccessOutcome.Succeeded,
+            occurredAt,
+            id: eventId);
+        dbContext.ShareAccessEvents.Add(accessEvent);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (
+            exception.InnerException is Npgsql.PostgresException
+            {
+                SqlState: Npgsql.PostgresErrorCodes.UniqueViolation,
+                ConstraintName: "pk_share_access_events"
+            })
+        {
+            dbContext.Entry(accessEvent).State = EntityState.Detached;
+        }
     }
 
     public async ValueTask DisposeAsync()

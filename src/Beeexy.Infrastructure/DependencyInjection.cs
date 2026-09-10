@@ -98,6 +98,12 @@ public static class DependencyInjection
             provider.GetRequiredService<ShareRepository>());
         services.AddScoped<IShareExchangeRepository>(provider =>
             provider.GetRequiredService<ShareRepository>());
+        services.AddScoped<ISharedProfileGrantRepository>(provider =>
+            provider.GetRequiredService<ShareRepository>());
+        services.AddScoped<IShareAccessEventRecorder>(provider =>
+            provider.GetRequiredService<ShareRepository>());
+        services.AddScoped<ISharedSecondOpinionReadRepository,
+            SharedSecondOpinionReadRepository>();
         services.AddScoped<
             IAppointmentOperationsReadRepository,
             AppointmentOperationsReadRepository>();

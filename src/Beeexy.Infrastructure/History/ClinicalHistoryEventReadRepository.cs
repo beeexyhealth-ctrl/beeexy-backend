@@ -131,6 +131,25 @@ internal sealed class ClinicalHistoryEventReadRepository(BeeexyDbContext dbConte
             preTriageSummary);
     }
 
+    public async Task<ClinicalHistoryEventDetail?> GetByPreTriageEpisodeAsync(
+        EntityId patientProfileId,
+        EntityId episodeId,
+        CancellationToken cancellationToken = default)
+    {
+        var eventId = await dbContext.ClinicalHistoryEvents
+            .AsNoTracking()
+            .Where(candidate =>
+                candidate.PatientProfileId == patientProfileId &&
+                candidate.SourceId == episodeId &&
+                candidate.SourceType == AuthoritativeClinicalSourceType.PreTriageEpisode &&
+                candidate.EventType == ClinicalHistoryEventType.CompletedPreTriage)
+            .Select(candidate => (EntityId?)candidate.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+        return eventId is null
+            ? null
+            : await GetAsync(patientProfileId, eventId.Value, cancellationToken);
+    }
+
     private sealed record StoredPreTriageAnswer(QuestionCode Code, string AnswerJson);
 
     private sealed record StoredPreTriageSymptom(

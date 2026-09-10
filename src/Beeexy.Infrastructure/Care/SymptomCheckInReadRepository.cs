@@ -73,6 +73,50 @@ internal sealed class SymptomCheckInReadRepository(BeeexyDbContext dbContext)
             .ToArray();
     }
 
+    public async Task<SymptomCheckInHistoryRecord?> GetAsync(
+        EntityId checkInId,
+        CancellationToken cancellationToken = default)
+    {
+        var checkIn = await dbContext.SymptomCheckIns
+            .AsNoTracking()
+            .SingleOrDefaultAsync(value => value.Id == checkInId, cancellationToken);
+        if (checkIn is null)
+        {
+            return null;
+        }
+
+        var answers = await (
+                from answer in dbContext.SymptomCheckInAnswers.AsNoTracking()
+                join question in dbContext.SymptomDiaryQuestions.AsNoTracking()
+                    on new { answer.QuestionId, answer.PackageVersionId }
+                    equals new { QuestionId = question.Id, question.PackageVersionId }
+                where answer.CheckInId == checkInId
+                orderby answer.SourceOrder
+                select new AnswerProjection(
+                    answer.CheckInId,
+                    answer.PackageVersionId,
+                    question.Code,
+                    answer.SourceOrder,
+                    answer.SubmittedValueJson))
+            .ToArrayAsync(cancellationToken);
+        if (answers.Any(value =>
+                value.CheckInId != checkIn.Id ||
+                value.PackageVersionId != checkIn.PackageVersionId))
+        {
+            throw new SymptomDiaryContentUnavailableException();
+        }
+
+        return new SymptomCheckInHistoryRecord(
+            checkIn.Id,
+            checkIn.EpisodeId,
+            checkIn.PackageVersionId,
+            checkIn.CreatedAt,
+            answers.Select(value => new SymptomCheckInHistoryAnswerRecord(
+                value.QuestionCode,
+                value.SourceOrder,
+                value.SubmittedValueJson)).ToArray());
+    }
+
     private IQueryable<SymptomCheckIn> BuildQuery(
         EntityId episodeId,
         SymptomCheckInPageCursor? after,

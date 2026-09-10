@@ -9,6 +9,12 @@ public interface IClinicalHistoryEventReadRepository
         EntityId patientProfileId,
         EntityId eventId,
         CancellationToken cancellationToken = default);
+
+    Task<ClinicalHistoryEventDetail?> GetByPreTriageEpisodeAsync(
+        EntityId patientProfileId,
+        EntityId episodeId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<ClinicalHistoryEventDetail?>(null);
 }
 
 public sealed record ClinicalHistoryEventDetail(

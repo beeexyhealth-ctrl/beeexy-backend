@@ -58,7 +58,8 @@ public sealed class ExchangeShareCapability(
 
         return grant.Scope switch
         {
-            ShareScope.FullProfile or ShareScope.PreTriage => state.ItemCount == 0,
+            ShareScope.FullProfile => state.ItemCount == 0,
+            ShareScope.PreTriage => state.ItemCount > 0,
             ShareScope.SpecificRecords => state.ItemCount > 0,
             ShareScope.Case or ShareScope.Visit => false,
             _ => false

@@ -239,6 +239,11 @@ public interface ISymptomCheckInReadRepository
         SymptomCheckInPageCursor? after,
         int take,
         CancellationToken cancellationToken = default);
+
+    Task<SymptomCheckInHistoryRecord?> GetAsync(
+        EntityId checkInId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<SymptomCheckInHistoryRecord?>(null);
 }
 
 public sealed record SymptomCheckInHistoryRecord(

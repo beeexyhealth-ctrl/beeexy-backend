@@ -38,7 +38,8 @@ public sealed class Phase111ArchitectureTests
     [Trait("Category", "Phase111")]
     [Trait("Category", "Phase112")]
     [Trait("Category", "Phase113")]
-    public void SharingSurface_StopsAtPhase113ExchangeBoundary()
+    [Trait("Category", "Phase114")]
+    public void SharingSurface_StopsAtPhase114SharedProfileBoundary()
     {
         var assemblies = AppDomain.CurrentDomain.GetAssemblies();
         var applicationAssembly = assemblies.SingleOrDefault(assembly =>
@@ -50,7 +51,7 @@ public sealed class Phase111ArchitectureTests
 
         var forbidden = new[]
         {
-            "SharedProfile", "RevokeShare", "ExpireShare",
+            "RevokeShare", "ExpireShare",
             "Activity", "Export", "Download", "Renderer", "Storage", "Qr"
         };
         Assert.DoesNotContain(applicationAssembly.GetTypes(), type =>

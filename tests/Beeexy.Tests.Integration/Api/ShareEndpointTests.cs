@@ -141,12 +141,15 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
         Assert.Equal(HttpStatusCode.BadRequest, malformed.StatusCode);
         Assert.Equal(initialCount, await CountPatientGrantsAsync(authentication.Account.ProfileId));
 
+        var preTriageEpisodeId = await SeedEpisodeAsync(
+            authentication.Account.ProfileId,
+            "lifetime");
         foreach (var minutes in new[] { 60, 10080 })
         {
             var key = Guid.NewGuid();
             using var accepted = await client.PostAsJsonAsync(
                 Endpoint,
-                ShareRequest("PreTriage", key, minutes));
+                PreTriageRequest(key, preTriageEpisodeId, minutes));
             Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
             using var acceptedDocument = JsonDocument.Parse(
                 await accepted.Content.ReadAsStringAsync());
@@ -164,6 +167,9 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
         using var factory = CreateFactory();
         using var firstClient = factory.CreateApiClient();
         var authentication = await AuthenticateAsync(factory, firstClient, "idempotency");
+        var preTriageEpisodeId = await SeedEpisodeAsync(
+            authentication.Account.ProfileId,
+            "idempotency");
         SetBearer(firstClient, authentication.AccessToken);
         using var secondClient = factory.CreateApiClient();
         SetBearer(secondClient, authentication.AccessToken);
@@ -191,7 +197,7 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
 
         using var conflict = await firstClient.PostAsJsonAsync(
             Endpoint,
-            ShareRequest("PreTriage", sequentialKey));
+            PreTriageRequest(sequentialKey, preTriageEpisodeId));
         Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
 
         var concurrentKey = Guid.NewGuid();
@@ -494,6 +500,7 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
     [Fact]
     [Trait("Category", "Phase112")]
     [Trait("Category", "Phase113")]
+    [Trait("Category", "Phase114")]
     public async Task OpenApi_PreservesTwoBearerSharingOperationsAndNoInternalSchemas()
     {
         await EnsureMigratedAsync();
@@ -505,7 +512,7 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
         var body = await response.Content.ReadAsStringAsync();
         using var document = JsonDocument.Parse(body);
         var paths = document.RootElement.GetProperty("paths");
-        Assert.Equal(55, paths.EnumerateObject().Count());
+        Assert.Equal(56, paths.EnumerateObject().Count());
         var sharing = paths.GetProperty(Endpoint);
         var operations = sharing.EnumerateObject()
             .Where(value => value.Name is "get" or "post")
@@ -523,7 +530,8 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
             "200", "401", "404", "422", "500");
         Assert.DoesNotContain(paths.EnumerateObject(), path =>
             (path.Name.StartsWith("/api/v1/shared-access", StringComparison.Ordinal) &&
-             path.Name != "/api/v1/shared-access/exchange") ||
+             path.Name != "/api/v1/shared-access/exchange" &&
+             path.Name != "/api/v1/shared-access/profile") ||
             (path.Name.StartsWith("/api/v1/shares", StringComparison.Ordinal) &&
              path.Name != Endpoint) ||
             path.Name.StartsWith("/api/v1/exports", StringComparison.Ordinal));
@@ -618,6 +626,24 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
             }
         }
     };
+
+    private static object PreTriageRequest(
+        Guid key,
+        Guid episodeId,
+        int? lifetimeMinutes = null) => new
+        {
+            scope = "PreTriage",
+            lifetimeMinutes,
+            idempotencyKey = key,
+            items = new[]
+        {
+            new
+            {
+                resourceType = SupportedShareResourceTypes.PreTriageEpisode,
+                resourceId = episodeId
+            }
+        }
+        };
 
     private static ShareGrant CreatePersistedGrant(
         EntityId patientId,
