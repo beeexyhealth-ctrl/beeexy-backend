@@ -217,6 +217,9 @@ var privateAiDocumentRoot = builder.Configuration["AiDocuments:PrivateStorageRoo
 var shareUrlOptions = StartupConfiguration.GetRequiredShareUrlOptions(
     builder.Configuration,
     builder.Environment);
+var exportSettings = StartupConfiguration.GetRequiredExportSettings(
+    builder.Configuration,
+    builder.Environment);
 
 builder.Services.AddInfrastructure(
     databaseConnectionString,
@@ -232,7 +235,8 @@ builder.Services.AddInfrastructure(
     clinicalAiProviderOptions,
     preTriageEducationalVideoOptions,
     aiDocumentOptions: aiDocumentOptions,
-    privateAiDocumentRoot: privateAiDocumentRoot);
+    privateAiDocumentRoot: privateAiDocumentRoot,
+    privateArtifactStorageOptions: exportSettings.Storage);
 if (builder.Environment.IsDevelopment())
 {
     builder.Services.AddHostedService<DevelopmentDemoDefinitionsBootstrapper>();
@@ -258,6 +262,10 @@ builder.Services.AddSingleton<IShareScopeEvaluator, ShareScopeEvaluator>();
 builder.Services.AddScoped<ICanonicalSharedHealthSnapshotBuilder,
     CanonicalSharedHealthSnapshotBuilder>();
 builder.Services.AddScoped<BuildSharedProfile>();
+builder.Services.AddSingleton(exportSettings.Generation);
+builder.Services.AddSingleton<BeeexyJsonExportRenderer>();
+builder.Services.AddSingleton<ExportArtifactChecksumCalculator>();
+builder.Services.AddScoped<GenerateExport>();
 builder.Services.AddShareExchangeRateLimiting(shareAccessSettings.RateLimitPolicy);
 builder.Services.AddScoped<TransitionAppointment>();
 builder.Services.AddScoped<ConfirmAppointment>();
@@ -532,6 +540,7 @@ app.MapBeeexyAiDocumentEndpoints();
 app.MapBeeexySecondOpinionEndpoints();
 app.MapBeeexySharingEndpoints();
 app.MapBeeexySharedAccessEndpoints();
+app.MapBeeexyExportEndpoints();
 
 app.Run();
 

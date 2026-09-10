@@ -295,7 +295,7 @@ public sealed class ShareAccessExchangeEndpointTests(PostgreSqlContainerFixture 
         response.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var paths = document.RootElement.GetProperty("paths");
-        Assert.Equal(58, paths.EnumerateObject().Count());
+        Assert.Equal(59, paths.EnumerateObject().Count());
         var exchangePath = paths.GetProperty(ExchangeEndpoint);
         var operation = exchangePath.GetProperty("post");
         Assert.Single(exchangePath.EnumerateObject().Where(value => value.Name == "post"));

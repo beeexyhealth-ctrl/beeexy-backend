@@ -2365,7 +2365,7 @@ Phase 10 is complete only when only safety-approved output can be displayed; the
 
 **Priority:** MVP CORE
 
-**Phase 11 overall status:** IN PROGRESS (2026-09-10). Phases 11.1, 11.2, 11.3, 11.4, and 11.5 are complete; Phase 11.6–11.8 have not started.
+**Phase 11 overall status:** IN PROGRESS (2026-09-10). Phases 11.1, 11.2, 11.3, 11.4, 11.5, and 11.6 are complete; Phase 11.7–11.8 have not started.
 
 ## 1. Objective
 
@@ -2809,7 +2809,7 @@ None. Building a shared profile creates no FHIR resource, mapping, validation cl
 
 **Verification (2026-09-09):** Phase 11.4 unit coverage passed 10/10 cases, including current grant lifecycle, token/scope consistency, reserved and corrupt scope denial, exact PreTriage and SpecificRecords isolation, cross-patient/missing-source denial, deterministic event identity, no misleading success event, all approved FullProfile categories, exact immutable diary values with separately presented approved content, and provider/raw Second Opinion exclusion. The directly touched patient/Clinical History/Symptom Diary/Second Opinion unit regression slice passed 71/71. The focused real-PostgreSQL Phase 11.4 endpoint/security/OpenAPI suite passed 6/6 and covers malformed signature, wrong issuer/audience, expired JWT, missing grant, account Bearer substitution, token/grant mismatch, revocation after issuance, exact grant-expiry after issuance, request override denial, write-route isolation, privacy-safe/no-store output, idempotent immutable access events, the dedicated ShareAccess OpenAPI requirement, exactly 56 paths, and absence of Phase 11.5+ routes. The directly touched clinical API regression run passed all 82 functional cases; its six fixed OpenAPI-count assertions were advanced from the Phase 11.3 baseline and then passed 6/6. Final combined Phase 11.1–11.4 regressions passed 88/88 unit and 28/28 real-PostgreSQL integration cases. The isolated Phase 11.3 rate-limiter regression passed after one earlier aggregate run crossed its intentionally one-second test window. EF Core reported no pending model changes, so no empty migration was created. `dotnet format --verify-no-changes`, `git diff --check`, and the final Debug solution build passed with 0 warnings and 0 errors. The complete repository-wide unit and integration suites were intentionally not run under the Phase 11.4 focused-testing policy; full regression remains reserved for Phase 11 closure unless explicitly requested.
 
-**Phase 11.5 is complete. Phase 11.6 has not started.**
+**Phases 11.5 and 11.6 are complete. Phase 11.7 has not started.**
 
 ## Phase 11.5 — Share Revocation + Expiry + Patient-Facing Activity
 
@@ -2890,13 +2890,13 @@ Activity is ordered by `occurredAt ASC, id ASC`, returns only existing `Created`
 
 The combined Phase 11.1–11.5 unit regression group passed 100/100, and the combined Phase 11.1–11.5 real-PostgreSQL sharing/persistence/migration/OpenAPI group passed 34/34 before the final expanded Phase 11.5 endpoint group passed 9/9. Focused Phase 3 Primary/current-authority, care-revocation, background-worker convention, ShareAccess token, and startup-configuration unit regressions passed 52/52; focused Phase 3 PostgreSQL authorization/revocation regressions passed 21/21. The final Debug solution build completed with 0 warnings and 0 errors. EF Core reported no pending model changes. `dotnet format --verify-no-changes`, the exact Phase 11.6-route absence scan, and `git diff --check` passed. The complete repository-wide unit and integration suites were intentionally not run for Phase 11.5 under the subphase testing policy; full regression is reserved for Phase 11 closure unless explicitly requested.
 
-**Phase 11.6 has not started.**
+**Phase 11.6 is complete. Phase 11.7 has not started.**
 
 ## Phase 11.6 — Export Foundation + Beeexy JSON
 
 ### Status
 
-**NOT STARTED.** It depends on verified 11.4 canonical projection and 11.5 lifecycle behavior.
+**COMPLETE (2026-09-10).** It depends on verified 11.4 canonical projection and 11.5 lifecycle behavior.
 
 ### Objective
 
@@ -2960,6 +2960,22 @@ None. A FHIR format request returns safe unavailable `422`; no mapper, Phase 6 c
 ### Acceptance / Exit Criteria
 
 11.6 is complete only when Primary-authorized Beeexy JSON is produced from the canonical snapshot as private immutable checksummed bytes with safe idempotency/failure/retention behavior, source changes cannot rewrite it, and PDF/FHIR/download remain safely unavailable until 11.7.
+
+**Implementation (2026-09-10):** Added exactly bearer-secured `POST /api/v1/patients/{id}/exports`. The request accepts only `format` and a non-empty UUID `idempotencyKey`; patient/creator identity, timestamps, storage identity, checksum, status, retention, arbitrary payload/snapshot data, and unknown fields are rejected. The authenticated account's own Primary Patient must exactly match the route patient. Active or Revoked Managed authority, unrelated/disabled/anonymous/ShareAccess callers, Beeexy ID, UUID knowledge, artifact ID, and storage identity grant no creation authority; inaccessible route patients use concealed `404`. `BeeexyJson` is executable, while `Pdf` and `FhirJson` return side-effect-free safe `422` without renderer, Phase 6 call, mapping, or format fallback. First creation returns `201`; an exact replay returns `200` with the same safe artifact metadata and performs no snapshot or storage work; incompatible same-patient/same-key format reuse returns `409`.
+
+`GenerateExport` reuses `ICanonicalSharedHealthSnapshotBuilder` with the exact `FullProfile` selection and never serializes EF/domain rows. The explicit Beeexy JSON `1.0` envelope contains only `format`, `formatVersion`, UTC `generatedAt`, an opaque snapshot ID, `canonical-shared-health-v1`, and the canonical allow-listed health profile. It maps approved demographics, Clinical History provenance, completed Pre-Triage, immutable Symptom Diary values plus separately approved content, and patient-visible Second Opinion results; property naming/order, null inclusion, recursive object-key ordering, UTC timestamp representation, and UTF-8 encoding are controlled. Account/session/security data, capabilities/tokens/hashes, private storage identity, audit/log data, full AI Conversations/messages/prompts, provider/model/raw/rejected output, and backend-only fields are absent.
+
+The existing `sharing.export_artifacts` Phase 11.1 model was sufficient. A PostgreSQL read-committed transaction plus patient/idempotency advisory transaction lock converges sequential and concurrent retries before taking the canonical snapshot. The workflow saves Pending metadata inside the uncommitted transaction, renders bounded bytes, calculates lower-case hex `SHA-256` over the exact bytes sent to storage, performs an immutable private write, transitions the same artifact to Available, and commits. Storage or persistence failure rolls back metadata and attempts cancellation-independent byte compensation; cleanup failure becomes a safe reconciliation-required failure. Old bytes/checksum/storage identity are never regenerated or rewritten after source changes, while a distinct key can create a new current snapshot. The response exposes only artifact ID, format, stable media type `application/vnd.beeexy.health-snapshot+json`, checksum algorithm/checksum, snapshot version, created/completed/retention timestamps, and Available status; it is `no-store` and exposes no content or private identity.
+
+Added provider-neutral `IPrivateArtifactStorage`, cryptographically opaque 256-bit references, a local development/test filesystem adapter with a configured root outside static files, atomic temporary-file-to-immutable-move writes, traversal/reference validation, reparse-point rejection, cancellation cleanup, restrictive Unix file mode where applicable, and no public URL. Added a production `ObjectStorage` configuration/adapter boundary through provider-neutral `IPrivateArtifactObjectStore`; no vendor SDK, signed/public URL, or S3/R2/Azure-specific dependency was introduced. Production configuration requires the object-storage boundary, while Development selects the local adapter. Operational retention defaults to server-derived configurable 30 days, is stored as `retention_eligible_at`, cannot be client-overridden, and adds no cleanup worker in this subphase; source clinical records are never deleted.
+
+No EF model change or migration was needed. OpenAPI contains exactly 59 paths—the 58-path Phase 11.5 baseline plus only export creation—with Bearer security, the exact request/safe response schemas, documented `200`, `201`, `400`, `401`, concealed `404`, `409`, `422`, and safe `500`, and no `/api/v1/exports/{id}/content` or other Phase 11.7+ route.
+
+**Verification (2026-09-10):** Final Phase 11.6 coverage passed 18/18 unit/configuration/storage cases and 5/5 real-PostgreSQL API/concurrency/OpenAPI cases. It covers every canonical content category, explicit JSON version/envelope and deterministic bytes, recursive JSON value canonicalization, UTC timestamps, excluded/internal/provider/conversation/storage fields, exact-byte SHA-256 and mutation sensitivity, persisted/returned checksum equality, immutable replay after source mutation, distinct-key snapshots, the 30-day default and configurable retention, client retention rejection, local private storage/atomic immutability/traversal/public-root/cancellation behavior, the generic object-storage adapter boundary, storage-write and post-storage commit-failure rollback/compensation and safe error body, Primary-only authorization including Active and Revoked Managed/foreign/disabled/anonymous/ShareAccess/Beeexy-ID/UUID attempts, malformed/unknown/override validation, PDF/FHIR `422`, concurrent same-key convergence, incompatible reuse `409`, and the exact 59-path OpenAPI surface without download.
+
+The combined Phase 11.1–11.6 unit regression group passed 116/116 before the final expanded Phase 11.6 unit slice passed 18/18, and the combined Phase 11.1–11.6 real-PostgreSQL sharing/export/persistence/OpenAPI group passed 40/40 before the final Phase 11.6 endpoint slice passed 5/5. Focused current-account/patient-authority unit regressions passed 22/22; focused real-PostgreSQL patient-authority regressions passed 11/11; startup-validation regressions passed 19/19; and focused OpenAPI contract regressions passed 33/33. The final Debug solution build completed with 0 warnings and 0 errors. EF Core reported no pending model changes. `dotnet format --verify-no-changes` and `git diff --check` passed. The complete repository-wide unit and integration suites were intentionally not run for Phase 11.6 under the subphase testing policy; full regression is reserved for Phase 11 closure unless explicitly requested.
+
+**Phase 11.7 has not started.**
 
 ## Phase 11.7 — Human-Readable PDF + Phase-6 FHIR JSON + Artifact Download
 

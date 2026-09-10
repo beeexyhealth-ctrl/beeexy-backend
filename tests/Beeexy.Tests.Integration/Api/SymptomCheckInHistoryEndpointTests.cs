@@ -356,7 +356,7 @@ public sealed partial class SymptomDiaryContentEndpointTests
         var checkIns = paths.GetProperty(
             "/api/v1/pre-triage/episodes/{episodeId}/check-ins");
         var get = checkIns.GetProperty("get");
-        Assert.Equal(58, paths.EnumerateObject().Count());
+        Assert.Equal(59, paths.EnumerateObject().Count());
         Assert.True(checkIns.TryGetProperty("post", out _));
         Assert.Contains(get.GetProperty("security").EnumerateArray(), value =>
             value.TryGetProperty("Bearer", out _));

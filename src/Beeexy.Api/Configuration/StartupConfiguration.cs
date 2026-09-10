@@ -9,6 +9,7 @@ using Beeexy.Domain.Patients;
 using Beeexy.Infrastructure.Identity;
 using Beeexy.Infrastructure.Persistence;
 using Beeexy.Infrastructure.Triage;
+using Beeexy.Infrastructure.Sharing;
 using Beeexy.Application.Ai;
 using Microsoft.Extensions.Hosting;
 
@@ -36,6 +37,7 @@ internal static class StartupConfiguration
     private const string ShareAccessTokenSectionKey = "Sharing:AccessToken";
     private const string ShareExchangeRateLimitSectionKey =
         "Sharing:ExchangeRateLimit";
+    private const string ExportSectionKey = "Exports";
     public const string ProductionPublicShareBaseUrl = "https://beeexy.ai/share";
 
     public static ShareUrlOptions GetRequiredShareUrlOptions(
@@ -110,6 +112,61 @@ internal static class StartupConfiguration
                 exception);
         }
     }
+
+    public static ExportStartupSettings GetRequiredExportSettings(
+        IConfiguration configuration,
+        IHostEnvironment environment)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(environment);
+        var section = configuration.GetSection(ExportSectionKey);
+        var storage = section.GetSection("PrivateStorage");
+        var provider = storage["Provider"] switch
+        {
+            "LocalFileSystem" => PrivateArtifactStorageProvider.LocalFileSystem,
+            "ObjectStorage" => PrivateArtifactStorageProvider.ObjectStorage,
+            _ => throw InvalidExportConfiguration()
+        };
+
+        if (environment.IsProduction() &&
+            provider != PrivateArtifactStorageProvider.ObjectStorage)
+        {
+            throw InvalidExportConfiguration();
+        }
+
+        var retentionDays = section.GetValue<int?>("RetentionDays") ?? 30;
+        var maximumBytes = section.GetValue<int?>("MaximumBeeexyJsonBytes") ??
+            ExportGenerationOptions.DefaultMaximumBeeexyJsonBytes;
+        try
+        {
+            var generation = new ExportGenerationOptions(
+                TimeSpan.FromDays(retentionDays),
+                maximumBytes);
+            var localRoot = storage["LocalRoot"];
+            if (provider == PrivateArtifactStorageProvider.LocalFileSystem &&
+                string.IsNullOrWhiteSpace(localRoot))
+            {
+                localRoot = Path.Combine(AppContext.BaseDirectory, "private-export-artifacts");
+            }
+
+            return new ExportStartupSettings(
+                generation,
+                new PrivateArtifactStorageOptions(
+                    provider,
+                    localRoot,
+                    storage["ObjectKeyPrefix"] ?? "exports"));
+        }
+        catch (Exception exception) when (exception is
+            ArgumentException or OverflowException)
+        {
+            throw InvalidExportConfiguration(exception);
+        }
+    }
+
+    private static InvalidOperationException InvalidExportConfiguration(
+        Exception? innerException = null) => new(
+        $"Configuration section '{ExportSectionKey}' is invalid.",
+        innerException);
 
     public static AppointmentSchedulerAssignments GetAppointmentSchedulerAssignments(
         IConfiguration configuration)
@@ -645,6 +702,10 @@ internal static class StartupConfiguration
         return value.Value;
     }
 }
+
+internal sealed record ExportStartupSettings(
+    ExportGenerationOptions Generation,
+    PrivateArtifactStorageOptions Storage);
 
 internal sealed record ShareAccessStartupSettings(
     ShareAccessTokenPolicy TokenPolicy,

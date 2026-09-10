@@ -973,7 +973,7 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
         var body = await response.Content.ReadAsStringAsync();
         using var document = JsonDocument.Parse(body);
         var paths = document.RootElement.GetProperty("paths");
-        Assert.Equal(58, paths.EnumerateObject().Count());
+        Assert.Equal(59, paths.EnumerateObject().Count());
         var sharing = paths.GetProperty(Endpoint);
         var operations = sharing.EnumerateObject()
             .Where(value => value.Name is "get" or "post")

@@ -255,7 +255,7 @@ public sealed class SharedProfileEndpointTests(PostgreSqlContainerFixture postgr
         response.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var paths = document.RootElement.GetProperty("paths");
-        Assert.Equal(58, paths.EnumerateObject().Count());
+        Assert.Equal(59, paths.EnumerateObject().Count());
         var profilePath = paths.GetProperty(ProfileEndpoint);
         Assert.True(profilePath.TryGetProperty("get", out var operation));
         Assert.False(profilePath.TryGetProperty("post", out _));

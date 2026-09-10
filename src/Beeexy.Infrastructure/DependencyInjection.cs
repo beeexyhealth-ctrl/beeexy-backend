@@ -59,7 +59,8 @@ public static class DependencyInjection
         PreTriageEducationalVideoOptions preTriageEducationalVideoOptions,
         string? privateFhirArtifactRoot = null,
         AiDocumentOptions? aiDocumentOptions = null,
-        string? privateAiDocumentRoot = null)
+        string? privateAiDocumentRoot = null,
+        PrivateArtifactStorageOptions? privateArtifactStorageOptions = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
         ArgumentNullException.ThrowIfNull(emailChallengePolicy);
@@ -109,6 +110,27 @@ public static class DependencyInjection
             provider.GetRequiredService<ShareLifecycleRepository>());
         services.AddScoped<IShareExpiryRepository>(provider =>
             provider.GetRequiredService<ShareLifecycleRepository>());
+        services.AddScoped<ExportArtifactTransaction>();
+        services.AddScoped<IExportArtifactTransaction>(provider =>
+            provider.GetRequiredService<ExportArtifactTransaction>());
+        var artifactStorageOptions = privateArtifactStorageOptions ??
+            new PrivateArtifactStorageOptions(
+                PrivateArtifactStorageProvider.LocalFileSystem,
+                Path.Combine(AppContext.BaseDirectory, "private-export-artifacts"));
+        services.AddSingleton(artifactStorageOptions);
+        if (artifactStorageOptions.Provider ==
+            PrivateArtifactStorageProvider.LocalFileSystem)
+        {
+            services.AddSingleton<IPrivateArtifactStorage>(_ =>
+                new FileSystemPrivateArtifactStorage(
+                    string.IsNullOrWhiteSpace(artifactStorageOptions.LocalRoot)
+                        ? Path.Combine(AppContext.BaseDirectory, "private-export-artifacts")
+                        : artifactStorageOptions.LocalRoot));
+        }
+        else
+        {
+            services.AddSingleton<IPrivateArtifactStorage, ObjectPrivateArtifactStorage>();
+        }
         var shareExpiryOptions = new ShareExpiryOptions(
             TimeSpan.FromMinutes(1),
             batchSize: 100,

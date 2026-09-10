@@ -358,6 +358,66 @@ internal sealed class ApiExceptionHandler(
             return problem;
         }
 
+        if (exception is ExportPatientNotFoundException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Export patient not found.",
+                Detail = "The requested patient profile could not be found."
+            };
+            problem.Extensions["errorCode"] = "sharing.export_patient_not_found";
+            return problem;
+        }
+
+        if (exception is ExportFormatUnavailableException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status422UnprocessableEntity,
+                Title = "Export format unavailable.",
+                Detail = "The requested export format is not available."
+            };
+            problem.Extensions["errorCode"] = "sharing.export_format_unavailable";
+            return problem;
+        }
+
+        if (exception is ExportGenerationUnavailableException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status422UnprocessableEntity,
+                Title = "Export generation unavailable.",
+                Detail = "The approved patient snapshot cannot be exported."
+            };
+            problem.Extensions["errorCode"] = "sharing.export_generation_unavailable";
+            return problem;
+        }
+
+        if (exception is ExportIdempotencyConflictException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Export creation conflict.",
+                Detail = "The idempotency key was already used for a different export request."
+            };
+            problem.Extensions["errorCode"] = "sharing.export_idempotency_key_reused";
+            return problem;
+        }
+
+        if (exception is ExportArtifactStateConflictException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Export artifact state conflict.",
+                Detail = "The export artifact is not available."
+            };
+            problem.Extensions["errorCode"] = "sharing.export_state_conflict";
+            return problem;
+        }
+
         if (exception is AppointmentSlotReservationConflictException)
         {
             var problem = new ProblemDetails
