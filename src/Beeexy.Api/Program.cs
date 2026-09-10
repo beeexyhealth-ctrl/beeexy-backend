@@ -250,6 +250,9 @@ builder.Services.AddSingleton(new ShareLifetimePolicy());
 builder.Services.AddSingleton(shareUrlOptions);
 builder.Services.AddScoped<CreateShare>();
 builder.Services.AddScoped<ListShares>();
+builder.Services.AddScoped<RevokeShare>();
+builder.Services.AddScoped<ListShareActivity>();
+builder.Services.AddScoped<ExpireShares>();
 builder.Services.AddScoped<ExchangeShareCapability>();
 builder.Services.AddSingleton<IShareScopeEvaluator, ShareScopeEvaluator>();
 builder.Services.AddScoped<ICanonicalSharedHealthSnapshotBuilder,

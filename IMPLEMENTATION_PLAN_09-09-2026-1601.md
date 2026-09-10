@@ -2365,7 +2365,7 @@ Phase 10 is complete only when only safety-approved output can be displayed; the
 
 **Priority:** MVP CORE
 
-**Phase 11 overall status:** IN PROGRESS (2026-09-09). Phases 11.1, 11.2, 11.3, and 11.4 are complete; Phase 11.5–11.8 have not started.
+**Phase 11 overall status:** IN PROGRESS (2026-09-10). Phases 11.1, 11.2, 11.3, 11.4, and 11.5 are complete; Phase 11.6–11.8 have not started.
 
 ## 1. Objective
 
@@ -2809,13 +2809,13 @@ None. Building a shared profile creates no FHIR resource, mapping, validation cl
 
 **Verification (2026-09-09):** Phase 11.4 unit coverage passed 10/10 cases, including current grant lifecycle, token/scope consistency, reserved and corrupt scope denial, exact PreTriage and SpecificRecords isolation, cross-patient/missing-source denial, deterministic event identity, no misleading success event, all approved FullProfile categories, exact immutable diary values with separately presented approved content, and provider/raw Second Opinion exclusion. The directly touched patient/Clinical History/Symptom Diary/Second Opinion unit regression slice passed 71/71. The focused real-PostgreSQL Phase 11.4 endpoint/security/OpenAPI suite passed 6/6 and covers malformed signature, wrong issuer/audience, expired JWT, missing grant, account Bearer substitution, token/grant mismatch, revocation after issuance, exact grant-expiry after issuance, request override denial, write-route isolation, privacy-safe/no-store output, idempotent immutable access events, the dedicated ShareAccess OpenAPI requirement, exactly 56 paths, and absence of Phase 11.5+ routes. The directly touched clinical API regression run passed all 82 functional cases; its six fixed OpenAPI-count assertions were advanced from the Phase 11.3 baseline and then passed 6/6. Final combined Phase 11.1–11.4 regressions passed 88/88 unit and 28/28 real-PostgreSQL integration cases. The isolated Phase 11.3 rate-limiter regression passed after one earlier aggregate run crossed its intentionally one-second test window. EF Core reported no pending model changes, so no empty migration was created. `dotnet format --verify-no-changes`, `git diff --check`, and the final Debug solution build passed with 0 warnings and 0 errors. The complete repository-wide unit and integration suites were intentionally not run under the Phase 11.4 focused-testing policy; full regression remains reserved for Phase 11 closure unless explicitly requested.
 
-**Phase 11.5 has not started.**
+**Phase 11.5 is complete. Phase 11.6 has not started.**
 
 ## Phase 11.5 — Share Revocation + Expiry + Patient-Facing Activity
 
 ### Status
 
-**NOT STARTED.** It depends on verified 11.4 completion.
+**COMPLETE (2026-09-10).** It depends on verified 11.4 completion.
 
 ### Objective
 
@@ -2877,6 +2877,20 @@ None. Revocation, expiry, and activity do not mutate or generate FHIR or source 
 ### Acceptance / Exit Criteria
 
 11.5 is complete only when revocation and expiry are idempotent/auditable, current grant checks make their effect immediate after commit, patient-visible activity is useful but privacy-safe, concurrency tests pass, and no history/source data is deleted.
+
+**Implementation (2026-09-10):** Added exactly bearer-secured `POST /api/v1/shares/{id}/revoke` and `GET /api/v1/shares/{id}/activity`. `RevokeShare` resolves the active account and its own Primary Patient server-side, locks only an exact patient-owned grant, and performs the irreversible first revocation plus its deterministic privacy-safe `ShareRevoked/Succeeded` event atomically; repeated authorized calls return `204`, preserve the original timestamp/actor/version, and append no duplicate event. Active or Revoked Managed authority, creator/Account identifiers, Beeexy ID, UUID knowledge, unrelated Accounts, disabled Accounts, anonymous callers, and ShareAccess credentials grant no lifecycle authority; missing and foreign grants share one concealed `404`. A current MVP creator can revoke only while still acting as the grant patient's own Primary Patient, which is the only explicit sharing authority implemented by Phase 11.2; no manager/caregiver permission was added. An already-expired grant records the deterministic `ShareExpired` fact at its immutable `ExpiresAt` before a later revocation when that fact is not already present, preserving truthful history under expiry-versus-revoke ordering.
+
+`ExpireShares` is a cancellation-aware non-HTTP bounded reconciler, scheduled by an internal one-minute hosted worker with batches of 100 and at most 10 batches per run. Expiry validity remains derived without mutating the grant: `now < ExpiresAt` is active and `now >= ExpiresAt` is expired. Deterministic `(ExpiresAt, ShareGrantId)` candidate ordering, exact cutoff revalidation, an exclusive PostgreSQL grant-row lock, and a deterministic lifecycle-event UUID append `ShareExpired/Succeeded` exactly once while preserving the grant, items, events, patient, and all source data. Repeated runs, two workers, and expiry-versus-revoke converge safely; worker failures log only a safe failure category and leave candidates retryable.
+
+Recipient operations now share one database-backed lifecycle ordering rather than relying on process-local locks or a JWT blacklist. Capability exchange holds a PostgreSQL shared grant-row lock through validation and token issuance. Shared-profile access holds an exclusive grant-row lock through current-state/scope validation, canonical projection, and idempotent `ShareAccessed` persistence. Revoke and expiry use exclusive locks. Thus an exchange/profile read that wins may finish truthfully before revocation commits, while every exchange/profile request beginning after revocation commit observes the revoked state; exact-boundary expiry rejects exchange and already-issued tokens independently of reconciliation timing. The existing deterministic `(grantId, token jti)` access-event identity remains intact.
+
+Activity is ordered by `occurredAt ASC, id ASC`, returns only existing `Created`, `Accessed`, `Downloaded`, `Revoked`, and `Expired` concepts, and contains only `eventType`, `occurredAt`, safe `outcome`, and an optional high-level `resourceCategory`; it does not fabricate Downloaded activity. The response is `no-store` and exposes no capability/hash/JWT/token, IP, User-Agent, Account ID, storage identity, clinical payload, raw audit data, or internal diagnostic. Existing Phase 11.1–11.4 persistence was sufficient, so no EF model change or migration was added. No export, artifact storage/download, PDF, Beeexy JSON, FHIR, QR, recipient-account, mutation, or other Phase 11.6+ behavior was introduced.
+
+**Verification (2026-09-10):** Final Phase 11.5 coverage passed 12/12 unit cases and 9/9 real-PostgreSQL API/concurrency/OpenAPI cases. The PostgreSQL cases cover Primary success and repeat idempotency, stable metadata and exactly one revoke event, missing/foreign/Beeexy-ID/UUID concealment, Active and Revoked Managed non-authority, disabled/anonymous/ShareAccess denial, malformed routing, preservation of patient and clinical source rows, exchange/profile success before revoke and denial afterward, issued-token invalidation, shared/exclusive row-lock ordering for in-flight exchange and profile reads versus revoke, exact-boundary expiry versus exchange/profile, repeat expiry, revoke/revoke, expiry/revoke, and two concurrent expiry workers without duplicate lifecycle events. Activity coverage verifies deterministic output, Created/Accessed/Revoked/Expired visibility where present, Downloaded readiness without fabrication, the exact safe DTO, secret/network-agent/clinical/storage/audit exclusion, and cross-account isolation. OpenAPI contains exactly 58 paths—the 56-path Phase 11.4 baseline plus only the two Phase 11.5 routes—with Bearer security and the documented statuses, and contains no Phase 11.6+ route.
+
+The combined Phase 11.1–11.5 unit regression group passed 100/100, and the combined Phase 11.1–11.5 real-PostgreSQL sharing/persistence/migration/OpenAPI group passed 34/34 before the final expanded Phase 11.5 endpoint group passed 9/9. Focused Phase 3 Primary/current-authority, care-revocation, background-worker convention, ShareAccess token, and startup-configuration unit regressions passed 52/52; focused Phase 3 PostgreSQL authorization/revocation regressions passed 21/21. The final Debug solution build completed with 0 warnings and 0 errors. EF Core reported no pending model changes. `dotnet format --verify-no-changes`, the exact Phase 11.6-route absence scan, and `git diff --check` passed. The complete repository-wide unit and integration suites were intentionally not run for Phase 11.5 under the subphase testing policy; full regression is reserved for Phase 11 closure unless explicitly requested.
+
+**Phase 11.6 has not started.**
 
 ## Phase 11.6 — Export Foundation + Beeexy JSON
 

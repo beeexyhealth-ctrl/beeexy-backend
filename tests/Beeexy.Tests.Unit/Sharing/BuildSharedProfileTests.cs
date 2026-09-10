@@ -193,6 +193,12 @@ public sealed class BuildSharedProfileTests
         public Task<SharedProfileGrantState?> FindAsync(
             EntityId shareGrantId,
             CancellationToken cancellationToken = default) => Task.FromResult(State);
+
+        public Task CommitAccessAsync(CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task RollbackAccessAsync(CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 
     private sealed class SnapshotBuilder : ICanonicalSharedHealthSnapshotBuilder

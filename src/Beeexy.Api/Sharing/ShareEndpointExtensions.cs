@@ -45,6 +45,31 @@ internal static class ShareEndpointExtensions
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
+        endpoints.MapPost("/api/v1/shares/{id:guid}/revoke", RevokeAsync)
+            .WithName("RevokeShare")
+            .WithTags("Sharing")
+            .WithDescription(
+                "Irreversibly and idempotently revokes an own Primary Patient share. " +
+                "The first successful call preserves the server revocation time and " +
+                "records one privacy-safe activity event; repeats return 204.")
+            .RequireAuthorization()
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        endpoints.MapGet("/api/v1/shares/{id:guid}/activity", ActivityAsync)
+            .WithName("ListShareActivity")
+            .WithTags("Sharing")
+            .WithDescription(
+                "Lists deterministic patient-facing activity for an own Primary Patient " +
+                "share using only safe event, outcome, time, and optional resource categories.")
+            .RequireAuthorization()
+            .Produces<ShareActivityResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
         return endpoints;
     }
 
@@ -86,6 +111,27 @@ internal static class ShareEndpointExtensions
 
         var shares = await useCase.ExecuteAsync(cancellationToken);
         return Results.Ok(new ShareListResponse(shares.Select(ToListResponse).ToArray()));
+    }
+
+    private static async Task<IResult> RevokeAsync(
+        Guid id,
+        RevokeShare useCase,
+        CancellationToken cancellationToken)
+    {
+        await useCase.ExecuteAsync(EntityId.From(id), cancellationToken);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> ActivityAsync(
+        Guid id,
+        HttpResponse response,
+        ListShareActivity useCase,
+        CancellationToken cancellationToken)
+    {
+        var activity = await useCase.ExecuteAsync(EntityId.From(id), cancellationToken);
+        response.Headers.CacheControl = "no-store";
+        return Results.Ok(new ShareActivityResponse(
+            activity.Select(ToActivityResponse).ToArray()));
     }
 
     private static void ValidateRequestShape(CreateShareRequest request)
@@ -160,6 +206,12 @@ internal static class ShareEndpointExtensions
         value.RevokedAt,
         value.ItemCount);
 
+    private static ShareActivityItemResponse ToActivityResponse(ShareActivityItem value) => new(
+        ToApiValue(value.EventType),
+        value.OccurredAt,
+        ToApiValue(value.Outcome),
+        value.ResourceCategory?.Value);
+
     private static string ToApiValue(ShareScope value) => value switch
     {
         ShareScope.FullProfile => "FullProfile",
@@ -175,6 +227,23 @@ internal static class ShareEndpointExtensions
         ShareGrantStatus.Active => "Active",
         ShareGrantStatus.Revoked => "Revoked",
         ShareGrantStatus.Expired => "Expired",
+        _ => throw new ArgumentOutOfRangeException(nameof(value))
+    };
+
+    private static string ToApiValue(ShareAccessEventType value) => value switch
+    {
+        ShareAccessEventType.ShareCreated => "Created",
+        ShareAccessEventType.ShareAccessed => "Accessed",
+        ShareAccessEventType.ShareDownloaded => "Downloaded",
+        ShareAccessEventType.ShareRevoked => "Revoked",
+        ShareAccessEventType.ShareExpired => "Expired",
+        _ => throw new ArgumentOutOfRangeException(nameof(value))
+    };
+
+    private static string ToApiValue(ShareAccessOutcome value) => value switch
+    {
+        ShareAccessOutcome.Succeeded => "Succeeded",
+        ShareAccessOutcome.Denied => "Denied",
         _ => throw new ArgumentOutOfRangeException(nameof(value))
     };
 }
@@ -214,6 +283,15 @@ internal sealed record CreateShareResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ShareUrl);
 
 internal sealed record ShareListResponse(IReadOnlyList<ShareListItemResponse> Shares);
+
+internal sealed record ShareActivityResponse(IReadOnlyList<ShareActivityItemResponse> Events);
+
+internal sealed record ShareActivityItemResponse(
+    string EventType,
+    DateTimeOffset OccurredAt,
+    string Outcome,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? ResourceCategory);
 
 internal sealed record ShareListItemResponse(
     Guid ShareGrantId,

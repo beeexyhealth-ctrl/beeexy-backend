@@ -13,7 +13,7 @@ public sealed record SharedProfileGrantState(
     ShareGrant Grant,
     IReadOnlyList<ShareGrantItem> Items);
 
-public interface ISharedProfileGrantRepository
+public interface ISharedProfileGrantRepository : ICurrentShareGrantTransaction
 {
     Task<SharedProfileGrantState?> FindAsync(
         EntityId shareGrantId,

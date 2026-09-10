@@ -244,6 +244,7 @@ public sealed class SharedProfileEndpointTests(PostgreSqlContainerFixture postgr
 
     [Fact]
     [Trait("Category", "Phase114")]
+    [Trait("Category", "Phase115")]
     public async Task OpenApi_AddsOnlyGetProfileWithDedicatedShareAccessSecurity()
     {
         await EnsureMigratedAsync();
@@ -254,7 +255,7 @@ public sealed class SharedProfileEndpointTests(PostgreSqlContainerFixture postgr
         response.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var paths = document.RootElement.GetProperty("paths");
-        Assert.Equal(56, paths.EnumerateObject().Count());
+        Assert.Equal(58, paths.EnumerateObject().Count());
         var profilePath = paths.GetProperty(ProfileEndpoint);
         Assert.True(profilePath.TryGetProperty("get", out var operation));
         Assert.False(profilePath.TryGetProperty("post", out _));
@@ -270,8 +271,6 @@ public sealed class SharedProfileEndpointTests(PostgreSqlContainerFixture postgr
         Assert.DoesNotContain("capability", responseText, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("token", responseText, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(paths.EnumerateObject(), path =>
-            path.Name.Contains("revoke", StringComparison.OrdinalIgnoreCase) ||
-            path.Name.Contains("activity", StringComparison.OrdinalIgnoreCase) ||
             path.Name.StartsWith("/api/v1/exports", StringComparison.Ordinal));
     }
 

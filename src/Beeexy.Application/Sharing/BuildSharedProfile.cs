@@ -16,41 +16,50 @@ public sealed class BuildSharedProfile(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        var state = await grantRepository.FindAsync(
-            identity.ShareGrantId,
-            cancellationToken);
-        var now = CurrentInstant();
-        if (state is null ||
-            state.Grant.CreatedAt > now ||
-            state.Grant.RevokedAt.HasValue ||
-            state.Grant.ExpiresAt <= now)
-        {
-            throw new ShareAccessDeniedException();
-        }
-
-        var selection = scopeEvaluator.Evaluate(
-            state.Grant,
-            state.Items,
-            identity.TokenScope);
-        CanonicalSharedHealthSnapshot profile;
         try
         {
-            profile = await snapshotBuilder.BuildAsync(
-                state.Grant.PatientProfileId,
-                selection,
+            var state = await grantRepository.FindAsync(
+                identity.ShareGrantId,
                 cancellationToken);
-        }
-        catch (SharedProfileSourceUnavailableException)
-        {
-            throw new ShareAccessDeniedException();
-        }
+            var now = CurrentInstant();
+            if (state is null ||
+                state.Grant.CreatedAt > now ||
+                state.Grant.RevokedAt.HasValue ||
+                state.Grant.ExpiresAt <= now)
+            {
+                throw new ShareAccessDeniedException();
+            }
 
-        await eventRecorder.RecordSuccessfulAccessAsync(
-            state.Grant,
-            CreateAccessEventId(state.Grant.Id, identity.TokenId),
-            now,
-            cancellationToken);
-        return new BuildSharedProfileResult(selection.Scope, profile);
+            var selection = scopeEvaluator.Evaluate(
+                state.Grant,
+                state.Items,
+                identity.TokenScope);
+            CanonicalSharedHealthSnapshot profile;
+            try
+            {
+                profile = await snapshotBuilder.BuildAsync(
+                    state.Grant.PatientProfileId,
+                    selection,
+                    cancellationToken);
+            }
+            catch (SharedProfileSourceUnavailableException)
+            {
+                throw new ShareAccessDeniedException();
+            }
+
+            await eventRecorder.RecordSuccessfulAccessAsync(
+                state.Grant,
+                CreateAccessEventId(state.Grant.Id, identity.TokenId),
+                now,
+                cancellationToken);
+            await grantRepository.CommitAccessAsync(cancellationToken);
+            return new BuildSharedProfileResult(selection.Scope, profile);
+        }
+        catch
+        {
+            await grantRepository.RollbackAccessAsync(CancellationToken.None);
+            throw;
+        }
     }
 
     public static EntityId CreateAccessEventId(EntityId grantId, EntityId tokenId)

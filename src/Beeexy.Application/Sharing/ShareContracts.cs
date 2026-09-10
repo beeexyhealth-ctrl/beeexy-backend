@@ -67,7 +67,14 @@ public interface IShareReadRepository
 
 public sealed record ShareExchangeState(ShareGrant Grant, int ItemCount);
 
-public interface IShareExchangeRepository
+public interface ICurrentShareGrantTransaction
+{
+    Task CommitAccessAsync(CancellationToken cancellationToken = default);
+
+    Task RollbackAccessAsync(CancellationToken cancellationToken = default);
+}
+
+public interface IShareExchangeRepository : ICurrentShareGrantTransaction
 {
     Task<ShareExchangeState?> FindByCapabilityHashAsync(
         TokenHash capabilityHash,

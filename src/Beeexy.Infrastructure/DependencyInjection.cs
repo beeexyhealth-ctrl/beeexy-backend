@@ -102,6 +102,21 @@ public static class DependencyInjection
             provider.GetRequiredService<ShareRepository>());
         services.AddScoped<IShareAccessEventRecorder>(provider =>
             provider.GetRequiredService<ShareRepository>());
+        services.AddScoped<ShareLifecycleRepository>();
+        services.AddScoped<IShareLifecycleTransaction>(provider =>
+            provider.GetRequiredService<ShareLifecycleRepository>());
+        services.AddScoped<IShareActivityRepository>(provider =>
+            provider.GetRequiredService<ShareLifecycleRepository>());
+        services.AddScoped<IShareExpiryRepository>(provider =>
+            provider.GetRequiredService<ShareLifecycleRepository>());
+        var shareExpiryOptions = new ShareExpiryOptions(
+            TimeSpan.FromMinutes(1),
+            batchSize: 100,
+            maximumBatchesPerRun: 10);
+        services.AddSingleton(shareExpiryOptions);
+        services.AddSingleton(shareExpiryOptions.Policy);
+        services.AddSingleton<IShareExpiryTelemetry, ShareExpiryTelemetry>();
+        services.AddHostedService<ShareExpiryWorker>();
         services.AddScoped<ISharedSecondOpinionReadRepository,
             SharedSecondOpinionReadRepository>();
         services.AddScoped<

@@ -295,7 +295,7 @@ public sealed class ShareAccessExchangeEndpointTests(PostgreSqlContainerFixture 
         response.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var paths = document.RootElement.GetProperty("paths");
-        Assert.Equal(56, paths.EnumerateObject().Count());
+        Assert.Equal(58, paths.EnumerateObject().Count());
         var exchangePath = paths.GetProperty(ExchangeEndpoint);
         var operation = exchangePath.GetProperty("post");
         Assert.Single(exchangePath.EnumerateObject().Where(value => value.Name == "post"));
@@ -324,8 +324,6 @@ public sealed class ShareAccessExchangeEndpointTests(PostgreSqlContainerFixture 
             .TryGetProperty(ShareAccessAuthenticationDefaults.Scheme, out var shareScheme));
         Assert.Equal("bearer", shareScheme.GetProperty("scheme").GetString());
         Assert.DoesNotContain(paths.EnumerateObject(), path =>
-            path.Name.Contains("revoke", StringComparison.OrdinalIgnoreCase) ||
-            path.Name.Contains("activity", StringComparison.OrdinalIgnoreCase) ||
             path.Name.StartsWith("/api/v1/exports", StringComparison.Ordinal));
     }
 

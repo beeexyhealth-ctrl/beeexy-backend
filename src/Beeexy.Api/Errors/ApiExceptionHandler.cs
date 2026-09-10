@@ -216,6 +216,16 @@ internal sealed class ApiExceptionHandler(
             };
         }
 
+        if (exception is ShareGrantNotFoundException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Share not found.",
+                Detail = "The requested share could not be found."
+            };
+        }
+
         if (exception is AiConversationNotFoundException)
         {
             var problem = new ProblemDetails

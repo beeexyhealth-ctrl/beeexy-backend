@@ -39,7 +39,8 @@ public sealed class Phase111ArchitectureTests
     [Trait("Category", "Phase112")]
     [Trait("Category", "Phase113")]
     [Trait("Category", "Phase114")]
-    public void SharingSurface_StopsAtPhase114SharedProfileBoundary()
+    [Trait("Category", "Phase115")]
+    public void SharingSurface_StopsAtPhase115LifecycleBoundary()
     {
         var assemblies = AppDomain.CurrentDomain.GetAssemblies();
         var applicationAssembly = assemblies.SingleOrDefault(assembly =>
@@ -49,11 +50,13 @@ public sealed class Phase111ArchitectureTests
             assembly.GetName().Name == "Beeexy.Api") ??
             System.Reflection.Assembly.Load("Beeexy.Api");
 
-        var forbidden = new[]
-        {
-            "RevokeShare", "ExpireShare",
-            "Activity", "Export", "Download", "Renderer", "Storage", "Qr"
-        };
+        Assert.Contains(applicationAssembly.GetTypes(), type =>
+            type.FullName == "Beeexy.Application.Sharing.RevokeShare");
+        Assert.Contains(applicationAssembly.GetTypes(), type =>
+            type.FullName == "Beeexy.Application.Sharing.ExpireShares");
+        Assert.Contains(applicationAssembly.GetTypes(), type =>
+            type.FullName == "Beeexy.Application.Sharing.ListShareActivity");
+        var forbidden = new[] { "Export", "Download", "Renderer", "Storage", "Qr" };
         Assert.DoesNotContain(applicationAssembly.GetTypes(), type =>
             type.Namespace?.StartsWith("Beeexy.Application.Sharing", StringComparison.Ordinal) == true &&
             forbidden.Any(fragment => type.Name.Contains(

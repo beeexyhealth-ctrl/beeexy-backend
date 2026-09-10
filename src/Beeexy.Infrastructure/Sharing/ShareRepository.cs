@@ -157,19 +157,39 @@ internal sealed class ShareRepository(BeeexyDbContext dbContext)
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(capabilityHash);
-        return await dbContext.ShareGrants
+        await BeginAccessAsync(cancellationToken);
+        var grantId = await LockGrantByCapabilityAsync(
+            capabilityHash.Value,
+            exclusive: false,
+            cancellationToken);
+        if (!grantId.HasValue)
+        {
+            return null;
+        }
+
+        var grant = await dbContext.ShareGrants
             .AsNoTracking()
-            .Where(grant => grant.CapabilityHash == capabilityHash)
-            .Select(grant => new ShareExchangeState(
-                grant,
-                dbContext.ShareGrantItems.Count(item => item.ShareGrantId == grant.Id)))
-            .SingleOrDefaultAsync(cancellationToken);
+            .SingleAsync(value => value.Id == EntityId.From(grantId.Value), cancellationToken);
+        var itemCount = await dbContext.ShareGrantItems.CountAsync(
+            item => item.ShareGrantId == grant.Id,
+            cancellationToken);
+        return new ShareExchangeState(grant, itemCount);
     }
 
     public async Task<SharedProfileGrantState?> FindAsync(
         EntityId shareGrantId,
         CancellationToken cancellationToken = default)
     {
+        await BeginAccessAsync(cancellationToken);
+        var locked = await LockGrantByIdAsync(
+            shareGrantId.Value,
+            exclusive: true,
+            cancellationToken);
+        if (!locked)
+        {
+            return null;
+        }
+
         var grant = await dbContext.ShareGrants
             .AsNoTracking()
             .SingleOrDefaultAsync(value => value.Id == shareGrantId, cancellationToken);
@@ -193,6 +213,13 @@ internal sealed class ShareRepository(BeeexyDbContext dbContext)
         DateTimeOffset occurredAt,
         CancellationToken cancellationToken = default)
     {
+        if (await dbContext.ShareAccessEvents.AnyAsync(
+                value => value.Id == eventId,
+                cancellationToken))
+        {
+            return;
+        }
+
         var accessEvent = ShareAccessEvent.Create(
             grant,
             ShareAccessEventType.ShareAccessed,
@@ -200,19 +227,22 @@ internal sealed class ShareRepository(BeeexyDbContext dbContext)
             occurredAt,
             id: eventId);
         dbContext.ShareAccessEvents.Add(accessEvent);
-        try
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public Task CommitAccessAsync(CancellationToken cancellationToken = default) =>
+        CommitAsync(cancellationToken);
+
+    public async Task RollbackAccessAsync(CancellationToken cancellationToken = default)
+    {
+        if (transaction is null)
         {
-            await dbContext.SaveChangesAsync(cancellationToken);
+            return;
         }
-        catch (DbUpdateException exception) when (
-            exception.InnerException is Npgsql.PostgresException
-            {
-                SqlState: Npgsql.PostgresErrorCodes.UniqueViolation,
-                ConstraintName: "pk_share_access_events"
-            })
-        {
-            dbContext.Entry(accessEvent).State = EntityState.Detached;
-        }
+
+        await transaction.RollbackAsync(cancellationToken);
+        await transaction.DisposeAsync();
+        transaction = null;
     }
 
     public async ValueTask DisposeAsync()
@@ -230,5 +260,54 @@ internal sealed class ShareRepository(BeeexyDbContext dbContext)
         {
             throw new InvalidOperationException("A share transaction has not been started.");
         }
+    }
+
+    private async Task BeginAccessAsync(CancellationToken cancellationToken)
+    {
+        if (transaction is not null)
+        {
+            throw new InvalidOperationException("The share transaction is already active.");
+        }
+
+        transaction = await dbContext.Database.BeginTransactionAsync(
+            IsolationLevel.ReadCommitted,
+            cancellationToken);
+    }
+
+    private async Task<Guid?> LockGrantByCapabilityAsync(
+        string capabilityHash,
+        bool exclusive,
+        CancellationToken cancellationToken)
+    {
+        var connection = dbContext.Database.GetDbConnection();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction!.GetDbTransaction();
+        command.CommandText =
+            "SELECT id FROM sharing.share_grants WHERE capability_hash = @capabilityHash " +
+            (exclusive ? "FOR UPDATE" : "FOR SHARE");
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "capabilityHash";
+        parameter.Value = capabilityHash;
+        command.Parameters.Add(parameter);
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        return value is Guid id ? id : null;
+    }
+
+    private async Task<bool> LockGrantByIdAsync(
+        Guid shareGrantId,
+        bool exclusive,
+        CancellationToken cancellationToken)
+    {
+        var connection = dbContext.Database.GetDbConnection();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction!.GetDbTransaction();
+        command.CommandText =
+            "SELECT id FROM sharing.share_grants WHERE id = @shareGrantId " +
+            (exclusive ? "FOR UPDATE" : "FOR SHARE");
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "shareGrantId";
+        parameter.Value = shareGrantId;
+        command.Parameters.Add(parameter);
+        return await command.ExecuteScalarAsync(cancellationToken) is not null;
     }
 }

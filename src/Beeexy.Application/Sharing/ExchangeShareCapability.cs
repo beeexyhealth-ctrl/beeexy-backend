@@ -25,27 +25,36 @@ public sealed class ExchangeShareCapability(
             throw new ShareAccessDeniedException();
         }
 
-        var state = await repository.FindByCapabilityHashAsync(
-            capabilityHash,
-            cancellationToken);
-        var now = clock.UtcNow;
-        if (state is null || !IsExchangeable(state, now))
+        try
         {
-            throw new ShareAccessDeniedException();
-        }
+            var state = await repository.FindByCapabilityHashAsync(
+                capabilityHash,
+                cancellationToken);
+            var now = clock.UtcNow;
+            if (state is null || !IsExchangeable(state, now))
+            {
+                throw new ShareAccessDeniedException();
+            }
 
-        var expiresAt = Min(now.Add(tokenPolicy.MaximumLifetime), state.Grant.ExpiresAt);
-        if (expiresAt <= now)
+            var expiresAt = Min(now.Add(tokenPolicy.MaximumLifetime), state.Grant.ExpiresAt);
+            if (expiresAt <= now)
+            {
+                throw new ShareAccessDeniedException();
+            }
+
+            var token = tokenIssuer.Issue(
+                state.Grant.Id,
+                state.Grant.Scope,
+                now,
+                expiresAt);
+            await repository.CommitAccessAsync(cancellationToken);
+            return new ExchangeShareCapabilityResult(token.Value, token.ExpiresAt);
+        }
+        catch
         {
-            throw new ShareAccessDeniedException();
+            await repository.RollbackAccessAsync(CancellationToken.None);
+            throw;
         }
-
-        var token = tokenIssuer.Issue(
-            state.Grant.Id,
-            state.Grant.Scope,
-            now,
-            expiresAt);
-        return new ExchangeShareCapabilityResult(token.Value, token.ExpiresAt);
     }
 
     private static bool IsExchangeable(ShareExchangeState state, DateTimeOffset now)

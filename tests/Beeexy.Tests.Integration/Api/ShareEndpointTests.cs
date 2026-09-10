@@ -467,8 +467,15 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
             Endpoint,
             ShareRequest("FullProfile", Guid.NewGuid()));
         using var disabledGet = await client.GetAsync(Endpoint);
+        using var disabledRevoke = await client.PostAsync(
+            $"{Endpoint}/{Guid.NewGuid():D}/revoke",
+            null);
+        using var disabledActivity = await client.GetAsync(
+            $"{Endpoint}/{Guid.NewGuid():D}/activity");
         Assert.Equal(HttpStatusCode.Unauthorized, disabledPost.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, disabledGet.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, disabledRevoke.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, disabledActivity.StatusCode);
         Assert.DoesNotContain(
             "disabled",
             await disabledPost.Content.ReadAsStringAsync(),
@@ -498,10 +505,464 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
     }
 
     [Fact]
+    [Trait("Category", "Phase115")]
+    public async Task Revoke_IsPrimaryOnlyIdempotentAndImmediatelyInvalidatesRecipientAccess()
+    {
+        await EnsureMigratedAsync();
+        using var factory = CreateFactory();
+        using var ownerClient = factory.CreateApiClient();
+        var owner = await AuthenticateAsync(factory, ownerClient, "revoke-owner");
+        SetBearer(ownerClient, owner.AccessToken);
+        using var created = await ownerClient.PostAsJsonAsync(
+            Endpoint,
+            ShareRequest("FullProfile", Guid.NewGuid()));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using var createdDocument = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        var grantId = createdDocument.RootElement.GetProperty("shareGrantId").GetGuid();
+        var capability = Assert.IsType<string>(
+            createdDocument.RootElement.GetProperty("capability").GetString());
+
+        ownerClient.DefaultRequestHeaders.Authorization = null;
+        using var exchange = await ownerClient.PostAsJsonAsync(
+            "/api/v1/shared-access/exchange",
+            new { capability });
+        Assert.Equal(HttpStatusCode.OK, exchange.StatusCode);
+        using var exchangeDocument = JsonDocument.Parse(await exchange.Content.ReadAsStringAsync());
+        var shareToken = Assert.IsType<string>(
+            exchangeDocument.RootElement.GetProperty("accessToken").GetString());
+        SetBearer(ownerClient, shareToken);
+        using var profileBefore = await ownerClient.GetAsync("/api/v1/shared-access/profile");
+        Assert.Equal(HttpStatusCode.OK, profileBefore.StatusCode);
+        var sourceEpisodeId = await SeedEpisodeAsync(
+            owner.Account.ProfileId,
+            "revoke-preserves-source");
+
+        SetBearer(ownerClient, owner.AccessToken);
+        using var firstRevoke = await ownerClient.PostAsync(
+            $"{Endpoint}/{grantId:D}/revoke",
+            content: null);
+        using var secondRevoke = await ownerClient.PostAsync(
+            $"{Endpoint}/{grantId:D}/revoke",
+            content: null);
+        Assert.Equal(HttpStatusCode.NoContent, firstRevoke.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, secondRevoke.StatusCode);
+
+        ownerClient.DefaultRequestHeaders.Authorization = null;
+        using var exchangeAfter = await ownerClient.PostAsJsonAsync(
+            "/api/v1/shared-access/exchange",
+            new { capability });
+        Assert.Equal(HttpStatusCode.Unauthorized, exchangeAfter.StatusCode);
+        SetBearer(ownerClient, shareToken);
+        using var profileAfter = await ownerClient.GetAsync("/api/v1/shared-access/profile");
+        Assert.Equal(HttpStatusCode.Unauthorized, profileAfter.StatusCode);
+
+        SetBearer(ownerClient, owner.AccessToken);
+        using var activity = await ownerClient.GetAsync($"{Endpoint}/{grantId:D}/activity");
+        Assert.Equal(HttpStatusCode.OK, activity.StatusCode);
+        var activityBody = await activity.Content.ReadAsStringAsync();
+        using var activityDocument = JsonDocument.Parse(activityBody);
+        var events = activityDocument.RootElement.GetProperty("events")
+            .EnumerateArray().ToArray();
+        Assert.Equal(["Accessed", "Created", "Revoked"],
+            events.Select(value => value.GetProperty("eventType").GetString())
+                .OrderBy(value => value, StringComparer.Ordinal));
+        Assert.All(events, value =>
+        {
+            Assert.Equal("Succeeded", value.GetProperty("outcome").GetString());
+            Assert.Equal(
+                ["eventType", "occurredAt", "outcome"],
+                value.EnumerateObject().Select(property => property.Name)
+                    .OrderBy(name => name, StringComparer.Ordinal));
+        });
+        foreach (var forbidden in new[]
+                 {
+                     capability, shareToken, "capability", "hash", "token", "ip",
+                     "userAgent", "accountId", "storage", "payload", "clinical", "audit"
+                 })
+        {
+            Assert.DoesNotContain(forbidden, activityBody, StringComparison.OrdinalIgnoreCase);
+        }
+        Assert.DoesNotContain(events, value =>
+            value.GetProperty("eventType").GetString() == "Downloaded");
+        using var repeatedActivity = await ownerClient.GetAsync(
+            $"{Endpoint}/{grantId:D}/activity");
+        Assert.Equal(activityBody, await repeatedActivity.Content.ReadAsStringAsync());
+
+        await using var dbContext = CreateDbContext();
+        var grant = await dbContext.ShareGrants.AsNoTracking().SingleAsync(value =>
+            value.Id == EntityId.From(grantId));
+        Assert.Equal(Now, grant.RevokedAt);
+        Assert.Equal(EntityId.From(owner.Account.AccountId), grant.RevokedByAccountId);
+        Assert.Equal(2, grant.Version);
+        Assert.Equal(1, await dbContext.ShareAccessEvents.CountAsync(value =>
+            value.ShareGrantId == grant.Id &&
+            value.EventType == ShareAccessEventType.ShareRevoked));
+        Assert.True(await dbContext.PatientProfiles.AnyAsync(value =>
+            value.Id == EntityId.From(owner.Account.ProfileId)));
+        Assert.True(await dbContext.PreTriageEpisodes.AnyAsync(value =>
+            value.Id == EntityId.From(sourceEpisodeId)));
+    }
+
+    [Fact]
+    [Trait("Category", "Phase115")]
+    public async Task RevokeAndActivity_ConcealForeignMissingAndRejectNonAccountCallers()
+    {
+        await EnsureMigratedAsync();
+        using var factory = CreateFactory();
+        using var ownerClient = factory.CreateApiClient();
+        using var foreignClient = factory.CreateApiClient();
+        var owner = await AuthenticateAsync(factory, ownerClient, "conceal-owner");
+        var foreign = await AuthenticateAsync(factory, foreignClient, "conceal-foreign");
+        SetBearer(ownerClient, owner.AccessToken);
+        using var created = await ownerClient.PostAsJsonAsync(
+            Endpoint,
+            ShareRequest("FullProfile", Guid.NewGuid()));
+        using var createdDocument = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        var grantId = createdDocument.RootElement.GetProperty("shareGrantId").GetGuid();
+        var capability = Assert.IsType<string>(
+            createdDocument.RootElement.GetProperty("capability").GetString());
+
+        SetBearer(foreignClient, foreign.AccessToken);
+        using var foreignRevoke = await foreignClient.PostAsJsonAsync(
+            $"{Endpoint}/{grantId:D}/revoke",
+            new { beeexyId = owner.Account.BeeexyId });
+        using var foreignActivity = await foreignClient.GetAsync(
+            $"{Endpoint}/{grantId:D}/activity");
+        using var missingRevoke = await foreignClient.PostAsync(
+            $"{Endpoint}/{Guid.NewGuid():D}/revoke",
+            null);
+        using var missingActivity = await foreignClient.GetAsync(
+            $"{Endpoint}/{Guid.NewGuid():D}/activity");
+        Assert.All(new[] { foreignRevoke, foreignActivity, missingRevoke, missingActivity },
+            response => Assert.Equal(HttpStatusCode.NotFound, response.StatusCode));
+
+        foreignClient.DefaultRequestHeaders.Authorization = null;
+        using var exchange = await foreignClient.PostAsJsonAsync(
+            "/api/v1/shared-access/exchange",
+            new { capability });
+        using var exchangeDocument = JsonDocument.Parse(await exchange.Content.ReadAsStringAsync());
+        var shareToken = Assert.IsType<string>(
+            exchangeDocument.RootElement.GetProperty("accessToken").GetString());
+        SetBearer(foreignClient, shareToken);
+        using var shareRevoke = await foreignClient.PostAsync(
+            $"{Endpoint}/{grantId:D}/revoke",
+            null);
+        using var shareActivity = await foreignClient.GetAsync(
+            $"{Endpoint}/{grantId:D}/activity");
+        Assert.Equal(HttpStatusCode.Unauthorized, shareRevoke.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, shareActivity.StatusCode);
+
+        foreignClient.DefaultRequestHeaders.Authorization = null;
+        using var anonymousRevoke = await foreignClient.PostAsync(
+            $"{Endpoint}/{grantId:D}/revoke",
+            null);
+        using var anonymousActivity = await foreignClient.GetAsync(
+            $"{Endpoint}/{grantId:D}/activity");
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymousRevoke.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymousActivity.StatusCode);
+
+        SetBearer(ownerClient, owner.AccessToken);
+        using var malformedRevoke = await ownerClient.PostAsync(
+            $"{Endpoint}/not-a-uuid/revoke",
+            null);
+        using var malformedActivity = await ownerClient.GetAsync(
+            $"{Endpoint}/not-a-uuid/activity");
+        Assert.Equal(HttpStatusCode.NotFound, malformedRevoke.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, malformedActivity.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Phase115")]
+    public async Task ActiveAndRevokedManagedAuthorityNeverGrantsLifecycleAccess()
+    {
+        await EnsureMigratedAsync();
+        using var factory = CreateFactory();
+        using var subjectClient = factory.CreateApiClient();
+        using var managerClient = factory.CreateApiClient();
+        var subject = await AuthenticateAsync(factory, subjectClient, "lifecycle-subject");
+        var manager = await AuthenticateAsync(factory, managerClient, "lifecycle-manager");
+        SetBearer(subjectClient, subject.AccessToken);
+        using var created = await subjectClient.PostAsJsonAsync(
+            Endpoint,
+            ShareRequest("FullProfile", Guid.NewGuid()));
+        using var document = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        var grantId = document.RootElement.GetProperty("shareGrantId").GetGuid();
+        var relationship = CareRelationship.Create(
+            EntityId.From(manager.Account.ProfileId),
+            EntityId.From(subject.Account.ProfileId),
+            CareRelationshipType.Caregiver,
+            EntityId.From(manager.Account.AccountId),
+            AuthorizationAttestation.Create("phase-11.5-test", Now.AddMinutes(-2)),
+            Now.AddMinutes(-2));
+        await using (var dbContext = CreateDbContext())
+        {
+            dbContext.CareRelationships.Add(relationship);
+            await dbContext.SaveChangesAsync();
+        }
+
+        SetBearer(managerClient, manager.AccessToken);
+        using var activeRevoke = await managerClient.PostAsync(
+            $"{Endpoint}/{grantId:D}/revoke",
+            null);
+        using var activeActivity = await managerClient.GetAsync(
+            $"{Endpoint}/{grantId:D}/activity");
+        Assert.Equal(HttpStatusCode.NotFound, activeRevoke.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, activeActivity.StatusCode);
+
+        await using (var dbContext = CreateDbContext())
+        {
+            var tracked = await dbContext.CareRelationships.SingleAsync(value =>
+                value.Id == relationship.Id);
+            tracked.Revoke(EntityId.From(manager.Account.AccountId), Now.AddMinutes(-1));
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var revokedRevoke = await managerClient.PostAsync(
+            $"{Endpoint}/{grantId:D}/revoke",
+            null);
+        using var revokedActivity = await managerClient.GetAsync(
+            $"{Endpoint}/{grantId:D}/activity");
+        Assert.Equal(HttpStatusCode.NotFound, revokedRevoke.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, revokedActivity.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Phase115")]
+    public async Task RevokeWaitsForInFlightExchangeThenBlocksEveryLaterExchange()
+    {
+        await EnsureMigratedAsync();
+        var blockingIssuer = new BlockingShareAccessTokenIssuer();
+        using var factory = new BeeexyApiFactory(
+            postgres.ConnectionString,
+            configurationOverrides: new Dictionary<string, string?>
+            {
+                ["Sharing:PublicShareBaseUrl"] = PublicBaseUrl
+            },
+            configureServices: services =>
+            {
+                services.RemoveAll<IClock>();
+                services.AddSingleton<IClock>(new FixedClock(Now));
+                services.RemoveAll<IShareAccessTokenIssuer>();
+                services.AddSingleton<IShareAccessTokenIssuer>(blockingIssuer);
+            });
+        using var ownerClient = factory.CreateApiClient();
+        using var recipientClient = factory.CreateApiClient();
+        var owner = await AuthenticateAsync(factory, ownerClient, "exchange-race");
+        SetBearer(ownerClient, owner.AccessToken);
+        using var created = await ownerClient.PostAsJsonAsync(
+            Endpoint,
+            ShareRequest("FullProfile", Guid.NewGuid()));
+        using var document = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        var grantId = document.RootElement.GetProperty("shareGrantId").GetGuid();
+        var capability = Assert.IsType<string>(
+            document.RootElement.GetProperty("capability").GetString());
+
+        var exchangeTask = recipientClient.PostAsJsonAsync(
+            "/api/v1/shared-access/exchange",
+            new { capability });
+        await blockingIssuer.Started.WaitAsync(TimeSpan.FromSeconds(10));
+        var revokeTask = ownerClient.PostAsync($"{Endpoint}/{grantId:D}/revoke", null);
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
+        Assert.False(revokeTask.IsCompleted);
+        blockingIssuer.Release();
+
+        using var exchange = await exchangeTask;
+        using var revoke = await revokeTask;
+        Assert.Equal(HttpStatusCode.OK, exchange.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, revoke.StatusCode);
+        using var exchangeAfter = await recipientClient.PostAsJsonAsync(
+            "/api/v1/shared-access/exchange",
+            new { capability });
+        Assert.Equal(HttpStatusCode.Unauthorized, exchangeAfter.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Phase115")]
+    public async Task RevokeWaitsForInFlightProfileThenBlocksIssuedToken()
+    {
+        await EnsureMigratedAsync();
+        var blockingSnapshot = new BlockingSnapshotBuilder();
+        using var factory = new BeeexyApiFactory(
+            postgres.ConnectionString,
+            configurationOverrides: new Dictionary<string, string?>
+            {
+                ["Sharing:PublicShareBaseUrl"] = PublicBaseUrl
+            },
+            configureServices: services =>
+            {
+                services.RemoveAll<IClock>();
+                services.AddSingleton<IClock>(new FixedClock(Now));
+                services.RemoveAll<ICanonicalSharedHealthSnapshotBuilder>();
+                services.AddSingleton<ICanonicalSharedHealthSnapshotBuilder>(blockingSnapshot);
+            });
+        using var ownerClient = factory.CreateApiClient();
+        using var exchangeClient = factory.CreateApiClient();
+        using var recipientClient = factory.CreateApiClient();
+        var owner = await AuthenticateAsync(factory, ownerClient, "profile-race");
+        SetBearer(ownerClient, owner.AccessToken);
+        using var created = await ownerClient.PostAsJsonAsync(
+            Endpoint,
+            ShareRequest("FullProfile", Guid.NewGuid()));
+        using var document = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        var grantId = document.RootElement.GetProperty("shareGrantId").GetGuid();
+        var capability = Assert.IsType<string>(
+            document.RootElement.GetProperty("capability").GetString());
+        using var exchange = await exchangeClient.PostAsJsonAsync(
+            "/api/v1/shared-access/exchange",
+            new { capability });
+        using var exchangeDocument = JsonDocument.Parse(await exchange.Content.ReadAsStringAsync());
+        var shareToken = Assert.IsType<string>(
+            exchangeDocument.RootElement.GetProperty("accessToken").GetString());
+
+        SetBearer(recipientClient, shareToken);
+        var profileTask = recipientClient.GetAsync("/api/v1/shared-access/profile");
+        await blockingSnapshot.Started.WaitAsync(TimeSpan.FromSeconds(10));
+        var revokeTask = ownerClient.PostAsync($"{Endpoint}/{grantId:D}/revoke", null);
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
+        Assert.False(revokeTask.IsCompleted);
+        blockingSnapshot.Release();
+
+        using var profile = await profileTask;
+        using var revoke = await revokeTask;
+        Assert.Equal(HttpStatusCode.OK, profile.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, revoke.StatusCode);
+        using var profileAfter = await recipientClient.GetAsync(
+            "/api/v1/shared-access/profile");
+        Assert.Equal(HttpStatusCode.Unauthorized, profileAfter.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Phase115")]
+    public async Task ExactExpiry_ReconcilesOnceAndInvalidatesExchangeAndIssuedToken()
+    {
+        await EnsureMigratedAsync();
+        var clock = new MutableClock(Now);
+        using var factory = new BeeexyApiFactory(
+            postgres.ConnectionString,
+            configurationOverrides: new Dictionary<string, string?>
+            {
+                ["Sharing:PublicShareBaseUrl"] = PublicBaseUrl
+            },
+            configureServices: services =>
+            {
+                services.RemoveAll<IClock>();
+                services.AddSingleton<IClock>(clock);
+            });
+        using var client = factory.CreateApiClient();
+        var owner = await AuthenticateAsync(factory, client, "expiry");
+        SetBearer(client, owner.AccessToken);
+        using var created = await client.PostAsJsonAsync(
+            Endpoint,
+            ShareRequest("FullProfile", Guid.NewGuid(), lifetimeMinutes: 1));
+        using var createdDocument = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        var grantId = createdDocument.RootElement.GetProperty("shareGrantId").GetGuid();
+        var capability = Assert.IsType<string>(
+            createdDocument.RootElement.GetProperty("capability").GetString());
+
+        client.DefaultRequestHeaders.Authorization = null;
+        using var exchange = await client.PostAsJsonAsync(
+            "/api/v1/shared-access/exchange",
+            new { capability });
+        Assert.Equal(HttpStatusCode.OK, exchange.StatusCode);
+        using var exchangeDocument = JsonDocument.Parse(await exchange.Content.ReadAsStringAsync());
+        var shareToken = Assert.IsType<string>(
+            exchangeDocument.RootElement.GetProperty("accessToken").GetString());
+
+        clock.UtcNow = Now.AddMinutes(1);
+        using var expiredExchangeClient = factory.CreateApiClient();
+        using var expiredProfileClient = factory.CreateApiClient();
+        SetBearer(expiredProfileClient, shareToken);
+        var expiryTask = RunExpiryAsync(factory);
+        var exchangeAfterTask = expiredExchangeClient.PostAsJsonAsync(
+            "/api/v1/shared-access/exchange",
+            new { capability });
+        var profileAfterTask = expiredProfileClient.GetAsync(
+            "/api/v1/shared-access/profile");
+        var firstExpiry = await expiryTask;
+        using var exchangeAfter = await exchangeAfterTask;
+        using var profileAfter = await profileAfterTask;
+        Assert.True(firstExpiry.Reconciled >= 1);
+        Assert.Equal(HttpStatusCode.Unauthorized, exchangeAfter.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, profileAfter.StatusCode);
+        await RunExpiryAsync(factory);
+
+        SetBearer(client, owner.AccessToken);
+        using var activity = await client.GetAsync($"{Endpoint}/{grantId:D}/activity");
+        using var activityDocument = JsonDocument.Parse(await activity.Content.ReadAsStringAsync());
+        Assert.Contains(activityDocument.RootElement.GetProperty("events").EnumerateArray(),
+            value => value.GetProperty("eventType").GetString() == "Expired" &&
+                value.GetProperty("occurredAt").GetDateTimeOffset() == clock.UtcNow);
+        await using var dbContext = CreateDbContext();
+        Assert.Equal(1, await dbContext.ShareAccessEvents.CountAsync(value =>
+            value.ShareGrantId == EntityId.From(grantId) &&
+            value.EventType == ShareAccessEventType.ShareExpired));
+    }
+
+    [Fact]
+    [Trait("Category", "Phase115")]
+    public async Task ConcurrentRevokeAndExpiryWorkers_ConvergeWithoutDuplicateEvents()
+    {
+        await EnsureMigratedAsync();
+        using var factory = CreateFactory();
+        using var firstClient = factory.CreateApiClient();
+        using var secondClient = factory.CreateApiClient();
+        var owner = await AuthenticateAsync(factory, firstClient, "concurrent");
+        var grant = CreatePersistedGrant(
+            EntityId.From(owner.Account.ProfileId),
+            EntityId.From(owner.Account.AccountId),
+            Now.AddHours(-2),
+            Now.AddMinutes(-1),
+            'f');
+        await using (var dbContext = CreateDbContext())
+        {
+            dbContext.ShareGrants.Add(grant);
+            dbContext.ShareAccessEvents.Add(ShareAccessEvent.Create(
+                grant,
+                ShareAccessEventType.ShareCreated,
+                ShareAccessOutcome.Succeeded,
+                grant.CreatedAt));
+            await dbContext.SaveChangesAsync();
+        }
+
+        SetBearer(firstClient, owner.AccessToken);
+        SetBearer(secondClient, owner.AccessToken);
+        var revokeOne = firstClient.PostAsync($"{Endpoint}/{grant.Id.Value:D}/revoke", null);
+        var revokeTwo = secondClient.PostAsync($"{Endpoint}/{grant.Id.Value:D}/revoke", null);
+        var expiryOne = RunExpiryAsync(factory);
+        var expiryTwo = RunExpiryAsync(factory);
+        var responses = await Task.WhenAll(revokeOne, revokeTwo);
+        await Task.WhenAll(expiryOne, expiryTwo);
+        try
+        {
+            Assert.All(responses, response =>
+                Assert.Equal(HttpStatusCode.NoContent, response.StatusCode));
+        }
+        finally
+        {
+            foreach (var response in responses)
+            {
+                response.Dispose();
+            }
+        }
+
+        await using var verify = CreateDbContext();
+        var persisted = await verify.ShareGrants.AsNoTracking().SingleAsync(value =>
+            value.Id == grant.Id);
+        Assert.NotNull(persisted.RevokedAt);
+        Assert.Equal(1, await verify.ShareAccessEvents.CountAsync(value =>
+            value.ShareGrantId == grant.Id &&
+            value.EventType == ShareAccessEventType.ShareRevoked));
+        Assert.InRange(await verify.ShareAccessEvents.CountAsync(value =>
+            value.ShareGrantId == grant.Id &&
+            value.EventType == ShareAccessEventType.ShareExpired), 0, 1);
+    }
+
+    [Fact]
     [Trait("Category", "Phase112")]
     [Trait("Category", "Phase113")]
     [Trait("Category", "Phase114")]
-    public async Task OpenApi_PreservesTwoBearerSharingOperationsAndNoInternalSchemas()
+    [Trait("Category", "Phase115")]
+    public async Task OpenApi_AddsLifecycleRoutesWithBearerAndNoInternalSchemas()
     {
         await EnsureMigratedAsync();
         using var factory = CreateFactory();
@@ -512,7 +973,7 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
         var body = await response.Content.ReadAsStringAsync();
         using var document = JsonDocument.Parse(body);
         var paths = document.RootElement.GetProperty("paths");
-        Assert.Equal(56, paths.EnumerateObject().Count());
+        Assert.Equal(58, paths.EnumerateObject().Count());
         var sharing = paths.GetProperty(Endpoint);
         var operations = sharing.EnumerateObject()
             .Where(value => value.Name is "get" or "post")
@@ -528,12 +989,26 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
             "200", "201", "400", "401", "404", "409", "422", "500");
         AssertResponseCodes(sharing.GetProperty("get"),
             "200", "401", "404", "422", "500");
+        var revoke = paths.GetProperty("/api/v1/shares/{id}/revoke")
+            .GetProperty("post");
+        var activity = paths.GetProperty("/api/v1/shares/{id}/activity")
+            .GetProperty("get");
+        Assert.All(new[] { revoke, activity }, operation =>
+        {
+            var security = Assert.Single(operation.GetProperty("security").EnumerateArray());
+            Assert.True(security.TryGetProperty("Bearer", out _));
+            Assert.False(security.TryGetProperty("ShareAccess", out _));
+        });
+        AssertResponseCodes(revoke, "204", "401", "404", "500");
+        AssertResponseCodes(activity, "200", "401", "404", "500");
         Assert.DoesNotContain(paths.EnumerateObject(), path =>
             (path.Name.StartsWith("/api/v1/shared-access", StringComparison.Ordinal) &&
              path.Name != "/api/v1/shared-access/exchange" &&
              path.Name != "/api/v1/shared-access/profile") ||
             (path.Name.StartsWith("/api/v1/shares", StringComparison.Ordinal) &&
-             path.Name != Endpoint) ||
+             path.Name != Endpoint &&
+             path.Name != "/api/v1/shares/{id}/revoke" &&
+             path.Name != "/api/v1/shares/{id}/activity") ||
             path.Name.StartsWith("/api/v1/exports", StringComparison.Ordinal));
 
         var schemas = document.RootElement.GetProperty("components").GetProperty("schemas");
@@ -545,6 +1020,8 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
             Assert.DoesNotContain("creatorAccount", schema.Value.GetRawText(),
                 StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("storage", schema.Value.GetRawText(),
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("userAgent", schema.Value.GetRawText(),
                 StringComparison.OrdinalIgnoreCase);
         }
     }
@@ -679,6 +1156,12 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
     private static void SetBearer(HttpClient client, string token) =>
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
+    private static async Task<ExpireSharesResult> RunExpiryAsync(BeeexyApiFactory factory)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<ExpireShares>().ExecuteAsync();
+    }
+
     private static DateTimeOffset Normalize(DateTimeOffset value)
     {
         var utc = value.ToUniversalTime();
@@ -699,6 +1182,59 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
     private sealed class FixedClock(DateTimeOffset now) : IClock
     {
         public DateTimeOffset UtcNow { get; } = now;
+    }
+
+    private sealed class MutableClock(DateTimeOffset now) : IClock
+    {
+        public DateTimeOffset UtcNow { get; set; } = now;
+    }
+
+    private sealed class BlockingShareAccessTokenIssuer : IShareAccessTokenIssuer
+    {
+        private readonly ManualResetEventSlim release = new(initialState: false);
+        private readonly TaskCompletionSource started = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Started => started.Task;
+
+        public IssuedShareAccessToken Issue(
+            EntityId shareGrantId,
+            ShareScope scope,
+            DateTimeOffset issuedAt,
+            DateTimeOffset expiresAt)
+        {
+            started.TrySetResult();
+            if (!release.Wait(TimeSpan.FromSeconds(10)))
+            {
+                throw new TimeoutException("The test did not release token issuance.");
+            }
+
+            return new IssuedShareAccessToken("phase-11.5-blocked-token", expiresAt);
+        }
+
+        public void Release() => release.Set();
+    }
+
+    private sealed class BlockingSnapshotBuilder : ICanonicalSharedHealthSnapshotBuilder
+    {
+        private readonly TaskCompletionSource started = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource release = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Started => started.Task;
+
+        public async Task<CanonicalSharedHealthSnapshot> BuildAsync(
+            EntityId patientProfileId,
+            SharedProfileSelection selection,
+            CancellationToken cancellationToken = default)
+        {
+            started.TrySetResult();
+            await release.Task.WaitAsync(cancellationToken);
+            return new CanonicalSharedHealthSnapshot(null, [], [], [], [], []);
+        }
+
+        public void Release() => release.TrySetResult();
     }
 
     private sealed record AuthenticationResult(

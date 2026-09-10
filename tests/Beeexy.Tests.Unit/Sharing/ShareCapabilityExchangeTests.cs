@@ -182,6 +182,12 @@ public sealed class ShareCapabilityExchangeTests
             LastHash = capabilityHash;
             return Task.FromResult(State);
         }
+
+        public Task CommitAccessAsync(CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task RollbackAccessAsync(CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 
     private sealed class RecordingIssuer : IShareAccessTokenIssuer
