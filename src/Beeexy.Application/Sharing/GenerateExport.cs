@@ -27,8 +27,40 @@ public interface IPrivateArtifactStorage
         ReadOnlyMemory<byte> artifactBytes,
         CancellationToken cancellationToken = default);
 
+    Task<byte[]> ReadAsync(
+        string privateStorageIdentity,
+        CancellationToken cancellationToken = default);
+
     Task<bool> DeleteAsync(
         PrivateArtifactStorageReference reference,
+        CancellationToken cancellationToken = default);
+}
+
+public interface IPdfExportRenderer
+{
+    byte[] Render(
+        CanonicalSharedHealthSnapshot snapshot,
+        EntityId snapshotId,
+        DateTimeOffset generatedAt);
+}
+
+public static class PdfExportContract
+{
+    public const string MediaType = "application/pdf";
+    public const string FormatVersion = "1.0";
+}
+
+public sealed record ValidatedFhirExportArtifact(
+    EntityId SnapshotId,
+    string SnapshotVersion,
+    string MediaType,
+    byte[] ArtifactBytes);
+
+public interface IPhase6ValidatedFhirExportProvider
+{
+    Task<ValidatedFhirExportArtifact> GenerateAsync(
+        EntityId patientProfileId,
+        EntityId idempotencyKey,
         CancellationToken cancellationToken = default);
 }
 
@@ -79,13 +111,17 @@ public sealed class ExportGenerationOptions
     public TimeSpan Retention { get; }
 
     public int MaximumBeeexyJsonBytes { get; }
+
+    public int MaximumArtifactBytes => MaximumBeeexyJsonBytes;
 }
 
 public sealed class GenerateExport(
     IClock clock,
     CurrentAccountProfileResolver currentAccountResolver,
     ICanonicalSharedHealthSnapshotBuilder snapshotBuilder,
-    BeeexyJsonExportRenderer renderer,
+    BeeexyJsonExportRenderer beeexyJsonRenderer,
+    IPdfExportRenderer pdfRenderer,
+    IPhase6ValidatedFhirExportProvider fhirExportProvider,
     ExportArtifactChecksumCalculator checksumCalculator,
     IPrivateArtifactStorage storage,
     IExportArtifactTransaction transaction,
@@ -103,6 +139,11 @@ public sealed class GenerateExport(
         }
 
         Validate(command);
+        if (command.Format == ExportArtifactFormat.FhirJson)
+        {
+            return await ExecuteFhirAsync(command, current.Account.Id, cancellationToken);
+        }
+
         PrivateArtifactStorageReference? reference = null;
         var storageAttempted = false;
         var storedSuccessfully = false;
@@ -134,11 +175,6 @@ public sealed class GenerateExport(
                 return new GenerateExportResult(existing, NewlyCreated: false);
             }
 
-            if (command.Format != ExportArtifactFormat.BeeexyJson)
-            {
-                throw new ExportFormatUnavailableException();
-            }
-
             var createdAt = CurrentInstant();
             var snapshotId = EntityId.New();
             CanonicalSharedHealthSnapshot snapshot;
@@ -154,8 +190,28 @@ public sealed class GenerateExport(
                 throw new ExportGenerationUnavailableException();
             }
 
-            var artifactBytes = renderer.Render(snapshot, snapshotId, createdAt);
-            if (artifactBytes.Length > options.MaximumBeeexyJsonBytes)
+            byte[] artifactBytes;
+            string mediaType;
+            try
+            {
+                (artifactBytes, mediaType) = command.Format switch
+                {
+                    ExportArtifactFormat.BeeexyJson =>
+                        (beeexyJsonRenderer.Render(snapshot, snapshotId, createdAt),
+                            BeeexyJsonExportRenderer.MediaType),
+                    ExportArtifactFormat.Pdf =>
+                        (pdfRenderer.Render(snapshot, snapshotId, createdAt),
+                            PdfExportContract.MediaType),
+                    _ => throw new ExportFormatUnavailableException()
+                };
+            }
+            catch (PdfExportRenderException)
+            {
+                throw new ExportGenerationUnavailableException();
+            }
+
+            if (artifactBytes.Length == 0 ||
+                artifactBytes.Length > options.MaximumArtifactBytes)
             {
                 throw new ExportGenerationUnavailableException();
             }
@@ -165,7 +221,7 @@ public sealed class GenerateExport(
                 current.Account.Id,
                 command.IdempotencyKey,
                 command.Format,
-                BeeexyJsonExportRenderer.MediaType,
+                mediaType,
                 snapshotId,
                 BeeexyJsonExportRenderer.SnapshotVersion,
                 createdAt,
@@ -212,6 +268,148 @@ public sealed class GenerateExport(
 
             throw;
         }
+    }
+
+    private async Task<GenerateExportResult> ExecuteFhirAsync(
+        GenerateExportCommand command,
+        EntityId requestedByAccountId,
+        CancellationToken cancellationToken)
+    {
+        ExportArtifact? existing;
+        try
+        {
+            await transaction.BeginAsync(
+                command.PatientProfileId,
+                command.IdempotencyKey,
+                cancellationToken);
+            existing = await transaction.FindExistingAsync(
+                command.PatientProfileId,
+                command.IdempotencyKey,
+                cancellationToken);
+            if (existing is not null)
+            {
+                return await CompleteReplayAsync(existing, command.Format, cancellationToken);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await TryRollbackAsync();
+            throw;
+        }
+
+        ValidatedFhirExportArtifact validated;
+        try
+        {
+            validated = await fhirExportProvider.GenerateAsync(
+                command.PatientProfileId,
+                command.IdempotencyKey,
+                cancellationToken);
+        }
+        catch (Phase6ValidatedFhirExportUnavailableException)
+        {
+            throw new ExportGenerationUnavailableException();
+        }
+
+        if (validated.ArtifactBytes.Length == 0 ||
+            validated.ArtifactBytes.Length > options.MaximumArtifactBytes)
+        {
+            throw new ExportGenerationUnavailableException();
+        }
+
+        PrivateArtifactStorageReference? reference = null;
+        var storageAttempted = false;
+        var storedSuccessfully = false;
+        try
+        {
+            await transaction.BeginAsync(
+                command.PatientProfileId,
+                command.IdempotencyKey,
+                cancellationToken);
+            existing = await transaction.FindExistingAsync(
+                command.PatientProfileId,
+                command.IdempotencyKey,
+                cancellationToken);
+            if (existing is not null)
+            {
+                return await CompleteReplayAsync(existing, command.Format, cancellationToken);
+            }
+
+            var createdAt = CurrentInstant();
+            var artifact = ExportArtifact.CreatePending(
+                command.PatientProfileId,
+                requestedByAccountId,
+                command.IdempotencyKey,
+                command.Format,
+                validated.MediaType,
+                validated.SnapshotId,
+                validated.SnapshotVersion,
+                createdAt,
+                createdAt.Add(options.Retention));
+            transaction.Add(artifact);
+            await transaction.SaveAsync(cancellationToken);
+
+            reference = storage.CreateReference();
+            storageAttempted = true;
+            await storage.StoreImmutableAsync(
+                reference,
+                validated.ArtifactBytes,
+                cancellationToken);
+            storedSuccessfully = true;
+            artifact.MarkAvailable(
+                ExportArtifactContentMetadata.Create(
+                    ExportArtifactChecksumCalculator.Algorithm,
+                    checksumCalculator.Calculate(validated.ArtifactBytes),
+                    reference.PrivateStorageIdentity),
+                createdAt);
+            await transaction.SaveAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new GenerateExportResult(artifact, NewlyCreated: true);
+        }
+        catch (Exception generationFailure)
+        {
+            await TryRollbackAsync();
+            if (storageAttempted && reference is not null)
+            {
+                try
+                {
+                    var deleted = await storage.DeleteAsync(reference, CancellationToken.None);
+                    if (storedSuccessfully && !deleted)
+                    {
+                        throw new InvalidOperationException(
+                            "The stored private artifact could not be found for cleanup.");
+                    }
+                }
+                catch (Exception cleanupFailure)
+                {
+                    throw new ExportArtifactReconciliationRequiredException(
+                        generationFailure,
+                        cleanupFailure);
+                }
+            }
+
+            throw;
+        }
+    }
+
+    private async Task<GenerateExportResult> CompleteReplayAsync(
+        ExportArtifact existing,
+        ExportArtifactFormat requestedFormat,
+        CancellationToken cancellationToken)
+    {
+        if (existing.Format != requestedFormat)
+        {
+            throw new ExportIdempotencyConflictException();
+        }
+
+        if (existing.Status != ExportArtifactStatus.Available)
+        {
+            throw new ExportArtifactStateConflictException();
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return new GenerateExportResult(existing, NewlyCreated: false);
     }
 
     private static void Validate(GenerateExportCommand command)
@@ -268,3 +466,8 @@ public sealed class ExportArtifactReconciliationRequiredException(
     : Exception(
         "Export generation failed and private artifact cleanup requires reconciliation.",
         new AggregateException(generationFailure, cleanupFailure));
+
+public sealed class PdfExportRenderException(Exception innerException)
+    : Exception("The PDF export could not be rendered.", innerException);
+
+public sealed class Phase6ValidatedFhirExportUnavailableException : Exception;

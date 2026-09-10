@@ -804,7 +804,7 @@ public sealed class SecondOpinionEndpointTests(PostgreSqlContainerFixture postgr
             .GetProperty("post");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(59, paths.EnumerateObject().Count());
+        Assert.Equal(60, paths.EnumerateObject().Count());
         Assert.False(operation.TryGetProperty("requestBody", out _));
         Assert.True(operation.GetProperty("security").GetArrayLength() > 0);
         foreach (var status in new[] { "202", "401", "404", "409", "422", "500" })

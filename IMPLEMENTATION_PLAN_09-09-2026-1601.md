@@ -2365,7 +2365,7 @@ Phase 10 is complete only when only safety-approved output can be displayed; the
 
 **Priority:** MVP CORE
 
-**Phase 11 overall status:** IN PROGRESS (2026-09-10). Phases 11.1, 11.2, 11.3, 11.4, 11.5, and 11.6 are complete; Phase 11.7–11.8 have not started.
+**Phase 11 overall status:** IN PROGRESS (2026-09-10). Phases 11.1–11.7 are complete; Phase 11.8 has not started.
 
 ## 1. Objective
 
@@ -2981,7 +2981,7 @@ The combined Phase 11.1–11.6 unit regression group passed 116/116 before the f
 
 ### Status
 
-**NOT STARTED.** It depends on verified 11.6 completion and Phase 6's validated export boundary.
+**COMPLETE (2026-09-10).** Phase 11.7 was implemented after verified 11.6 completion and uses Phase 6's validated export boundary exclusively for FHIR JSON.
 
 ### Objective
 
@@ -3047,6 +3047,33 @@ Strict delegation only. Architecture tests must prove Phase 11 has no FHIR mappe
 ### Acceptance / Exit Criteria
 
 11.7 is complete only when all three formats create and download as immutable private checksummed artifacts, PDF is readable and canonical, FHIR is exclusively Phase 6 validated or safely `422`, every download is currently authorized, explicit artifact sharing is enforced, and all format/auth/privacy tests pass.
+
+### Implementation Evidence (2026-09-10)
+
+- The existing export creation operation now supports all three required formats without changing the request shape. Beeexy JSON remains `application/json`; PDF is `application/pdf`; and FHIR JSON is the exact validated Phase 6 output with `application/fhir+json`. Idempotent replays converge on the same immutable artifact, including concurrent FHIR requests, while failed rendering, unavailable/unmappable/invalid Phase 6 output, and private-storage failures do not create a falsely completed artifact.
+- PDF generation is implemented behind the provider-neutral `IPdfExportRenderer` boundary using the already referenced server-side `UglyToad.PdfPig` 0.1.16 package. Its package metadata declares Apache-2.0 licensing and PDF creation support. Rendering is local and in-process, uses no browser/native/SaaS dependency, applies deterministic Standard 14 text handling (including safe Latin-diacritic transliteration), paginates content, and includes the Beeexy title, patient name and approved demographics, generation/snapshot/version context, Clinical History, completed Pre-Triage, Symptom Diary and separately approved informational content, patient-visible Second Opinion results, disclosure/disclaimer, and page footers. It excludes QR data, storage identities, conversation/provider internals, rejected/raw output, and unsupported fields.
+- FHIR generation is delegated through `IPhase6ValidatedFhirExportProvider` to the existing Phase 6 `CreateFhirExport` pipeline. The adapter selects the retry-compatible or latest eligible completed Clinical History source, requires Phase 6 `Validated` state and the approved validation specification, verifies the Phase 6 checksum, and returns/stores the exact Phase 6 artifact bytes without reserialization, fallback, or any Phase 11 mapper/profile/terminology implementation. Phase 6 inability to produce approved validated output returns the established safe `422`.
+- `GET /api/v1/exports/{id}/content` returns only stored, available, checksum-valid bytes and never regenerates content. It uses no-store/nosniff response protections, technical-ID-only safe filenames, no range processing, exact media-type validation, and safe state/concealment/integrity failure mappings without disclosing storage identities.
+- Bearer downloads reuse current patient authority and conceal foreign artifacts. ShareAccess downloads revalidate the locked current grant state, expiry, token scope, patient, and exact persisted `export_artifact` item on every request. `FullProfile`, another artifact, another patient, a bare identifier, and revoked/expired grants do not authorize historical artifact access. Successful share delivery appends one deterministic, privacy-safe, patient-visible `Downloaded` event per grant/token/artifact; denied or incomplete delivery appends none. The download/grant lock orders concurrent delivery against revocation so the completed operation linearizes safely and later requests are denied.
+- The existing schema and immutable export/grant-item/event contracts were sufficient. EF Core reports no pending model changes, so Phase 11.7 required no migration.
+- OpenAPI now contains exactly 60 paths: the 59-path Phase 11.6 baseline plus only the exact artifact-content route. Export creation documents all three formats, and content download documents the three exact media types with Bearer and ShareAccess as alternative security requirements rather than mixed authority.
+
+### Verification Evidence (2026-09-10)
+
+- Phase 11.7 focused unit tests: **16 passed, 0 failed**.
+- Phase 11.7 PostgreSQL integration tests: **6 passed, 0 failed**.
+- Direct Phase 11.6 unit regressions: **18 passed, 0 failed**; Phase 11.6 PostgreSQL regressions: **5 passed, 0 failed**.
+- Combined Phase 11.1–11.7 unit slice: **128 passed, 0 failed**; combined Phase 11.1–11.7 PostgreSQL slice: **45 passed, 0 failed**.
+- Focused OpenAPI regressions: **33 passed, 0 failed**, after updating historical exact-path-count assertions from the legitimate 59-path Phase 11.6 baseline to the legitimate 60-path Phase 11.7 surface.
+- Consolidated Phase 6 interoperability/FHIR unit regressions: **90 passed, 0 failed**; Phase 6 FHIR PostgreSQL regressions: **26 passed, 0 failed**.
+- Current-account/patient-authority unit regressions: **22 passed, 0 failed**; PostgreSQL patient-access authorization regressions: **11 passed, 0 failed**.
+- `dotnet ef migrations has-pending-model-changes`: no model changes since the last migration.
+- `dotnet format Beeexy.sln --no-restore --verify-no-changes`: passed after correcting four whitespace-only findings in the new download unit tests.
+- `dotnet build Beeexy.sln --no-restore --configuration Debug`: passed with **0 warnings and 0 errors**.
+- `git diff --check`: passed; Git emitted only the repository's existing LF-to-CRLF working-tree notices.
+- The complete repository-wide unit and integration suites were intentionally not run for Phase 11.7 under the subphase testing policy; full regression is reserved for Phase 11.8 closure unless explicitly requested.
+
+**Phase 11.8 has not started.**
 
 ## Phase 11.8 — Security, Privacy, Concurrency, Migration, and Acceptance Closure
 

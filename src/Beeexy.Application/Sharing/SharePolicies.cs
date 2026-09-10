@@ -13,6 +13,7 @@ public static class SupportedShareResourceTypes
     public const string PreTriageEpisode = "pre_triage_episode";
     public const string SymptomCheckIn = "symptom_check_in";
     public const string SecondOpinionResult = "second_opinion_result";
+    public const string ExportArtifact = "export_artifact";
 
     private static readonly HashSet<string> Values =
     [
@@ -26,6 +27,12 @@ public static class SupportedShareResourceTypes
     {
         ArgumentNullException.ThrowIfNull(value);
         return Values.Contains(value.Value);
+    }
+
+    public static bool ContainsGrantItem(ShareResourceType value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return Contains(value) || value.Value == ExportArtifact;
     }
 }
 

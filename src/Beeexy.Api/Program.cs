@@ -266,6 +266,7 @@ builder.Services.AddSingleton(exportSettings.Generation);
 builder.Services.AddSingleton<BeeexyJsonExportRenderer>();
 builder.Services.AddSingleton<ExportArtifactChecksumCalculator>();
 builder.Services.AddScoped<GenerateExport>();
+builder.Services.AddScoped<DownloadExport>();
 builder.Services.AddShareExchangeRateLimiting(shareAccessSettings.RateLimitPolicy);
 builder.Services.AddScoped<TransitionAppointment>();
 builder.Services.AddScoped<ConfirmAppointment>();

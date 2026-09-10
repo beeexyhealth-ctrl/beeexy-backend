@@ -563,7 +563,7 @@ public sealed partial class SymptomDiaryContentEndpointTests
         var operation = checkIns.GetProperty("post");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(59, paths.EnumerateObject().Count());
+        Assert.Equal(60, paths.EnumerateObject().Count());
         Assert.True(checkIns.TryGetProperty("get", out _));
         Assert.Contains(operation.GetProperty("security").EnumerateArray(), value =>
             value.TryGetProperty("Bearer", out _));

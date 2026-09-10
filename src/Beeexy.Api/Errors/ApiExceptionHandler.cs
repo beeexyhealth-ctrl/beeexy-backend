@@ -418,6 +418,43 @@ internal sealed class ApiExceptionHandler(
             return problem;
         }
 
+        if (exception is ExportArtifactAccessForbiddenException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status403Forbidden,
+                Title = "Export artifact access denied.",
+                Detail = "The share does not authorize this export artifact."
+            };
+            problem.Extensions["errorCode"] = "sharing.export_artifact_forbidden";
+            return problem;
+        }
+
+        if (exception is ExportArtifactNotFoundException or
+            ExportArtifactContentUnavailableException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Export artifact not found.",
+                Detail = "The requested export artifact could not be found."
+            };
+            problem.Extensions["errorCode"] = "sharing.export_artifact_not_found";
+            return problem;
+        }
+
+        if (exception is ExportArtifactIntegrityException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status500InternalServerError,
+                Title = "Export artifact integrity failure.",
+                Detail = "The immutable export artifact could not be safely returned."
+            };
+            problem.Extensions["errorCode"] = "sharing.export_artifact_integrity";
+            return problem;
+        }
+
         if (exception is AppointmentSlotReservationConflictException)
         {
             var problem = new ProblemDetails

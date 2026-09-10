@@ -96,6 +96,11 @@ internal sealed class ShareRepository(BeeexyDbContext dbContext)
                                 request.PatientProfileId == patientProfileId &&
                                 request.Purpose == AiAnalysisPurpose.SecondOpinion),
                         cancellationToken),
+                SupportedShareResourceTypes.ExportArtifact =>
+                    await dbContext.ExportArtifacts.CountAsync(
+                        value => ids.Contains(value.Id) &&
+                            value.PatientProfileId == patientProfileId,
+                        cancellationToken),
                 _ => 0
             };
 

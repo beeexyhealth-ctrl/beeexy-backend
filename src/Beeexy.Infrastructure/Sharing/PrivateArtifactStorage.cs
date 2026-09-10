@@ -21,6 +21,10 @@ public interface IPrivateArtifactObjectStore
         ReadOnlyMemory<byte> artifactBytes,
         CancellationToken cancellationToken = default);
 
+    Task<byte[]> ReadAsync(
+        string objectKey,
+        CancellationToken cancellationToken = default);
+
     Task<bool> DeleteAsync(
         string objectKey,
         CancellationToken cancellationToken = default);
@@ -126,17 +130,25 @@ internal sealed class FileSystemPrivateArtifactStorage : IPrivateArtifactStorage
         return Task.FromResult(true);
     }
 
-    internal Task<byte[]> ReadForVerificationAsync(
-        PrivateArtifactStorageReference reference,
+    public Task<byte[]> ReadAsync(
+        string privateStorageIdentity,
         CancellationToken cancellationToken = default)
     {
-        Validate(reference);
+        var reference = ParseIdentity(privateStorageIdentity);
         var path = GetArtifactPath(reference);
         EnsureNotReparsePoint(path);
         return File.ReadAllBytesAsync(path, cancellationToken);
     }
 
+    internal Task<byte[]> ReadForVerificationAsync(
+        PrivateArtifactStorageReference reference,
+        CancellationToken cancellationToken = default) =>
+        ReadAsync(reference.PrivateStorageIdentity, cancellationToken);
+
     internal PrivateArtifactStorageReference ParseIdentityForVerification(string identity)
+        => ParseIdentity(identity);
+
+    private static PrivateArtifactStorageReference ParseIdentity(string identity)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(identity);
         if (!Uri.TryCreate(identity, UriKind.Absolute, out var uri) ||
@@ -239,6 +251,16 @@ internal sealed class ObjectPrivateArtifactStorage(
             cancellationToken);
     }
 
+    public Task<byte[]> ReadAsync(
+        string privateStorageIdentity,
+        CancellationToken cancellationToken = default)
+    {
+        var reference = ParseIdentity(privateStorageIdentity);
+        return objectStore.ReadAsync(
+            $"{prefix}/{reference.OpaqueKey}",
+            cancellationToken);
+    }
+
     private void Validate(PrivateArtifactStorageReference reference)
     {
         ArgumentNullException.ThrowIfNull(reference);
@@ -252,6 +274,33 @@ internal sealed class ObjectPrivateArtifactStorage(
         {
             throw new ArgumentException("The private artifact reference is invalid.", nameof(reference));
         }
+    }
+
+    private PrivateArtifactStorageReference ParseIdentity(string identity)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(identity);
+        if (!Uri.TryCreate(identity, UriKind.Absolute, out var uri) ||
+            !string.Equals(uri.Scheme, Scheme, StringComparison.Ordinal) ||
+            !string.Equals(uri.Host, Host, StringComparison.Ordinal) ||
+            !string.IsNullOrEmpty(uri.UserInfo) ||
+            !string.IsNullOrEmpty(uri.Query) ||
+            !string.IsNullOrEmpty(uri.Fragment))
+        {
+            throw new ArgumentException("The private artifact identity is invalid.", nameof(identity));
+        }
+
+        var path = uri.AbsolutePath.Trim('/');
+        var expectedPrefix = prefix + "/";
+        if (!path.StartsWith(expectedPrefix, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("The private artifact identity is invalid.", nameof(identity));
+        }
+
+        var reference = new PrivateArtifactStorageReference(
+            path[expectedPrefix.Length..],
+            identity);
+        Validate(reference);
+        return reference;
     }
 
     private static string NormalizePrefix(string value)

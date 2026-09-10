@@ -122,7 +122,7 @@ public sealed class GenerateExportTests
 
     [Fact]
     [Trait("Category", "Phase116")]
-    public async Task ForeignPatientAndUnavailableFormats_FailBeforeSnapshotAndStorage()
+    public async Task ForeignPatient_FailsBeforeSnapshotAndStorage()
     {
         var fixture = new Fixture();
 
@@ -131,12 +131,72 @@ public sealed class GenerateExportTests
                 EntityId.New(),
                 ExportArtifactFormat.BeeexyJson,
                 EntityId.New())));
-        await Assert.ThrowsAsync<ExportFormatUnavailableException>(() =>
+        Assert.Equal(0, fixture.Snapshots.Calls);
+        Assert.Null(fixture.Storage.StoredBytes);
+    }
+
+    [Fact]
+    [Trait("Category", "Phase117")]
+    public async Task Pdf_UsesCanonicalSnapshotAndPersistsExactRenderedBytes()
+    {
+        var fixture = new Fixture();
+
+        var result = await fixture.UseCase.ExecuteAsync(
+            fixture.Command(ExportArtifactFormat.Pdf));
+
+        Assert.True(result.NewlyCreated);
+        Assert.Equal(1, fixture.Snapshots.Calls);
+        Assert.Equal(1, fixture.Pdf.Calls);
+        Assert.Equal(fixture.Pdf.Bytes, fixture.Storage.StoredBytes);
+        Assert.Equal(PdfExportContract.MediaType, result.Artifact.MediaType);
+        Assert.Equal(fixture.Checksums.Calculate(fixture.Pdf.Bytes), result.Artifact.Checksum);
+    }
+
+    [Fact]
+    [Trait("Category", "Phase117")]
+    public async Task Fhir_UsesOnlyValidatedPhase6BytesWithoutCanonicalSnapshot()
+    {
+        var fixture = new Fixture();
+
+        var result = await fixture.UseCase.ExecuteAsync(
+            fixture.Command(ExportArtifactFormat.FhirJson));
+
+        Assert.True(result.NewlyCreated);
+        Assert.Equal(0, fixture.Snapshots.Calls);
+        Assert.Equal(1, fixture.Fhir.Calls);
+        Assert.Equal(fixture.Fhir.Artifact.ArtifactBytes, fixture.Storage.StoredBytes);
+        Assert.Equal("application/fhir+json", result.Artifact.MediaType);
+        Assert.Equal(fixture.Fhir.Artifact.SnapshotId, result.Artifact.SnapshotId);
+        Assert.Equal(fixture.Checksums.Calculate(fixture.Fhir.Artifact.ArtifactBytes),
+            result.Artifact.Checksum);
+    }
+
+    [Fact]
+    [Trait("Category", "Phase117")]
+    public async Task PdfRendererFailure_RollsBackWithoutCompletedArtifact()
+    {
+        var fixture = new Fixture();
+        fixture.Pdf.Failure = new PdfExportRenderException(new InvalidOperationException());
+
+        await Assert.ThrowsAsync<ExportGenerationUnavailableException>(() =>
             fixture.UseCase.ExecuteAsync(fixture.Command(ExportArtifactFormat.Pdf)));
-        await Assert.ThrowsAsync<ExportFormatUnavailableException>(() =>
+
+        Assert.True(fixture.Transaction.RolledBack);
+        Assert.Null(fixture.Transaction.DurableArtifact);
+        Assert.Null(fixture.Storage.StoredBytes);
+    }
+
+    [Fact]
+    [Trait("Category", "Phase117")]
+    public async Task Phase6Unavailable_ReturnsSafeGenerationFailureWithoutArtifact()
+    {
+        var fixture = new Fixture();
+        fixture.Fhir.Failure = new Phase6ValidatedFhirExportUnavailableException();
+
+        await Assert.ThrowsAsync<ExportGenerationUnavailableException>(() =>
             fixture.UseCase.ExecuteAsync(fixture.Command(ExportArtifactFormat.FhirJson)));
 
-        Assert.Equal(0, fixture.Snapshots.Calls);
+        Assert.Null(fixture.Transaction.DurableArtifact);
         Assert.Null(fixture.Storage.StoredBytes);
     }
 
@@ -290,6 +350,8 @@ public sealed class GenerateExportTests
                 new AccountProfileRepository(Account, Patient, preference),
                 new AuditLogger());
             Snapshots = new SnapshotBuilder();
+            Pdf = new PdfRenderer();
+            Fhir = new FhirProvider();
             Storage = new Storage();
             Transaction = new Transaction();
             Checksums = new ExportArtifactChecksumCalculator();
@@ -298,6 +360,8 @@ public sealed class GenerateExportTests
                 resolver,
                 Snapshots,
                 new BeeexyJsonExportRenderer(),
+                Pdf,
+                Fhir,
                 Checksums,
                 Storage,
                 Transaction,
@@ -307,6 +371,8 @@ public sealed class GenerateExportTests
         public Account Account { get; }
         public PatientProfile Patient { get; }
         public SnapshotBuilder Snapshots { get; }
+        public PdfRenderer Pdf { get; }
+        public FhirProvider Fhir { get; }
         public Storage Storage { get; }
         public Transaction Transaction { get; }
         public ExportArtifactChecksumCalculator Checksums { get; }
@@ -317,6 +383,57 @@ public sealed class GenerateExportTests
             Patient.Id,
             format,
             EntityId.From(Guid.Parse("a6d0d9bb-c366-41e3-91f4-13b397467f2f")));
+    }
+
+    private sealed class PdfRenderer : IPdfExportRenderer
+    {
+        public byte[] Bytes { get; } = Encoding.ASCII.GetBytes("%PDF-1.7 test");
+        public int Calls { get; private set; }
+        public Exception? Failure { get; set; }
+
+        public byte[] Render(
+            CanonicalSharedHealthSnapshot snapshot,
+            EntityId snapshotId,
+            DateTimeOffset generatedAt)
+        {
+            Calls++;
+            if (Failure is not null)
+            {
+                throw Failure;
+            }
+
+            return Bytes;
+        }
+    }
+
+    private sealed class FhirProvider : IPhase6ValidatedFhirExportProvider
+    {
+        public FhirProvider()
+        {
+            Artifact = new ValidatedFhirExportArtifact(
+                EntityId.New(),
+                "fhir-r4-4.0.1/beeexy-fhir-r4-base-mvp-v1",
+                "application/fhir+json",
+                Encoding.UTF8.GetBytes("{\"resourceType\":\"Bundle\"}"));
+        }
+
+        public ValidatedFhirExportArtifact Artifact { get; }
+        public int Calls { get; private set; }
+        public Exception? Failure { get; set; }
+
+        public Task<ValidatedFhirExportArtifact> GenerateAsync(
+            EntityId patientProfileId,
+            EntityId idempotencyKey,
+            CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            if (Failure is not null)
+            {
+                return Task.FromException<ValidatedFhirExportArtifact>(Failure);
+            }
+
+            return Task.FromResult(Artifact);
+        }
     }
 
     private sealed class Clock : IClock
@@ -402,6 +519,11 @@ public sealed class GenerateExportTests
             StoredBytes = artifactBytes.ToArray();
             return Task.CompletedTask;
         }
+
+        public Task<byte[]> ReadAsync(
+            string privateStorageIdentity,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(StoredBytes ?? throw new FileNotFoundException());
 
         public Task<bool> DeleteAsync(
             PrivateArtifactStorageReference reference,

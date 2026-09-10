@@ -245,7 +245,7 @@ public sealed class SharedProfileEndpointTests(PostgreSqlContainerFixture postgr
     [Fact]
     [Trait("Category", "Phase114")]
     [Trait("Category", "Phase115")]
-    public async Task OpenApi_AddsOnlyGetProfileWithDedicatedShareAccessSecurity()
+    public async Task OpenApi_PreservesDedicatedProfileSecurityWithinFinalPhase11Surface()
     {
         await EnsureMigratedAsync();
         using var factory = CreateFactory();
@@ -255,7 +255,7 @@ public sealed class SharedProfileEndpointTests(PostgreSqlContainerFixture postgr
         response.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var paths = document.RootElement.GetProperty("paths");
-        Assert.Equal(59, paths.EnumerateObject().Count());
+        Assert.Equal(60, paths.EnumerateObject().Count());
         var profilePath = paths.GetProperty(ProfileEndpoint);
         Assert.True(profilePath.TryGetProperty("get", out var operation));
         Assert.False(profilePath.TryGetProperty("post", out _));
@@ -271,7 +271,8 @@ public sealed class SharedProfileEndpointTests(PostgreSqlContainerFixture postgr
         Assert.DoesNotContain("capability", responseText, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("token", responseText, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(paths.EnumerateObject(), path =>
-            path.Name.StartsWith("/api/v1/exports", StringComparison.Ordinal));
+            path.Name.StartsWith("/api/v1/exports", StringComparison.Ordinal) &&
+            path.Name != "/api/v1/exports/{id}/content");
     }
 
     private BeeexyApiFactory CreateFactory() => new(postgres.ConnectionString);

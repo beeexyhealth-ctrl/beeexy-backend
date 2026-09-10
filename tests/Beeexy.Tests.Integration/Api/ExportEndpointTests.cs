@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Beeexy.Application.Identity;
+using Beeexy.Application.Interoperability;
 using Beeexy.Application.Sharing;
 using Beeexy.Domain.Common;
 using Beeexy.Domain.Sharing;
@@ -14,6 +15,8 @@ using Beeexy.Tests.Integration.Support;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor;
 
 namespace Beeexy.Tests.Integration.Api;
 
@@ -113,6 +116,348 @@ public sealed class ExportEndpointTests(PostgreSqlContainerFixture postgres) : I
     }
 
     [Fact]
+    [Trait("Category", "Phase117")]
+    public async Task AllFormats_CreateAndBearerDownloadExactPrivateBytes()
+    {
+        await EnsureMigratedAsync();
+        using var factory = CreateFactory();
+        using var client = factory.CreateApiClient();
+        var authentication = await AuthenticateAsync(factory, client, "formats");
+        SetBearer(client, authentication.AccessToken);
+        await CompletePreTriageAsync(client, authentication.Account.ProfileId);
+
+        var artifacts = new Dictionary<string, ExportArtifact>();
+        foreach (var format in new[] { "BeeexyJson", "Pdf", "FhirJson" })
+        {
+            using var creation = await client.PostAsJsonAsync(
+                Endpoint(authentication.Account.ProfileId),
+                Request(format, Guid.NewGuid()));
+            var body = await creation.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.Created, creation.StatusCode);
+            using var json = JsonDocument.Parse(body);
+            var id = json.RootElement.GetProperty("exportArtifactId").GetGuid();
+            await using var db = CreateDbContext();
+            var artifact = await db.ExportArtifacts.AsNoTracking().SingleAsync(value =>
+                value.Id == EntityId.From(id));
+            Assert.Equal(format, json.RootElement.GetProperty("format").GetString());
+            Assert.Equal(artifact.Checksum, json.RootElement.GetProperty("checksum").GetString());
+            artifacts.Add(format, artifact);
+        }
+
+        var privateStore = new FileSystemPrivateArtifactStorage(storageRoot);
+        foreach (var (format, artifact) in artifacts)
+        {
+            var stored = await privateStore.ReadAsync(artifact.PrivateStorageIdentity!);
+            using var download = await client.GetAsync(
+                $"/api/v1/exports/{artifact.Id.Value:D}/content");
+            var downloaded = await download.Content.ReadAsByteArrayAsync();
+
+            Assert.Equal(HttpStatusCode.OK, download.StatusCode);
+            Assert.Equal("no-store", download.Headers.CacheControl?.ToString());
+            Assert.Equal("nosniff", download.Headers.GetValues("X-Content-Type-Options").Single());
+            Assert.False(download.Headers.AcceptRanges.Any());
+            Assert.Equal(artifact.MediaType, download.Content.Headers.ContentType?.MediaType);
+            Assert.Equal(stored, downloaded);
+            Assert.Equal(
+                artifact.Checksum,
+                new ExportArtifactChecksumCalculator().Calculate(downloaded));
+            Assert.DoesNotContain(storageRoot,
+                string.Join("|", download.Headers.Select(value => value.ToString())),
+                StringComparison.OrdinalIgnoreCase);
+
+            if (format == "Pdf")
+            {
+                using var pdf = PdfDocument.Open(downloaded);
+                var text = string.Join('\n', pdf.GetPages().Select(page =>
+                    ContentOrderTextExtractor.GetText(page)));
+                Assert.Contains("Beeexy Health Snapshot", text, StringComparison.Ordinal);
+                Assert.Contains("Clinical History", text, StringComparison.Ordinal);
+                Assert.Contains("Completed Pre-Triage", text, StringComparison.Ordinal);
+                Assert.Contains("About this export", text, StringComparison.Ordinal);
+                Assert.DoesNotContain("conversation", text, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("provider", text, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        var fhirArtifact = artifacts["FhirJson"];
+        await using (var db = CreateDbContext())
+        {
+            var phase6 = await db.FhirExports.AsNoTracking().SingleAsync(value =>
+                value.Id == fhirArtifact.SnapshotId);
+            var phase6Bytes = await factory.Services.GetRequiredService<IFhirArtifactStore>()
+                .ReadAsync(FhirArtifactStorageReference.FromPrivateUri(
+                    phase6.PrivateArtifactStorageUri!));
+            Assert.Equal(
+                phase6Bytes,
+                await privateStore.ReadAsync(fhirArtifact.PrivateStorageIdentity!));
+        }
+
+        var pdfArtifact = artifacts["Pdf"];
+        var before = await privateStore.ReadAsync(pdfArtifact.PrivateStorageIdentity!);
+        using var patch = await client.PatchAsJsonAsync(
+            $"/api/v1/patients/{authentication.Account.ProfileId:D}",
+            new { firstName = "ChangedAfterExport", version = 1 });
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+        using var replay = await client.PostAsJsonAsync(
+            Endpoint(authentication.Account.ProfileId),
+            Request("Pdf", pdfArtifact.IdempotencyKey.Value));
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        Assert.Equal(before, await privateStore.ReadAsync(pdfArtifact.PrivateStorageIdentity!));
+    }
+
+    [Fact]
+    [Trait("Category", "Phase117")]
+    public async Task ShareAccess_RequiresExactArtifactItemAndRecordsIdempotentDownloadActivity()
+    {
+        await EnsureMigratedAsync();
+        using var factory = CreateFactory();
+        using var ownerClient = factory.CreateApiClient();
+        var owner = await AuthenticateAsync(factory, ownerClient, "share-download");
+        SetBearer(ownerClient, owner.AccessToken);
+        var first = await CreateExportAsync(ownerClient, owner.Account.ProfileId, "BeeexyJson");
+        var second = await CreateExportAsync(ownerClient, owner.Account.ProfileId, "Pdf");
+
+        using var share = await ownerClient.PostAsJsonAsync(
+            "/api/v1/shares",
+            new
+            {
+                scope = "SpecificRecords",
+                idempotencyKey = Guid.NewGuid(),
+                items = new[]
+                {
+                    new
+                    {
+                        resourceType = SupportedShareResourceTypes.ExportArtifact,
+                        resourceId = first
+                    }
+                }
+            });
+        Assert.Equal(HttpStatusCode.Created, share.StatusCode);
+        using var shareJson = JsonDocument.Parse(await share.Content.ReadAsStringAsync());
+        var grantId = shareJson.RootElement.GetProperty("shareGrantId").GetGuid();
+        var capability = shareJson.RootElement.GetProperty("capability").GetString()!;
+        var shareToken = await ExchangeAsync(factory, capability);
+        using var recipient = factory.CreateApiClient();
+        SetBearer(recipient, shareToken);
+
+        using var allowed = await recipient.GetAsync($"/api/v1/exports/{first:D}/content");
+        using var repeated = await recipient.GetAsync($"/api/v1/exports/{first:D}/content");
+        using var unlisted = await recipient.GetAsync($"/api/v1/exports/{second:D}/content");
+        Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, repeated.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, unlisted.StatusCode);
+        Assert.Contains("export_artifact_forbidden", await unlisted.Content.ReadAsStringAsync(),
+            StringComparison.Ordinal);
+
+        using var activity = await ownerClient.GetAsync(
+            $"/api/v1/shares/{grantId:D}/activity");
+        activity.EnsureSuccessStatusCode();
+        var activityText = await activity.Content.ReadAsStringAsync();
+        using var activityJson = JsonDocument.Parse(activityText);
+        var downloaded = activityJson.RootElement.GetProperty("events")
+            .EnumerateArray().Where(value =>
+                value.GetProperty("eventType").GetString() == "Downloaded").ToArray();
+        var downloadEvent = Assert.Single(downloaded);
+        Assert.Equal("Succeeded", downloadEvent.GetProperty("outcome").GetString());
+        Assert.Equal(SupportedShareResourceTypes.ExportArtifact,
+            downloadEvent.GetProperty("resourceCategory").GetString());
+        Assert.DoesNotContain("token", activityText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("storage", activityText, StringComparison.OrdinalIgnoreCase);
+
+        using var fullShare = await ownerClient.PostAsJsonAsync(
+            "/api/v1/shares",
+            new { scope = "FullProfile", idempotencyKey = Guid.NewGuid() });
+        using var fullJson = JsonDocument.Parse(await fullShare.Content.ReadAsStringAsync());
+        var fullToken = await ExchangeAsync(
+            factory,
+            fullJson.RootElement.GetProperty("capability").GetString()!);
+        using var fullRecipient = factory.CreateApiClient();
+        SetBearer(fullRecipient, fullToken);
+        using var fullDenied = await fullRecipient.GetAsync(
+            $"/api/v1/exports/{first:D}/content");
+        Assert.Equal(HttpStatusCode.Forbidden, fullDenied.StatusCode);
+
+        using var revoke = await ownerClient.PostAsync(
+            $"/api/v1/shares/{grantId:D}/revoke",
+            null);
+        Assert.Equal(HttpStatusCode.NoContent, revoke.StatusCode);
+        using var revoked = await recipient.GetAsync($"/api/v1/exports/{first:D}/content");
+        Assert.Equal(HttpStatusCode.Unauthorized, revoked.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Phase117")]
+    public async Task ConcurrentFhirCreation_ConvergesThroughPhase6AndPhase11Idempotency()
+    {
+        await EnsureMigratedAsync();
+        using var factory = CreateFactory();
+        using var client = factory.CreateApiClient();
+        var authentication = await AuthenticateAsync(factory, client, "fhir-concurrency");
+        SetBearer(client, authentication.AccessToken);
+        await CompletePreTriageAsync(client, authentication.Account.ProfileId);
+        var key = Guid.NewGuid();
+        var endpoint = Endpoint(authentication.Account.ProfileId);
+
+        var responses = await Task.WhenAll(
+            client.PostAsJsonAsync(endpoint, Request("FhirJson", key)),
+            client.PostAsJsonAsync(endpoint, Request("FhirJson", key)));
+        try
+        {
+            Assert.Equal(
+                [HttpStatusCode.OK, HttpStatusCode.Created],
+                responses.Select(value => value.StatusCode).Order().ToArray());
+            var ids = new List<Guid>();
+            foreach (var response in responses)
+            {
+                using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                ids.Add(json.RootElement.GetProperty("exportArtifactId").GetGuid());
+            }
+
+            Assert.Single(ids.Distinct());
+        }
+        finally
+        {
+            foreach (var response in responses)
+            {
+                response.Dispose();
+            }
+        }
+
+        await using var db = CreateDbContext();
+        Assert.Single(await db.ExportArtifacts.AsNoTracking().Where(value =>
+            value.PatientProfileId == EntityId.From(authentication.Account.ProfileId) &&
+            value.IdempotencyKey == EntityId.From(key)).ToArrayAsync());
+        Assert.Single(await db.FhirExports.AsNoTracking().Where(value =>
+            value.PatientProfileId == EntityId.From(authentication.Account.ProfileId) &&
+            value.IdempotencyKey == EntityId.From(key)).ToArrayAsync());
+    }
+
+    [Fact]
+    [Trait("Category", "Phase117")]
+    public async Task ShareDownloadAndRevoke_AreOrderedByCurrentGrantLock()
+    {
+        await EnsureMigratedAsync();
+        var storage = new BlockingStorage();
+        using var factory = CreateFactory(services =>
+        {
+            services.RemoveAll<IPrivateArtifactStorage>();
+            services.AddSingleton<IPrivateArtifactStorage>(storage);
+        });
+        using var ownerClient = factory.CreateApiClient();
+        var owner = await AuthenticateAsync(factory, ownerClient, "download-revoke");
+        SetBearer(ownerClient, owner.AccessToken);
+        var artifactId = await CreateExportAsync(
+            ownerClient,
+            owner.Account.ProfileId,
+            "BeeexyJson");
+        using var share = await ownerClient.PostAsJsonAsync(
+            "/api/v1/shares",
+            new
+            {
+                scope = "SpecificRecords",
+                idempotencyKey = Guid.NewGuid(),
+                items = new[]
+                {
+                    new
+                    {
+                        resourceType = SupportedShareResourceTypes.ExportArtifact,
+                        resourceId = artifactId
+                    }
+                }
+            });
+        using var shareJson = JsonDocument.Parse(await share.Content.ReadAsStringAsync());
+        var grantId = shareJson.RootElement.GetProperty("shareGrantId").GetGuid();
+        var token = await ExchangeAsync(
+            factory,
+            shareJson.RootElement.GetProperty("capability").GetString()!);
+        using var recipient = factory.CreateApiClient();
+        SetBearer(recipient, token);
+        storage.BlockReads = true;
+
+        var downloadTask = recipient.GetAsync($"/api/v1/exports/{artifactId:D}/content");
+        await storage.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var revokeTask = ownerClient.PostAsync($"/api/v1/shares/{grantId:D}/revoke", null);
+        await Task.Delay(200);
+        Assert.False(revokeTask.IsCompleted);
+
+        storage.ReleaseRead.TrySetResult();
+        using var download = await downloadTask;
+        using var revoke = await revokeTask;
+        Assert.Equal(HttpStatusCode.OK, download.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, revoke.StatusCode);
+        using var denied = await recipient.GetAsync(
+            $"/api/v1/exports/{artifactId:D}/content");
+        Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Category", "Phase117")]
+    public async Task Download_ConcealsForeignArtifactsAndFailsSafelyForIncompleteOrMissingBytes()
+    {
+        await EnsureMigratedAsync();
+        using var factory = CreateFactory();
+        using var ownerClient = factory.CreateApiClient();
+        var owner = await AuthenticateAsync(factory, ownerClient, "download-state-owner");
+        SetBearer(ownerClient, owner.AccessToken);
+        var availableId = await CreateExportAsync(
+            ownerClient,
+            owner.Account.ProfileId,
+            "BeeexyJson");
+
+        var pending = ExportArtifact.CreatePending(
+            EntityId.From(owner.Account.ProfileId),
+            EntityId.From(owner.Account.AccountId),
+            EntityId.New(),
+            ExportArtifactFormat.Pdf,
+            PdfExportContract.MediaType,
+            EntityId.New(),
+            BeeexyJsonExportRenderer.SnapshotVersion,
+            Now,
+            Now.AddDays(30));
+        var missing = ExportArtifact.CreatePending(
+            EntityId.From(owner.Account.ProfileId),
+            EntityId.From(owner.Account.AccountId),
+            EntityId.New(),
+            ExportArtifactFormat.BeeexyJson,
+            BeeexyJsonExportRenderer.MediaType,
+            EntityId.New(),
+            BeeexyJsonExportRenderer.SnapshotVersion,
+            Now,
+            Now.AddDays(30));
+        var missingReference = new FileSystemPrivateArtifactStorage(storageRoot).CreateReference();
+        missing.MarkAvailable(
+            ExportArtifactContentMetadata.Create(
+                ExportArtifactChecksumCalculator.Algorithm,
+                new string('a', 64),
+                missingReference.PrivateStorageIdentity),
+            Now);
+        await using (var db = CreateDbContext())
+        {
+            db.ExportArtifacts.AddRange(pending, missing);
+            await db.SaveChangesAsync();
+        }
+
+        using var pendingResponse = await ownerClient.GetAsync(
+            $"/api/v1/exports/{pending.Id.Value:D}/content");
+        using var missingResponse = await ownerClient.GetAsync(
+            $"/api/v1/exports/{missing.Id.Value:D}/content");
+        Assert.Equal(HttpStatusCode.Conflict, pendingResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, missingResponse.StatusCode);
+
+        using var anonymous = factory.CreateApiClient();
+        using var anonymousResponse = await anonymous.GetAsync(
+            $"/api/v1/exports/{availableId:D}/content");
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymousResponse.StatusCode);
+
+        using var foreignClient = factory.CreateApiClient();
+        var foreign = await AuthenticateAsync(factory, foreignClient, "download-state-foreign");
+        SetBearer(foreignClient, foreign.AccessToken);
+        using var foreignResponse = await foreignClient.GetAsync(
+            $"/api/v1/exports/{availableId:D}/content");
+        Assert.Equal(HttpStatusCode.NotFound, foreignResponse.StatusCode);
+    }
+
+    [Fact]
     [Trait("Category", "Phase116")]
     public async Task IdempotencyConcurrencyAndFormatBoundaries_ConvergeWithoutFallback()
     {
@@ -153,9 +498,9 @@ public sealed class ExportEndpointTests(PostgreSqlContainerFixture postgres) : I
         Assert.Equal(HttpStatusCode.Conflict, incompatible.StatusCode);
         using var pdf = await client.PostAsJsonAsync(endpoint, Request("Pdf", Guid.NewGuid()));
         using var fhir = await client.PostAsJsonAsync(endpoint, Request("FhirJson", Guid.NewGuid()));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, pdf.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, pdf.StatusCode);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, fhir.StatusCode);
-        Assert.Contains("export_format_unavailable", await pdf.Content.ReadAsStringAsync(),
+        Assert.Contains("export_generation_unavailable", await fhir.Content.ReadAsStringAsync(),
             StringComparison.Ordinal);
 
         await using var dbContext = CreateDbContext();
@@ -163,10 +508,14 @@ public sealed class ExportEndpointTests(PostgreSqlContainerFixture postgres) : I
             .Where(value => value.PatientProfileId ==
                 EntityId.From(authentication.Account.ProfileId))
             .ToArrayAsync();
-        Assert.Single(artifacts);
-        Assert.Equal(ExportArtifactFormat.BeeexyJson, artifacts[0].Format);
-        Assert.Equal(ExportArtifactStatus.Available, artifacts[0].Status);
-        Assert.Single(Directory.EnumerateFiles(storageRoot, "*.artifact"));
+        Assert.Equal(2, artifacts.Length);
+        Assert.All(artifacts, value => Assert.Equal(
+            ExportArtifactStatus.Available,
+            value.Status));
+        Assert.Equal(
+            [ExportArtifactFormat.BeeexyJson, ExportArtifactFormat.Pdf],
+            artifacts.Select(value => value.Format).Order().ToArray());
+        Assert.Equal(2, Directory.EnumerateFiles(storageRoot, "*.artifact").Count());
     }
 
     [Fact]
@@ -313,7 +662,8 @@ public sealed class ExportEndpointTests(PostgreSqlContainerFixture postgres) : I
 
     [Fact]
     [Trait("Category", "Phase116")]
-    public async Task OpenApi_AddsOnlyBearerExportCreationAndNoDownloadRoute()
+    [Trait("Category", "Phase117")]
+    public async Task OpenApi_CompletesExportCreationAndDualAuthorityDownloadContract()
     {
         await EnsureMigratedAsync();
         using var factory = CreateFactory();
@@ -323,7 +673,7 @@ public sealed class ExportEndpointTests(PostgreSqlContainerFixture postgres) : I
         response.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var paths = document.RootElement.GetProperty("paths");
-        Assert.Equal(59, paths.EnumerateObject().Count());
+        Assert.Equal(60, paths.EnumerateObject().Count());
         var operation = paths.GetProperty("/api/v1/patients/{id}/exports")
             .GetProperty("post");
         var security = Assert.Single(operation.GetProperty("security").EnumerateArray());
@@ -333,7 +683,21 @@ public sealed class ExportEndpointTests(PostgreSqlContainerFixture postgres) : I
             ["200", "201", "400", "401", "404", "409", "422", "500"],
             operation.GetProperty("responses").EnumerateObject()
                 .Select(value => value.Name).Order(StringComparer.Ordinal).ToArray());
-        Assert.False(paths.TryGetProperty("/api/v1/exports/{id}/content", out _));
+        var download = paths.GetProperty("/api/v1/exports/{id}/content")
+            .GetProperty("get");
+        var downloadSecurity = download.GetProperty("security").EnumerateArray().ToArray();
+        Assert.Equal(2, downloadSecurity.Length);
+        Assert.Contains(downloadSecurity, value => value.TryGetProperty("Bearer", out _));
+        Assert.Contains(downloadSecurity, value => value.TryGetProperty("ShareAccess", out _));
+        Assert.Equal(
+            ["200", "401", "403", "404", "409", "500"],
+            download.GetProperty("responses").EnumerateObject()
+                .Select(value => value.Name).Order(StringComparer.Ordinal).ToArray());
+        var content = download.GetProperty("responses").GetProperty("200")
+            .GetProperty("content");
+        Assert.True(content.TryGetProperty(BeeexyJsonExportRenderer.MediaType, out _));
+        Assert.True(content.TryGetProperty(PdfExportContract.MediaType, out _));
+        Assert.True(content.TryGetProperty("application/fhir+json", out _));
         var schemas = document.RootElement.GetProperty("components").GetProperty("schemas");
         var responseSchema = schemas.GetProperty("ExportArtifactResponse").GetRawText();
         Assert.DoesNotContain("storage", responseSchema, StringComparison.OrdinalIgnoreCase);
@@ -386,6 +750,64 @@ public sealed class ExportEndpointTests(PostgreSqlContainerFixture postgres) : I
             await verification.Content.ReadFromJsonAsync<AuthenticationResult>());
     }
 
+    private static async Task CompletePreTriageAsync(HttpClient client, Guid patientId)
+    {
+        using var start = await client.PostAsJsonAsync(
+            "/api/v1/pre-triage/sessions",
+            new { pathway = "HEADACHE" });
+        var started = await start.Content.ReadFromJsonAsync<StartedSession>();
+        Assert.Equal(HttpStatusCode.Created, start.StatusCode);
+        using var answer = await client.PostAsJsonAsync(
+            $"/api/v1/pre-triage/sessions/{started!.SessionId:D}/answers",
+            new
+            {
+                structured = new
+                {
+                    duration = new { value = 2, unit = "DAYS" },
+                    intensity = 7,
+                    additionalSymptoms = new[] { "FEVER" }
+                }
+            });
+        Assert.Equal(HttpStatusCode.OK, answer.StatusCode);
+        using var offer = await client.PostAsJsonAsync(
+            $"/api/v1/pre-triage/sessions/{started.SessionId:D}/educational-video-offer",
+            new { decision = "SKIP" });
+        Assert.Equal(HttpStatusCode.OK, offer.StatusCode);
+        using var complete = await client.PostAsync(
+            $"/api/v1/pre-triage/sessions/{started.SessionId:D}/complete",
+            null);
+        Assert.Equal(HttpStatusCode.Created, complete.StatusCode);
+        using var history = await client.GetAsync(
+            $"/api/v1/patients/{patientId:D}/clinical-history");
+        history.EnsureSuccessStatusCode();
+    }
+
+    private static async Task<Guid> CreateExportAsync(
+        HttpClient client,
+        Guid patientId,
+        string format)
+    {
+        using var response = await client.PostAsJsonAsync(
+            Endpoint(patientId),
+            Request(format, Guid.NewGuid()));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return json.RootElement.GetProperty("exportArtifactId").GetGuid();
+    }
+
+    private static async Task<string> ExchangeAsync(
+        BeeexyApiFactory factory,
+        string capability)
+    {
+        using var client = factory.CreateApiClient();
+        using var response = await client.PostAsJsonAsync(
+            "/api/v1/shared-access/exchange",
+            new { capability });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return json.RootElement.GetProperty("accessToken").GetString()!;
+    }
+
     private static string Endpoint(Guid patientId) =>
         $"/api/v1/patients/{patientId:D}/exports";
 
@@ -436,9 +858,62 @@ public sealed class ExportEndpointTests(PostgreSqlContainerFixture postgres) : I
             CancellationToken cancellationToken = default) =>
             Task.FromException(new IOException(privatePath));
 
+        public Task<byte[]> ReadAsync(
+            string privateStorageIdentity,
+            CancellationToken cancellationToken = default) =>
+            Task.FromException<byte[]>(new IOException(privatePath));
+
         public Task<bool> DeleteAsync(
             PrivateArtifactStorageReference reference,
             CancellationToken cancellationToken = default) => Task.FromResult(false);
+    }
+
+    private sealed class BlockingStorage : IPrivateArtifactStorage
+    {
+        private readonly Dictionary<string, byte[]> artifacts = new(StringComparer.Ordinal);
+
+        public bool BlockReads { get; set; }
+        public TaskCompletionSource ReadStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseRead { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public PrivateArtifactStorageReference CreateReference()
+        {
+            var key = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+            return new PrivateArtifactStorageReference(
+                key,
+                $"beeexy-private-export://test-store/{key}");
+        }
+
+        public Task StoreImmutableAsync(
+            PrivateArtifactStorageReference reference,
+            ReadOnlyMemory<byte> artifactBytes,
+            CancellationToken cancellationToken = default)
+        {
+            artifacts.Add(reference.PrivateStorageIdentity, artifactBytes.ToArray());
+            return Task.CompletedTask;
+        }
+
+        public async Task<byte[]> ReadAsync(
+            string privateStorageIdentity,
+            CancellationToken cancellationToken = default)
+        {
+            if (BlockReads)
+            {
+                ReadStarted.TrySetResult();
+                await ReleaseRead.Task.WaitAsync(cancellationToken);
+            }
+
+            return artifacts.TryGetValue(privateStorageIdentity, out var bytes)
+                ? bytes
+                : throw new FileNotFoundException();
+        }
+
+        public Task<bool> DeleteAsync(
+            PrivateArtifactStorageReference reference,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(artifacts.Remove(reference.PrivateStorageIdentity));
     }
 
     private sealed record AuthenticationResult(
@@ -450,4 +925,6 @@ public sealed class ExportEndpointTests(PostgreSqlContainerFixture postgres) : I
         Guid AccountId,
         Guid ProfileId,
         string BeeexyId);
+
+    private sealed record StartedSession(Guid SessionId);
 }

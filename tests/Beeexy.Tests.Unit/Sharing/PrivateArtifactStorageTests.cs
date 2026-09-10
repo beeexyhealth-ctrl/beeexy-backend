@@ -8,6 +8,7 @@ public sealed class PrivateArtifactStorageTests
 {
     [Fact]
     [Trait("Category", "Phase116")]
+    [Trait("Category", "Phase117")]
     public async Task LocalStore_WritesImmutableBytesUnderPrivateRootAndDeletesThem()
     {
         var root = NewRoot();
@@ -19,7 +20,7 @@ public sealed class PrivateArtifactStorageTests
 
             await store.StoreImmutableAsync(reference, bytes);
 
-            Assert.Equal(bytes, await store.ReadForVerificationAsync(reference));
+            Assert.Equal(bytes, await store.ReadAsync(reference.PrivateStorageIdentity));
             Assert.Equal(root, store.RootDirectory);
             Assert.DoesNotContain("wwwroot", reference.PrivateStorageIdentity,
                 StringComparison.OrdinalIgnoreCase);
@@ -41,6 +42,7 @@ public sealed class PrivateArtifactStorageTests
 
     [Fact]
     [Trait("Category", "Phase116")]
+    [Trait("Category", "Phase117")]
     public async Task LocalStore_RejectsTraversalAndCleansCancelledTemporaryWrite()
     {
         var root = NewRoot();
@@ -52,6 +54,8 @@ public sealed class PrivateArtifactStorageTests
                 "beeexy-private-export://local-store/../outside");
             await Assert.ThrowsAsync<ArgumentException>(() =>
                 store.StoreImmutableAsync(invalid, Encoding.UTF8.GetBytes("x")));
+            await Assert.ThrowsAsync<ArgumentException>(() =>
+                store.ReadAsync("beeexy-private-export://local-store/../outside"));
             using var cancellation = new CancellationTokenSource();
             cancellation.Cancel();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
@@ -72,6 +76,7 @@ public sealed class PrivateArtifactStorageTests
 
     [Fact]
     [Trait("Category", "Phase116")]
+    [Trait("Category", "Phase117")]
     public void LocalStore_RejectsPublicStaticRoot()
     {
         var root = Path.Combine(NewRoot(), "wwwroot", "exports");
@@ -81,6 +86,7 @@ public sealed class PrivateArtifactStorageTests
 
     [Fact]
     [Trait("Category", "Phase116")]
+    [Trait("Category", "Phase117")]
     public async Task ObjectStorageAdapter_UsesOnlyOpaquePrefixedKeys()
     {
         var client = new ObjectStore();
@@ -97,6 +103,9 @@ public sealed class PrivateArtifactStorageTests
         Assert.DoesNotContain("..", client.StoredKey, StringComparison.Ordinal);
         Assert.StartsWith("beeexy-private-export://object-store/",
             reference.PrivateStorageIdentity, StringComparison.Ordinal);
+        Assert.Equal(
+            Encoding.UTF8.GetBytes("artifact"),
+            await store.ReadAsync(reference.PrivateStorageIdentity));
         Assert.True(await store.DeleteAsync(reference));
     }
 
@@ -108,6 +117,7 @@ public sealed class PrivateArtifactStorageTests
     private sealed class ObjectStore : IPrivateArtifactObjectStore
     {
         public string StoredKey { get; private set; } = string.Empty;
+        private byte[] storedBytes = [];
 
         public Task StoreImmutableAsync(
             string objectKey,
@@ -115,8 +125,16 @@ public sealed class PrivateArtifactStorageTests
             CancellationToken cancellationToken = default)
         {
             StoredKey = objectKey;
+            storedBytes = artifactBytes.ToArray();
             return Task.CompletedTask;
         }
+
+        public Task<byte[]> ReadAsync(
+            string objectKey,
+            CancellationToken cancellationToken = default) => Task.FromResult(
+            string.Equals(objectKey, StoredKey, StringComparison.Ordinal)
+                ? storedBytes
+                : throw new FileNotFoundException());
 
         public Task<bool> DeleteAsync(
             string objectKey,

@@ -113,6 +113,10 @@ public static class DependencyInjection
         services.AddScoped<ExportArtifactTransaction>();
         services.AddScoped<IExportArtifactTransaction>(provider =>
             provider.GetRequiredService<ExportArtifactTransaction>());
+        services.AddScoped<IExportDownloadRepository, ExportDownloadRepository>();
+        services.AddSingleton<IPdfExportRenderer, PdfPigPdfExportRenderer>();
+        services.AddScoped<IPhase6ValidatedFhirExportProvider,
+            Phase6ValidatedFhirExportProvider>();
         var artifactStorageOptions = privateArtifactStorageOptions ??
             new PrivateArtifactStorageOptions(
                 PrivateArtifactStorageProvider.LocalFileSystem,

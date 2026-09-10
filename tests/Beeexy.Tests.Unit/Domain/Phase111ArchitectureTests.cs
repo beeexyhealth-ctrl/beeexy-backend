@@ -41,7 +41,8 @@ public sealed class Phase111ArchitectureTests
     [Trait("Category", "Phase114")]
     [Trait("Category", "Phase115")]
     [Trait("Category", "Phase116")]
-    public void SharingSurface_StopsAtPhase116ExportCreationBoundary()
+    [Trait("Category", "Phase117")]
+    public void SharingSurface_IncludesPhase117DownloadWithoutFhirMapperOrQr()
     {
         var assemblies = AppDomain.CurrentDomain.GetAssemblies();
         var applicationAssembly = assemblies.SingleOrDefault(assembly =>
@@ -63,10 +64,13 @@ public sealed class Phase111ArchitectureTests
             type.FullName == "Beeexy.Application.Sharing.BeeexyJsonExportRenderer");
         Assert.Contains(applicationAssembly.GetTypes(), type =>
             type.FullName == "Beeexy.Application.Sharing.IPrivateArtifactStorage");
+        Assert.Contains(applicationAssembly.GetTypes(), type =>
+            type.FullName == "Beeexy.Application.Sharing.IPdfExportRenderer");
+        Assert.Contains(applicationAssembly.GetTypes(), type =>
+            type.FullName == "Beeexy.Application.Sharing.DownloadExport");
         var forbidden = new[]
         {
-            "DownloadExport",
-            "PdfExportRenderer",
+            "FhirMapper",
             "FhirExportRenderer",
             "Qr"
         };

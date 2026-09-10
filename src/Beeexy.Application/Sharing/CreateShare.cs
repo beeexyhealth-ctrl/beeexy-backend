@@ -143,7 +143,7 @@ public sealed class CreateShare(
         if (command.Items.Any(item =>
                 item is null ||
                 item.ResourceId.Value == Guid.Empty ||
-                !SupportedShareResourceTypes.Contains(item.ResourceType)))
+                !SupportedShareResourceTypes.ContainsGrantItem(item.ResourceType)))
         {
             throw new RequestValidationException(
                 "sharing.item_type_invalid",

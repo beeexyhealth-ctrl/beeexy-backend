@@ -973,7 +973,7 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
         var body = await response.Content.ReadAsStringAsync();
         using var document = JsonDocument.Parse(body);
         var paths = document.RootElement.GetProperty("paths");
-        Assert.Equal(59, paths.EnumerateObject().Count());
+        Assert.Equal(60, paths.EnumerateObject().Count());
         var sharing = paths.GetProperty(Endpoint);
         var operations = sharing.EnumerateObject()
             .Where(value => value.Name is "get" or "post")
@@ -1009,7 +1009,8 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
              path.Name != Endpoint &&
              path.Name != "/api/v1/shares/{id}/revoke" &&
              path.Name != "/api/v1/shares/{id}/activity") ||
-            path.Name.StartsWith("/api/v1/exports", StringComparison.Ordinal));
+            (path.Name.StartsWith("/api/v1/exports", StringComparison.Ordinal) &&
+             path.Name != "/api/v1/exports/{id}/content"));
 
         var schemas = document.RootElement.GetProperty("components").GetProperty("schemas");
         foreach (var schema in schemas.EnumerateObject().Where(value =>

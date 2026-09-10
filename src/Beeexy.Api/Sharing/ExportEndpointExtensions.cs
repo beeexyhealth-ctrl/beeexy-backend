@@ -1,9 +1,12 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Beeexy.Application.Common;
+using Beeexy.Application.Interoperability;
 using Beeexy.Application.Sharing;
 using Beeexy.Domain.Common;
 using Beeexy.Domain.Sharing;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 
 namespace Beeexy.Api.Sharing;
 
@@ -16,10 +19,10 @@ internal static class ExportEndpointExtensions
             .WithName("CreateExport")
             .WithTags("Exports")
             .WithDescription(
-                "Creates one immutable private Beeexy JSON artifact from the authenticated " +
-                "account's own Primary Patient canonical FullProfile snapshot. A first " +
-                "creation returns 201 and an exact idempotent replay returns 200. PDF and " +
-                "FHIR JSON remain unavailable with 422; content download is not exposed.")
+                "Creates one immutable private Beeexy JSON, human-readable PDF, or validated " +
+                "FHIR JSON artifact for the authenticated account's own Primary Patient. " +
+                "A first creation returns 201 and an exact idempotent replay returns 200. " +
+                "FHIR uses only the existing Phase 6 validated export pipeline.")
             .RequireAuthorization()
             .Accepts<CreateExportRequest>("application/json")
             .Produces<ExportArtifactResponse>(StatusCodes.Status201Created)
@@ -29,6 +32,31 @@ internal static class ExportEndpointExtensions
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        endpoints.MapGet("/api/v1/exports/{id:guid}/content", DownloadAsync)
+            .WithName("DownloadExport")
+            .WithTags("Exports")
+            .WithDescription(
+                "Returns exact immutable stored artifact bytes after either current Bearer " +
+                "patient authorization or current ShareAccess grant revalidation with an " +
+                "explicit ExportArtifact item. FullProfile does not authorize historical " +
+                "artifacts. Range processing is disabled and responses are not cached.")
+            .RequireAuthorization(new AuthorizeAttribute
+            {
+                AuthenticationSchemes =
+                    $"{JwtBearerDefaults.AuthenticationScheme}," +
+                    ShareAccessAuthenticationDefaults.Scheme
+            })
+            .Produces<byte[]>(
+                StatusCodes.Status200OK,
+                BeeexyJsonExportRenderer.MediaType,
+                PdfExportContract.MediaType,
+                FhirR4BaseMvp.MediaType)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
         return endpoints;
     }
@@ -70,6 +98,37 @@ internal static class ExportEndpointExtensions
         return result.NewlyCreated
             ? Results.Json(resultResponse, statusCode: StatusCodes.Status201Created)
             : Results.Ok(resultResponse);
+    }
+
+    private static async Task<IResult> DownloadAsync(
+        Guid id,
+        HttpContext httpContext,
+        DownloadExport useCase,
+        CancellationToken cancellationToken)
+    {
+        if (id == Guid.Empty)
+        {
+            throw new ExportArtifactNotFoundException();
+        }
+
+        ShareAccessIdentity? shareAccess = null;
+        if (ShareAccessAuthenticationDefaults.TryGetIdentity(
+                httpContext.User,
+                out var parsedShareAccess))
+        {
+            shareAccess = parsedShareAccess;
+        }
+
+        var result = await useCase.ExecuteAsync(
+            new DownloadExportCommand(EntityId.From(id), shareAccess),
+            cancellationToken);
+        httpContext.Response.Headers.CacheControl = "no-store";
+        httpContext.Response.Headers.XContentTypeOptions = "nosniff";
+        return Results.File(
+            result.ArtifactBytes,
+            result.MediaType,
+            result.FileName,
+            enableRangeProcessing: false);
     }
 
     private static ExportArtifactFormat ParseFormat(string? value) => value switch

@@ -285,7 +285,7 @@ public sealed class ShareAccessExchangeEndpointTests(PostgreSqlContainerFixture 
 
     [Fact]
     [Trait("Category", "Phase113")]
-    public async Task OpenApi_AddsExactlyOnePublicExchangeOperationAndNoLaterRoutes()
+    public async Task OpenApi_PreservesPublicExchangeContractWithinFinalPhase11Surface()
     {
         await EnsureMigratedAsync();
         using var factory = CreateFactory(new MutableClock(Now));
@@ -295,7 +295,7 @@ public sealed class ShareAccessExchangeEndpointTests(PostgreSqlContainerFixture 
         response.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var paths = document.RootElement.GetProperty("paths");
-        Assert.Equal(59, paths.EnumerateObject().Count());
+        Assert.Equal(60, paths.EnumerateObject().Count());
         var exchangePath = paths.GetProperty(ExchangeEndpoint);
         var operation = exchangePath.GetProperty("post");
         Assert.Single(exchangePath.EnumerateObject().Where(value => value.Name == "post"));
@@ -324,7 +324,8 @@ public sealed class ShareAccessExchangeEndpointTests(PostgreSqlContainerFixture 
             .TryGetProperty(ShareAccessAuthenticationDefaults.Scheme, out var shareScheme));
         Assert.Equal("bearer", shareScheme.GetProperty("scheme").GetString());
         Assert.DoesNotContain(paths.EnumerateObject(), path =>
-            path.Name.StartsWith("/api/v1/exports", StringComparison.Ordinal));
+            path.Name.StartsWith("/api/v1/exports", StringComparison.Ordinal) &&
+            path.Name != "/api/v1/exports/{id}/content");
     }
 
     private BeeexyApiFactory CreateFactory(
