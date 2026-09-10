@@ -191,6 +191,9 @@ var emailChallengeSettings = StartupConfiguration.GetRequiredEmailChallengeSetti
     builder.Environment);
 var authenticationTokenPolicy = StartupConfiguration.GetRequiredAuthenticationTokenPolicy(
     builder.Configuration);
+var shareAccessSettings = StartupConfiguration.GetRequiredShareAccessSettings(
+    builder.Configuration,
+    authenticationTokenPolicy);
 var googleAuthenticationSettings = StartupConfiguration.GetGoogleAuthenticationSettings(
     builder.Configuration);
 var preTriageCleanupOptions = StartupConfiguration.GetRequiredPreTriageCleanupOptions(
@@ -219,6 +222,7 @@ builder.Services.AddInfrastructure(
     databaseConnectionString,
     emailChallengeSettings.Policy,
     authenticationTokenPolicy,
+    shareAccessSettings.TokenPolicy,
     new GoogleExternalIdentityOptions(
         googleAuthenticationSettings.Enabled,
     googleAuthenticationSettings.ClientId),
@@ -246,6 +250,8 @@ builder.Services.AddSingleton(new ShareLifetimePolicy());
 builder.Services.AddSingleton(shareUrlOptions);
 builder.Services.AddScoped<CreateShare>();
 builder.Services.AddScoped<ListShares>();
+builder.Services.AddScoped<ExchangeShareCapability>();
+builder.Services.AddShareExchangeRateLimiting(shareAccessSettings.RateLimitPolicy);
 builder.Services.AddScoped<TransitionAppointment>();
 builder.Services.AddScoped<ConfirmAppointment>();
 builder.Services.AddScoped<RejectAppointment>();
@@ -350,8 +356,52 @@ builder.Services
             RequireSignedTokens = true,
             ClockSkew = TimeSpan.Zero
         };
+    })
+    .AddJwtBearer(ShareAccessAuthenticationDefaults.Scheme, options =>
+    {
+        options.MapInboundClaims = false;
+        options.IncludeErrorDetails = false;
+        options.SaveToken = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(shareAccessSettings.TokenPolicy.SigningKey)),
+            ValidateIssuer = true,
+            ValidIssuer = shareAccessSettings.TokenPolicy.Issuer,
+            ValidateAudience = true,
+            ValidAudience = shareAccessSettings.TokenPolicy.Audience,
+            ValidateLifetime = true,
+            RequireExpirationTime = true,
+            RequireSignedTokens = true,
+            ClockSkew = TimeSpan.Zero
+        };
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = context =>
+            {
+                if (!ShareAccessAuthenticationDefaults.HasRequiredClaims(context.Principal))
+                {
+                    context.Fail("The share-access credential is invalid.");
+                }
+
+                return Task.CompletedTask;
+            }
+        };
     });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(
+        ShareAccessAuthenticationDefaults.ReadOnlyPolicy,
+        policy =>
+        {
+            policy.AuthenticationSchemes.Add(ShareAccessAuthenticationDefaults.Scheme);
+            policy.RequireAuthenticatedUser();
+            policy.RequireClaim(
+                ShareAccessTokenClaims.CredentialType,
+                ShareAccessTokenClaims.CredentialTypeValue);
+        });
+});
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddProblemDetails(options =>
 {
@@ -404,6 +454,15 @@ builder.Services.AddSwaggerGen(options =>
             BearerFormat = "JWT",
             Description = "Signed Beeexy access token."
         });
+    options.AddSecurityDefinition(
+        ShareAccessAuthenticationDefaults.Scheme,
+        new OpenApiSecurityScheme
+        {
+            Type = SecuritySchemeType.Http,
+            Scheme = "bearer",
+            BearerFormat = "JWT",
+            Description = "Short-lived, read-only token bound to one active ShareGrant."
+        });
     options.DocumentFilter<BearerAuthorizationDocumentFilter>();
     options.DocumentFilter<PreTriageIntakeOpenApiDocumentFilter>();
     options.DocumentFilter<SymptomDiaryHistoryOpenApiDocumentFilter>();
@@ -434,6 +493,7 @@ if (!app.Environment.IsDevelopment())
 app.UseStatusCodePages();
 app.UseCors(StartupConfiguration.CorsPolicyName);
 app.UseMiddleware<PrivateAccessGateMiddleware>();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -464,6 +524,7 @@ app.MapBeeexyAiConversationEndpoints();
 app.MapBeeexyAiDocumentEndpoints();
 app.MapBeeexySecondOpinionEndpoints();
 app.MapBeeexySharingEndpoints();
+app.MapBeeexySharedAccessEndpoints();
 
 app.Run();
 

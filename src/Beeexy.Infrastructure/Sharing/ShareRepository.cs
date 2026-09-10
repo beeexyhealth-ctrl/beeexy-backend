@@ -10,7 +10,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 namespace Beeexy.Infrastructure.Sharing;
 
 internal sealed class ShareRepository(BeeexyDbContext dbContext)
-    : IShareCreationTransaction, IShareReadRepository
+    : IShareCreationTransaction, IShareReadRepository, IShareExchangeRepository
 {
     private IDbContextTransaction? transaction;
 
@@ -146,6 +146,20 @@ internal sealed class ShareRepository(BeeexyDbContext dbContext)
                 grant,
                 dbContext.ShareGrantItems.Count(item => item.ShareGrantId == grant.Id)))
             .ToArrayAsync(cancellationToken);
+    }
+
+    public async Task<ShareExchangeState?> FindByCapabilityHashAsync(
+        Beeexy.Domain.Identity.TokenHash capabilityHash,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(capabilityHash);
+        return await dbContext.ShareGrants
+            .AsNoTracking()
+            .Where(grant => grant.CapabilityHash == capabilityHash)
+            .Select(grant => new ShareExchangeState(
+                grant,
+                dbContext.ShareGrantItems.Count(item => item.ShareGrantId == grant.Id)))
+            .SingleOrDefaultAsync(cancellationToken);
     }
 
     public async ValueTask DisposeAsync()

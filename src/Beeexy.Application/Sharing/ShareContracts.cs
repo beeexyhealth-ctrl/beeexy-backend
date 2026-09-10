@@ -65,12 +65,32 @@ public interface IShareReadRepository
         CancellationToken cancellationToken = default);
 }
 
+public sealed record ShareExchangeState(ShareGrant Grant, int ItemCount);
+
+public interface IShareExchangeRepository
+{
+    Task<ShareExchangeState?> FindByCapabilityHashAsync(
+        TokenHash capabilityHash,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IShareCapabilityService
 {
     GeneratedShareCapability Generate();
 
     TokenHash Hash(string capability);
 }
+
+public interface IShareAccessTokenIssuer
+{
+    IssuedShareAccessToken Issue(
+        EntityId shareGrantId,
+        ShareScope scope,
+        DateTimeOffset issuedAt,
+        DateTimeOffset expiresAt);
+}
+
+public sealed record IssuedShareAccessToken(string Value, DateTimeOffset ExpiresAt);
 
 public sealed class GeneratedShareCapability
 {

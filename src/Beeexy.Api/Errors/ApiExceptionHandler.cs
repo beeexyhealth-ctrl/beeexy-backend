@@ -206,6 +206,16 @@ internal sealed class ApiExceptionHandler(
             };
         }
 
+        if (exception is ShareAccessDeniedException)
+        {
+            return new ProblemDetails
+            {
+                Status = StatusCodes.Status401Unauthorized,
+                Title = "Shared access denied.",
+                Detail = "The share capability is invalid or unavailable."
+            };
+        }
+
         if (exception is AiConversationNotFoundException)
         {
             var problem = new ProblemDetails

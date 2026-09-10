@@ -12,6 +12,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
     [Trait("Category", "Phase91")]
     [Trait("Category", "Phase111")]
     [Trait("Category", "Phase112")]
+    [Trait("Category", "Phase113")]
     public async Task OpenApi_InDevelopment_IncludesHealthAndEmailAuthenticationEndpoints()
     {
         using var factory = new BeeexyApiFactory(postgres.ConnectionString);
@@ -23,7 +24,7 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.StartsWith("3.", document.RootElement.GetProperty("openapi").GetString());
-        Assert.Equal(54, paths.EnumerateObject().Count());
+        Assert.Equal(55, paths.EnumerateObject().Count());
         var sharesPath = paths.GetProperty("/api/v1/shares");
         Assert.True(sharesPath.TryGetProperty("post", out _));
         Assert.True(sharesPath.TryGetProperty("get", out _));
@@ -34,7 +35,8 @@ public sealed class OpenApiAndCorsTests(PostgreSqlContainerFixture postgres)
         Assert.DoesNotContain(paths.EnumerateObject(), path =>
             (path.Name.StartsWith("/api/v1/shares", StringComparison.Ordinal) &&
                 path.Name != "/api/v1/shares") ||
-            path.Name.StartsWith("/api/v1/shared-access", StringComparison.Ordinal) ||
+            (path.Name.StartsWith("/api/v1/shared-access", StringComparison.Ordinal) &&
+                path.Name != "/api/v1/shared-access/exchange") ||
             path.Name.Equals("/api/v1/patients/{id}/exports", StringComparison.Ordinal) ||
             path.Name.StartsWith("/api/v1/exports/", StringComparison.Ordinal));
         Assert.True(paths

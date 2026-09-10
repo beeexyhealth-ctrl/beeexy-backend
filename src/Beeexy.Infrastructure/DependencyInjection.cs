@@ -50,6 +50,7 @@ public static class DependencyInjection
         string connectionString,
         EmailChallengePolicy emailChallengePolicy,
         AuthenticationTokenPolicy authenticationTokenPolicy,
+        ShareAccessTokenPolicy shareAccessTokenPolicy,
         GoogleExternalIdentityOptions googleOptions,
         string otpHashingKey,
         AuthenticationEmailSenderOptions authenticationEmailSenderOptions,
@@ -63,6 +64,7 @@ public static class DependencyInjection
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
         ArgumentNullException.ThrowIfNull(emailChallengePolicy);
         ArgumentNullException.ThrowIfNull(authenticationTokenPolicy);
+        ArgumentNullException.ThrowIfNull(shareAccessTokenPolicy);
         ArgumentNullException.ThrowIfNull(googleOptions);
         ArgumentException.ThrowIfNullOrWhiteSpace(otpHashingKey);
         ArgumentNullException.ThrowIfNull(authenticationEmailSenderOptions);
@@ -87,10 +89,14 @@ public static class DependencyInjection
         services.AddScoped<IAppointmentRescheduleTransaction, AppointmentTransitionTransaction>();
         services.AddScoped<IAppointmentReadRepository, AppointmentReadRepository>();
         services.AddSingleton<IShareCapabilityService, CryptographicShareCapabilityService>();
+        services.AddSingleton(shareAccessTokenPolicy);
+        services.AddSingleton<IShareAccessTokenIssuer, JwtShareAccessTokenIssuer>();
         services.AddScoped<ShareRepository>();
         services.AddScoped<IShareCreationTransaction>(provider =>
             provider.GetRequiredService<ShareRepository>());
         services.AddScoped<IShareReadRepository>(provider =>
+            provider.GetRequiredService<ShareRepository>());
+        services.AddScoped<IShareExchangeRepository>(provider =>
             provider.GetRequiredService<ShareRepository>());
         services.AddScoped<
             IAppointmentOperationsReadRepository,

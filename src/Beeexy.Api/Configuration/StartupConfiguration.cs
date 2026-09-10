@@ -33,6 +33,9 @@ internal static class StartupConfiguration
     private const string SchedulerAssignmentsSectionKey =
         "Scheduling:AppointmentSchedulers:Assignments";
     private const string SharingPublicBaseUrlKey = "Sharing:PublicShareBaseUrl";
+    private const string ShareAccessTokenSectionKey = "Sharing:AccessToken";
+    private const string ShareExchangeRateLimitSectionKey =
+        "Sharing:ExchangeRateLimit";
     public const string ProductionPublicShareBaseUrl = "https://beeexy.ai/share";
 
     public static ShareUrlOptions GetRequiredShareUrlOptions(
@@ -60,6 +63,50 @@ internal static class StartupConfiguration
         {
             throw new InvalidOperationException(
                 $"Configuration setting '{SharingPublicBaseUrlKey}' is invalid.",
+                exception);
+        }
+    }
+
+    public static ShareAccessStartupSettings GetRequiredShareAccessSettings(
+        IConfiguration configuration,
+        AuthenticationTokenPolicy accountTokenPolicy)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(accountTokenPolicy);
+        var tokenSection = configuration.GetSection(ShareAccessTokenSectionKey);
+        var rateLimitSection = configuration.GetSection(ShareExchangeRateLimitSectionKey);
+        var audience = tokenSection["Audience"];
+        var maximumLifetimeMinutes = GetRequiredPositiveInt(
+            tokenSection,
+            "MaximumLifetimeMinutes");
+        var permitLimit = GetRequiredPositiveInt(rateLimitSection, "PermitLimit");
+        var windowSeconds = GetRequiredPositiveInt(rateLimitSection, "WindowSeconds");
+
+        try
+        {
+            if (string.Equals(
+                audience?.Trim(),
+                accountTokenPolicy.Audience,
+                StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    "The share-access audience must differ from the account audience.");
+            }
+
+            return new ShareAccessStartupSettings(
+                new ShareAccessTokenPolicy(
+                    accountTokenPolicy.Issuer,
+                    audience ?? string.Empty,
+                    accountTokenPolicy.SigningKey,
+                    TimeSpan.FromMinutes(maximumLifetimeMinutes)),
+                new ShareExchangeRateLimitPolicy(
+                    permitLimit,
+                    TimeSpan.FromSeconds(windowSeconds)));
+        }
+        catch (ArgumentException exception)
+        {
+            throw new InvalidOperationException(
+                "The share-access token or exchange rate-limit configuration is invalid.",
                 exception);
         }
     }
@@ -598,3 +645,7 @@ internal static class StartupConfiguration
         return value.Value;
     }
 }
+
+internal sealed record ShareAccessStartupSettings(
+    ShareAccessTokenPolicy TokenPolicy,
+    ShareExchangeRateLimitPolicy RateLimitPolicy);

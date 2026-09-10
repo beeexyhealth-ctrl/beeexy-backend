@@ -2365,7 +2365,7 @@ Phase 10 is complete only when only safety-approved output can be displayed; the
 
 **Priority:** MVP CORE
 
-**Phase 11 overall status:** IN PROGRESS (2026-09-09). Phases 11.1 and 11.2 are complete; Phase 11.3–11.8 have not started.
+**Phase 11 overall status:** IN PROGRESS (2026-09-09). Phases 11.1, 11.2, and 11.3 are complete; Phase 11.4–11.8 have not started.
 
 ## 1. Objective
 
@@ -2603,7 +2603,7 @@ None. Preserve a future delegation boundary to Phase 6 and prohibit any Phase 11
 
 **Verification (2026-09-09):** Focused Phase 11.2 coverage passed 32/32 unit cases and 11/11 real-PostgreSQL API/OpenAPI/migration cases, including Primary-only authority, Active/Revoked Managed non-authority, UUID/Beeexy-ID non-authority, disabled/missing/invalid/expired bearer handling, missing Primary invariant safety, every executable/reserved scope, exact item ownership and concealment, default/custom/maximum expiry, capability entropy/hash-only persistence/log exclusion, single disclosure, configured fragment URL, sequential and concurrent idempotency, one creation event, deterministic status listing, exact 54-path OpenAPI, fresh migration apply, and Phase 11.2 rollback/reapply with grant preservation. The Phase 11.1 real-PostgreSQL regression set passed 9/9. The complete backend suite passed 2,057 tests: 1,293 unit and 764 real-PostgreSQL integration, with 0 failures and 0 skipped. Dependency restore succeeded with auditing disabled and all projects current. The final Debug solution build completed with 0 warnings and 0 errors. EF reported no pending model changes. `dotnet format --verify-no-changes`, trailing-whitespace inspection, and `git diff --check` passed.
 
-**Phase 11.3 has not started.**
+**Phase 11.3 status:** COMPLETE (2026-09-09).
 
 ### Objective
 
@@ -2672,7 +2672,13 @@ None. Creating/listing a share does not generate, validate, mutate, or expose FH
 
 ### Status
 
-**NOT STARTED.** It depends on verified 11.2 completion.
+**COMPLETE (2026-09-09).**
+
+**Implementation (2026-09-09):** Added exactly public, rate-limited `POST /api/v1/shared-access/exchange`. The request accepts only `capability` in the JSON body; capability query parameters, identifier-only authority, account Bearer substitution, and unknown authority/override fields fail through one recipient-safe `401` contract. The application reuses the Phase 11.2 `shc1.` representation and exact `sha256:` digest algorithm, performs one indexed lookup on the existing unique capability-hash column, persists neither the presented capability nor a derived token, and performs no grant update or capability consumption. Exchange requires a currently active, non-revoked, non-expired grant with an executable `FullProfile`, `PreTriage`, or `SpecificRecords` scope and structurally consistent item count; malformed, random, missing, expired, revoked, reserved-scope, future/corrupt, or otherwise non-exchangeable states remain indistinguishable to the recipient. A reusable active capability may be exchanged sequentially or concurrently. The issuer reuses the configured Beeexy issuer and signing key but uses a distinct validated `beeexy-share-access` audience, `ShareAccess` authentication scheme, and `ShareAccessReadOnly` policy. Tokens contain only credential type, ShareGrant ID, immutable scope defense-in-depth, `iat`, `exp`, and `jti`; they contain no account/patient/Beeexy ID, capability/hash, or clinical data, cannot validate as normal account Bearer tokens, and cannot satisfy existing account or Primary Patient routes. Effective expiry is exactly `min(now + configured maximum of at most 15 minutes, ShareGrant.ExpiresAt)` using the server clock. The ASP.NET Core fixed-window limiter is isolated to exchange, partitions on requester IP without using/logging capability material, defaults to 10 permits per 900 seconds, returns safe Problem Details plus `Retry-After` on `429`, and recovers after its window. Responses are `200` with only `accessToken`, `tokenType`, and `expiresAt` and set `Cache-Control: no-store`; errors document `400`, generic `401`, safe `429`, and safe `500`. No exchange event is added because `ShareAccessed` remains assigned to actual shared-profile reads in Phase 11.4. Existing 11.1/11.2 persistence was sufficient, so no model change, migration, token-session table, profile projection, revoke/activity route, export behavior, or later endpoint was introduced.
+
+**Verification (2026-09-09):** Final Phase 11.3 coverage passed 22/22 unit cases and 7/7 real-PostgreSQL endpoint/security/OpenAPI cases. The current combined Phase 11.1–11.3 unit regression group passed 79/79; the combined real-PostgreSQL Phase 11.1–11.3 sharing/persistence/migration/OpenAPI group passed 23/23. Direct Phase 2 token/startup and Phase 3 authorization unit regressions passed 23/23, and direct authentication-session/invalid-bearer/patient-authorization PostgreSQL regressions passed 16/16. These focused groups overlap where tests carry multiple Phase 11 traits. They cover reusable and concurrent exchange, exact 15-minute and near/exact-grant-expiry behavior, indexed compatible hashing, malformed/random/identifier-only and lifecycle failures, executable-scope validation, token claim/audience/scheme isolation, account/Primary mutation denial, request/response/log secrecy, successful-below-threshold and repeated-invalid throttling, safe `429`, limiter recovery, startup configuration, Phase 11.1/11.2 hashing/listing/persistence regressions, and the OpenAPI contract. OpenAPI is exactly 55 paths: the 54-path Phase 11.2 baseline plus only `POST /api/v1/shared-access/exchange`; no shared-profile, revoke/activity, or export route exists. The final Debug solution build completed with 0 warnings and 0 errors. EF Core reported no pending model changes, so no empty migration was created. `dotnet format --verify-no-changes` and `git diff --check` passed. The complete repository-wide unit and integration suites were intentionally not run for Phase 11.3 under the subphase testing policy; full regression is reserved for Phase 11 closure unless explicitly requested. Final cross-phase concurrency, immediate post-commit revocation/expiry revalidation on actual recipient reads, and complete repository regression remain intentionally deferred to their assigned Phase 11.4–11.8 work.
+
+**Phase 11.4 has not started.**
 
 ### Objective
 

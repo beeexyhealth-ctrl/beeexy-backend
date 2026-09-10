@@ -493,7 +493,8 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
 
     [Fact]
     [Trait("Category", "Phase112")]
-    public async Task OpenApi_ContainsOnlyTwoBearerSharingOperationsAndNoInternalSchemas()
+    [Trait("Category", "Phase113")]
+    public async Task OpenApi_PreservesTwoBearerSharingOperationsAndNoInternalSchemas()
     {
         await EnsureMigratedAsync();
         using var factory = CreateFactory();
@@ -504,7 +505,7 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
         var body = await response.Content.ReadAsStringAsync();
         using var document = JsonDocument.Parse(body);
         var paths = document.RootElement.GetProperty("paths");
-        Assert.Equal(54, paths.EnumerateObject().Count());
+        Assert.Equal(55, paths.EnumerateObject().Count());
         var sharing = paths.GetProperty(Endpoint);
         var operations = sharing.EnumerateObject()
             .Where(value => value.Name is "get" or "post")
@@ -521,7 +522,8 @@ public sealed class ShareEndpointTests(PostgreSqlContainerFixture postgres)
         AssertResponseCodes(sharing.GetProperty("get"),
             "200", "401", "404", "422", "500");
         Assert.DoesNotContain(paths.EnumerateObject(), path =>
-            path.Name.StartsWith("/api/v1/shared-access", StringComparison.Ordinal) ||
+            (path.Name.StartsWith("/api/v1/shared-access", StringComparison.Ordinal) &&
+             path.Name != "/api/v1/shared-access/exchange") ||
             (path.Name.StartsWith("/api/v1/shares", StringComparison.Ordinal) &&
              path.Name != Endpoint) ||
             path.Name.StartsWith("/api/v1/exports", StringComparison.Ordinal));
