@@ -32,6 +32,10 @@ internal sealed class ShareGrantConfiguration : IEntityTypeConfiguration<ShareGr
                     $"{SharingPersistenceLimits.CapabilityHashMinimum} AND " +
                     "capability_hash !~ '[[:space:]]'");
                 table.HasCheckConstraint(
+                    "ck_share_grants_request_fingerprint",
+                    $"request_fingerprint ~ '^[0-9a-f]{{" +
+                    $"{SharingPersistenceLimits.RequestFingerprint}}}$'");
+                table.HasCheckConstraint(
                     "ck_share_grants_version",
                     "version > 0");
             });
@@ -52,6 +56,21 @@ internal sealed class ShareGrantConfiguration : IEntityTypeConfiguration<ShareGr
         builder.Property(grant => grant.CreatorAccountId)
             .HasColumnName("creator_account_id")
             .HasConversion(id => id.Value, value => EntityId.From(value))
+            .IsRequired();
+
+        builder.Property(grant => grant.IdempotencyKey)
+            .HasColumnName("idempotency_key")
+            .HasConversion(id => id.Value, value => EntityId.From(value))
+            .HasDefaultValueSql("gen_random_uuid()")
+            .IsRequired();
+
+        builder.Property(grant => grant.RequestFingerprint)
+            .HasColumnName("request_fingerprint")
+            .HasConversion(
+                fingerprint => fingerprint.Value,
+                value => ShareRequestFingerprint.Create(value))
+            .HasMaxLength(SharingPersistenceLimits.RequestFingerprint)
+            .HasDefaultValueSql("repeat('0', 64)")
             .IsRequired();
 
         builder.Property(grant => grant.Scope)
@@ -97,6 +116,14 @@ internal sealed class ShareGrantConfiguration : IEntityTypeConfiguration<ShareGr
         builder.HasIndex(grant => grant.CapabilityHash)
             .IsUnique()
             .HasDatabaseName("ux_share_grants_capability_hash");
+
+        builder.HasIndex(grant => new
+        {
+            grant.PatientProfileId,
+            grant.IdempotencyKey
+        })
+            .IsUnique()
+            .HasDatabaseName("ux_share_grants_patient_idempotency_key");
 
         builder.HasIndex(grant => new
         {

@@ -1,6 +1,7 @@
 using System.Globalization;
 using Beeexy.Api.PrivateAccess;
 using Beeexy.Application.Scheduling;
+using Beeexy.Application.Sharing;
 using Beeexy.Domain.Common;
 using Beeexy.Application.Identity;
 using Beeexy.Domain.Identity;
@@ -31,6 +32,37 @@ internal static class StartupConfiguration
     private const string PrivateAccessSectionKey = "PrivateAccess";
     private const string SchedulerAssignmentsSectionKey =
         "Scheduling:AppointmentSchedulers:Assignments";
+    private const string SharingPublicBaseUrlKey = "Sharing:PublicShareBaseUrl";
+    public const string ProductionPublicShareBaseUrl = "https://beeexy.ai/share";
+
+    public static ShareUrlOptions GetRequiredShareUrlOptions(
+        IConfiguration configuration,
+        IHostEnvironment environment)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(environment);
+        try
+        {
+            var options = ShareUrlOptions.Create(
+                configuration[SharingPublicBaseUrlKey] ?? string.Empty);
+            if (environment.IsProduction() &&
+                !string.Equals(
+                    options.PublicBaseUrl,
+                    ProductionPublicShareBaseUrl,
+                    StringComparison.Ordinal))
+            {
+                throw new ArgumentException("The production share URL is not approved.");
+            }
+
+            return options;
+        }
+        catch (ArgumentException exception)
+        {
+            throw new InvalidOperationException(
+                $"Configuration setting '{SharingPublicBaseUrlKey}' is invalid.",
+                exception);
+        }
+    }
 
     public static AppointmentSchedulerAssignments GetAppointmentSchedulerAssignments(
         IConfiguration configuration)

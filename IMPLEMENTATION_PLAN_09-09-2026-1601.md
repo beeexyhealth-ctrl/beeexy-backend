@@ -2365,7 +2365,7 @@ Phase 10 is complete only when only safety-approved output can be displayed; the
 
 **Priority:** MVP CORE
 
-**Phase 11 overall status:** IN PROGRESS (2026-09-09). Phase 11.1 is complete; Phase 11.2–11.8 have not started.
+**Phase 11 overall status:** IN PROGRESS (2026-09-09). Phases 11.1 and 11.2 are complete; Phase 11.3–11.8 have not started.
 
 ## 1. Objective
 
@@ -2597,7 +2597,13 @@ None. Preserve a future delegation boundary to Phase 6 and prohibit any Phase 11
 
 ### Status
 
-**NOT STARTED.** It depends on verified 11.1 completion.
+**COMPLETE (2026-09-09).**
+
+**Implementation (2026-09-09):** Added exactly bearer-secured `POST /api/v1/shares` and `GET /api/v1/shares`. Creation derives the authenticated account's sole Primary Patient server-side and accepts only `scope`, optional `lifetimeMinutes`, UUID `idempotencyKey`, and exact `items` for `SpecificRecords`; patient/account/Beeexy IDs, creator identity, secrets, timestamps, status, recipient, audit, export, and unknown fields are rejected rather than treated as authority. `FullProfile` and `PreTriage` create metadata-only grants, while `SpecificRecords` requires unique, patient-owned references from the explicit `clinical_history_event`, `pre_triage_episode`, `symptom_check_in`, and `second_opinion_result` aggregate allow-list; foreign or missing records use concealed `404`. Reserved `Case` and `Visit` and unknown scopes fail closed with `422`. The server clock supplies a 24-hour default, accepts positive whole-minute lifetimes through the exact 7-day maximum, and rejects zero, negative, over-maximum, or permanent/arbitrary-expiry requests. `CryptographicShareCapabilityService` produces a `shc1.`-prefixed 256-bit random Base64URL capability and persists only its `sha256:` digest. First creation returns `201` with grant ID, scope, server timestamps, item count, `capabilityPreviouslyIssued: false`, plaintext capability, and the validated configured `<base>#<capability>` URL; production is pinned to `https://beeexy.ai/share`. Exact replay returns `200` with the same logical safe metadata, `capabilityPreviouslyIssued: true`, and no capability or URL, while incompatible key reuse returns `409`. PostgreSQL advisory transaction locks plus the unique patient/idempotency identity converge concurrent same-key requests to one grant, item set, hash, and privacy-minimized `ShareCreated` event without process-local locking. Listing returns only deterministic descending grant metadata with derived `Active`, `Revoked`, or `Expired` status, optional revocation time, and item count; it never returns capability, hash, URL, account IDs, storage, or audit internals. Migration `20260909232157_Phase112ShareCreationIdempotency` adds only immutable UUID `idempotency_key`, canonical SHA-256 `request_fingerprint`, validation, and the unique patient/key index to the existing `sharing.share_grants` table, including safe legacy-row defaults and trigger protection. No capability exchange, recipient token/access, shared profile, revoke/activity endpoint, expiry worker, QR rendering, export behavior, artifact storage, PDF, FHIR mapping, or other Phase 11 endpoint was added.
+
+**Verification (2026-09-09):** Focused Phase 11.2 coverage passed 32/32 unit cases and 11/11 real-PostgreSQL API/OpenAPI/migration cases, including Primary-only authority, Active/Revoked Managed non-authority, UUID/Beeexy-ID non-authority, disabled/missing/invalid/expired bearer handling, missing Primary invariant safety, every executable/reserved scope, exact item ownership and concealment, default/custom/maximum expiry, capability entropy/hash-only persistence/log exclusion, single disclosure, configured fragment URL, sequential and concurrent idempotency, one creation event, deterministic status listing, exact 54-path OpenAPI, fresh migration apply, and Phase 11.2 rollback/reapply with grant preservation. The Phase 11.1 real-PostgreSQL regression set passed 9/9. The complete backend suite passed 2,057 tests: 1,293 unit and 764 real-PostgreSQL integration, with 0 failures and 0 skipped. Dependency restore succeeded with auditing disabled and all projects current. The final Debug solution build completed with 0 warnings and 0 errors. EF reported no pending model changes. `dotnet format --verify-no-changes`, trailing-whitespace inspection, and `git diff --check` passed.
+
+**Phase 11.3 has not started.**
 
 ### Objective
 

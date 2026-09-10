@@ -14,6 +14,8 @@ public sealed class ShareGrant
         EntityId id,
         EntityId patientProfileId,
         EntityId creatorAccountId,
+        EntityId idempotencyKey,
+        ShareRequestFingerprint requestFingerprint,
         ShareScope scope,
         TokenHash capabilityHash,
         DateTimeOffset createdAt,
@@ -22,6 +24,8 @@ public sealed class ShareGrant
         Id = id;
         PatientProfileId = patientProfileId;
         CreatorAccountId = creatorAccountId;
+        IdempotencyKey = idempotencyKey;
+        RequestFingerprint = requestFingerprint;
         Scope = scope;
         CapabilityHash = capabilityHash;
         CreatedAt = createdAt;
@@ -34,6 +38,10 @@ public sealed class ShareGrant
     public EntityId PatientProfileId { get; private set; }
 
     public EntityId CreatorAccountId { get; private set; }
+
+    public EntityId IdempotencyKey { get; private set; }
+
+    public ShareRequestFingerprint RequestFingerprint { get; private set; } = null!;
 
     public ShareScope Scope { get; private set; }
 
@@ -52,6 +60,8 @@ public sealed class ShareGrant
     public static ShareGrant Create(
         EntityId patientProfileId,
         EntityId creatorAccountId,
+        EntityId idempotencyKey,
+        ShareRequestFingerprint requestFingerprint,
         ShareScope scope,
         TokenHash capabilityHash,
         DateTimeOffset createdAt,
@@ -60,6 +70,8 @@ public sealed class ShareGrant
     {
         SharingGuard.EnsureId(patientProfileId, nameof(patientProfileId));
         SharingGuard.EnsureId(creatorAccountId, nameof(creatorAccountId));
+        SharingGuard.EnsureId(idempotencyKey, nameof(idempotencyKey));
+        ArgumentNullException.ThrowIfNull(requestFingerprint);
         SharingGuard.EnsureDefined(scope, nameof(scope));
         ArgumentNullException.ThrowIfNull(capabilityHash);
         if (capabilityHash.Value.Length < SharingPersistenceLimits.CapabilityHashMinimum)
@@ -83,6 +95,8 @@ public sealed class ShareGrant
             SharingGuard.IdOrNew(id, nameof(id)),
             patientProfileId,
             creatorAccountId,
+            idempotencyKey,
+            requestFingerprint,
             scope,
             capabilityHash,
             createdAt,

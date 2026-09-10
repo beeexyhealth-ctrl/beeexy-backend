@@ -1,6 +1,8 @@
 using Beeexy.Api.Configuration;
 using Beeexy.Domain.Common;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 
 namespace Beeexy.Tests.Unit.Configuration;
 
@@ -121,6 +123,71 @@ public sealed class StartupConfigurationTests
             StartupConfiguration.GetAppointmentSchedulerAssignments(configuration));
     }
 
+    [Fact]
+    [Trait("Category", "Phase112")]
+    public void ShareUrl_UsesConfiguredDevelopmentValueAndExactProductionValue()
+    {
+        var development = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["Sharing:PublicShareBaseUrl"] = "http://localhost:3000/share"
+            }).Build();
+        var production = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["Sharing:PublicShareBaseUrl"] =
+                    StartupConfiguration.ProductionPublicShareBaseUrl
+            }).Build();
+
+        Assert.Equal(
+            "http://localhost:3000/share",
+            StartupConfiguration.GetRequiredShareUrlOptions(
+                development,
+                new StubEnvironment(Environments.Development)).PublicBaseUrl);
+        Assert.Equal(
+            StartupConfiguration.ProductionPublicShareBaseUrl,
+            StartupConfiguration.GetRequiredShareUrlOptions(
+                production,
+                new StubEnvironment(Environments.Production)).PublicBaseUrl);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("relative")]
+    [InlineData("https://example.com/share?capability=x")]
+    [InlineData("https://example.com/share#capability")]
+    [InlineData("https://example.com/share/")]
+    [Trait("Category", "Phase112")]
+    public void ShareUrl_RejectsInvalidConfiguration(string value)
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["Sharing:PublicShareBaseUrl"] = value
+            }).Build();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            StartupConfiguration.GetRequiredShareUrlOptions(
+                configuration,
+                new StubEnvironment(Environments.Development)));
+    }
+
+    [Fact]
+    [Trait("Category", "Phase112")]
+    public void ShareUrl_RejectsUnapprovedProductionHost()
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["Sharing:PublicShareBaseUrl"] = "https://other.example/share"
+            }).Build();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            StartupConfiguration.GetRequiredShareUrlOptions(
+                configuration,
+                new StubEnvironment(Environments.Production)));
+    }
+
     private static IConfiguration BuildConfiguration(string connectionString, string? origin)
     {
         var values = new Dictionary<string, string?>
@@ -136,5 +203,13 @@ public sealed class StartupConfigurationTests
         return new ConfigurationBuilder()
             .AddInMemoryCollection(values)
             .Build();
+    }
+
+    private sealed class StubEnvironment(string environmentName) : IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = environmentName;
+        public string ApplicationName { get; set; } = "Beeexy.Tests.Unit";
+        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 }

@@ -7,6 +7,7 @@ using Beeexy.Application.Identity;
 using Beeexy.Application.Interoperability;
 using Beeexy.Application.Patients;
 using Beeexy.Application.Scheduling;
+using Beeexy.Application.Sharing;
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
 using Microsoft.AspNetCore.Diagnostics;
@@ -310,6 +311,30 @@ internal sealed class ApiExceptionHandler(
                 Detail = "The requested appointment target could not be found."
             };
             problem.Extensions["errorCode"] = "scheduling.appointment_target_not_found";
+            return problem;
+        }
+
+        if (exception is ShareItemNotFoundException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Share item not found.",
+                Detail = "A requested share item could not be found."
+            };
+            problem.Extensions["errorCode"] = "sharing.item_not_found";
+            return problem;
+        }
+
+        if (exception is ShareIdempotencyConflictException)
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Share creation conflict.",
+                Detail = "The idempotency key was already used for a different share request."
+            };
+            problem.Extensions["errorCode"] = "sharing.idempotency_key_reused";
             return problem;
         }
 

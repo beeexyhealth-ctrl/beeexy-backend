@@ -36,7 +36,8 @@ public sealed class Phase111ArchitectureTests
 
     [Fact]
     [Trait("Category", "Phase111")]
-    public void SharingFoundation_IntroducesNoApplicationUseCaseOrApiType()
+    [Trait("Category", "Phase112")]
+    public void SharingSurface_StopsAtPhase112CreateAndListBoundary()
     {
         var assemblies = AppDomain.CurrentDomain.GetAssemblies();
         var applicationAssembly = assemblies.SingleOrDefault(assembly =>
@@ -46,9 +47,20 @@ public sealed class Phase111ArchitectureTests
             assembly.GetName().Name == "Beeexy.Api") ??
             System.Reflection.Assembly.Load("Beeexy.Api");
 
+        var forbidden = new[]
+        {
+            "Exchange", "SharedProfile", "RevokeShare", "ExpireShare",
+            "Activity", "Export", "Download", "Renderer", "Storage", "Qr"
+        };
         Assert.DoesNotContain(applicationAssembly.GetTypes(), type =>
-            type.Namespace?.StartsWith("Beeexy.Application.Sharing", StringComparison.Ordinal) == true);
+            type.Namespace?.StartsWith("Beeexy.Application.Sharing", StringComparison.Ordinal) == true &&
+            forbidden.Any(fragment => type.Name.Contains(
+                fragment,
+                StringComparison.OrdinalIgnoreCase)));
         Assert.DoesNotContain(apiAssembly.GetTypes(), type =>
-            type.Namespace?.StartsWith("Beeexy.Api.Sharing", StringComparison.Ordinal) == true);
+            type.Namespace?.StartsWith("Beeexy.Api.Sharing", StringComparison.Ordinal) == true &&
+            forbidden.Any(fragment => type.Name.Contains(
+                fragment,
+                StringComparison.OrdinalIgnoreCase)));
     }
 }

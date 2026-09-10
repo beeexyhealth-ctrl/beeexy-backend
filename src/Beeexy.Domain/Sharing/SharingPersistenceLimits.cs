@@ -3,6 +3,7 @@ namespace Beeexy.Domain.Sharing;
 public static class SharingPersistenceLimits
 {
     public const int CapabilityHashMinimum = 32;
+    public const int RequestFingerprint = 64;
     public const int ResourceType = 64;
     public const int MediaType = 255;
     public const int SnapshotVersion = 128;

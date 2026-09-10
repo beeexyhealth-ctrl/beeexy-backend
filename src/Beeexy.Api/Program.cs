@@ -13,6 +13,7 @@ using Beeexy.Api.Middleware;
 using Beeexy.Api.Patients;
 using Beeexy.Api.PrivateAccess;
 using Beeexy.Api.Scheduling;
+using Beeexy.Api.Sharing;
 using Beeexy.Api.Triage;
 using Beeexy.Application.Identity;
 using Beeexy.Application.Ai;
@@ -22,6 +23,7 @@ using Beeexy.Application.History;
 using Beeexy.Application.Interoperability;
 using Beeexy.Application.Patients;
 using Beeexy.Application.Scheduling;
+using Beeexy.Application.Sharing;
 using Beeexy.Application.Triage;
 using Beeexy.Infrastructure;
 using Beeexy.Infrastructure.Identity;
@@ -209,6 +211,9 @@ var aiConversationOptions = new AiConversationOptions(
 var aiDocumentOptions = StartupConfiguration.GetRequiredAiDocumentOptions(
     builder.Configuration);
 var privateAiDocumentRoot = builder.Configuration["AiDocuments:PrivateStorageRoot"];
+var shareUrlOptions = StartupConfiguration.GetRequiredShareUrlOptions(
+    builder.Configuration,
+    builder.Environment);
 
 builder.Services.AddInfrastructure(
     databaseConnectionString,
@@ -237,6 +242,10 @@ builder.Services.AddScoped<ListAvailableSlots>();
 builder.Services.AddScoped<RequestAppointment>();
 builder.Services.AddScoped<ListAppointments>();
 builder.Services.AddScoped<GetAppointment>();
+builder.Services.AddSingleton(new ShareLifetimePolicy());
+builder.Services.AddSingleton(shareUrlOptions);
+builder.Services.AddScoped<CreateShare>();
+builder.Services.AddScoped<ListShares>();
 builder.Services.AddScoped<TransitionAppointment>();
 builder.Services.AddScoped<ConfirmAppointment>();
 builder.Services.AddScoped<RejectAppointment>();
@@ -454,6 +463,7 @@ app.MapBeeexySymptomDiaryEndpoints();
 app.MapBeeexyAiConversationEndpoints();
 app.MapBeeexyAiDocumentEndpoints();
 app.MapBeeexySecondOpinionEndpoints();
+app.MapBeeexySharingEndpoints();
 
 app.Run();
 

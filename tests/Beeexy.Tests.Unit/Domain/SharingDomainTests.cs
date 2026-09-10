@@ -37,6 +37,8 @@ public sealed class SharingDomainTests
         var grant = ShareGrant.Create(
             patientId,
             creatorId,
+            EntityId.New(),
+            Fingerprint(),
             scope,
             hash,
             Utc(10),
@@ -60,6 +62,8 @@ public sealed class SharingDomainTests
         Assert.Throws<ArgumentException>(() => ShareGrant.Create(
             default,
             EntityId.New(),
+            EntityId.New(),
+            Fingerprint(),
             ShareScope.FullProfile,
             Hash('a'),
             Utc(10),
@@ -67,6 +71,8 @@ public sealed class SharingDomainTests
         Assert.Throws<ArgumentException>(() => ShareGrant.Create(
             EntityId.New(),
             default,
+            EntityId.New(),
+            Fingerprint(),
             ShareScope.FullProfile,
             Hash('a'),
             Utc(10),
@@ -74,6 +80,8 @@ public sealed class SharingDomainTests
         Assert.Throws<ArgumentException>(() => ShareGrant.Create(
             EntityId.New(),
             EntityId.New(),
+            EntityId.New(),
+            Fingerprint(),
             ShareScope.FullProfile,
             TokenHash.FromHash("too-short"),
             Utc(10),
@@ -81,6 +89,8 @@ public sealed class SharingDomainTests
         Assert.Throws<ArgumentOutOfRangeException>(() => ShareGrant.Create(
             EntityId.New(),
             EntityId.New(),
+            EntityId.New(),
+            Fingerprint(),
             ShareScope.FullProfile,
             Hash('a'),
             Utc(10),
@@ -88,6 +98,8 @@ public sealed class SharingDomainTests
         Assert.Throws<ArgumentOutOfRangeException>(() => ShareGrant.Create(
             EntityId.New(),
             EntityId.New(),
+            EntityId.New(),
+            Fingerprint(),
             ShareScope.FullProfile,
             Hash('a'),
             Utc(10),
@@ -325,6 +337,8 @@ public sealed class SharingDomainTests
         return ShareGrant.Create(
             EntityId.New(),
             EntityId.New(),
+            EntityId.New(),
+            Fingerprint(),
             ShareScope.FullProfile,
             Hash('a'),
             Utc(10),
@@ -350,6 +364,11 @@ public sealed class SharingDomainTests
     private static TokenHash Hash(char value)
     {
         return TokenHash.FromHash(new string(value, 64));
+    }
+
+    private static ShareRequestFingerprint Fingerprint()
+    {
+        return ShareRequestFingerprint.Create(new string('0', 64));
     }
 
     private static void AssertNoPublicSetters(Type type)

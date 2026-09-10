@@ -13,7 +13,8 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
     [Trait("Category", "Phase101")]
     [Trait("Category", "Phase108")]
     [Trait("Category", "Phase111")]
-    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase111SharingFoundation()
+    [Trait("Category", "Phase112")]
+    public async Task AllMigrations_ApplyToFreshPostgreSqlThroughPhase112ShareCreation()
     {
         var options = new DbContextOptionsBuilder<BeeexyDbContext>()
             .UseNpgsql(postgres.ConnectionString)
@@ -53,7 +54,8 @@ public sealed class MigrationTests(PostgreSqlContainerFixture postgres)
                     "20260901051351_Phase8OpsAppointmentAdministration",
                     "20260901223517_Phase101AiPlatformPersistenceFoundation",
                     "20260907180355_Phase91NeutralSymptomDiaryFoundation",
-                    "20260909221246_Phase111SharingPersistenceFoundation"
+                    "20260909221246_Phase111SharingPersistenceFoundation",
+                    "20260909232157_Phase112ShareCreationIdempotency"
                 ],
                 appliedMigrations);
             Assert.Empty(pendingMigrations);

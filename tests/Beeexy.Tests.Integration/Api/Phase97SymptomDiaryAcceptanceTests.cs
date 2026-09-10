@@ -225,7 +225,7 @@ public sealed partial class SymptomDiaryContentEndpointTests
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var paths = document.RootElement.GetProperty("paths");
-        Assert.Equal(53, paths.EnumerateObject().Count());
+        Assert.Equal(54, paths.EnumerateObject().Count());
 
         var operations = paths.EnumerateObject()
             .SelectMany(path => path.Value.EnumerateObject()

@@ -1,6 +1,8 @@
 using Beeexy.Application.Triage;
+using Beeexy.Domain.Common;
 using Beeexy.Domain.Identity;
 using Beeexy.Domain.Patients;
+using Beeexy.Domain.Sharing;
 using Beeexy.Domain.Triage;
 using Beeexy.Infrastructure.Persistence;
 using Beeexy.Infrastructure.Triage;
@@ -16,6 +18,68 @@ namespace Beeexy.Tests.Integration.Infrastructure;
 [Collection(PostgreSqlCollection.Name)]
 public sealed class MigrationBehaviorTests(PostgreSqlContainerFixture postgres)
 {
+    [Fact]
+    [Trait("Category", "Phase112")]
+    public async Task Phase112IdempotencyMigration_PreservesGrantsAndCanRollbackAndReapply()
+    {
+        await EnsureMigratedAsync();
+        var suffix = Guid.NewGuid().ToString("N");
+        var now = DateTimeOffset.UtcNow;
+        var account = Account.Create(
+            NormalizedEmail.Create($"phase112-marker-{suffix}@example.com"),
+            now);
+        var patient = PatientProfile.Create(
+            BeeexyId.Create($"BXY-PHASE112-{suffix}"),
+            now,
+            account.Id);
+        var grant = ShareGrant.Create(
+            patient.Id,
+            account.Id,
+            EntityId.New(),
+            ShareRequestFingerprint.Create(new string('a', 64)),
+            ShareScope.FullProfile,
+            TokenHash.FromHash("sha256:" + new string('b', 64)),
+            now,
+            now.AddHours(24));
+        var options = CreateOptions();
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            dbContext.AddRange(account, patient, grant);
+            await dbContext.SaveChangesAsync();
+            await dbContext.GetService<IMigrator>()
+                .MigrateAsync("20260909221246_Phase111SharingPersistenceFoundation");
+        }
+
+        await using (var connection = new NpgsqlConnection(postgres.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText =
+                "SELECT " +
+                "(SELECT count(*) FROM sharing.share_grants WHERE id = @id), " +
+                "(SELECT count(*) FROM information_schema.columns " +
+                "WHERE table_schema = 'sharing' AND table_name = 'share_grants' " +
+                "AND column_name IN ('idempotency_key', 'request_fingerprint'));";
+            command.Parameters.AddWithValue("id", grant.Id.Value);
+            await using var reader = await command.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal(1L, reader.GetInt64(0));
+            Assert.Equal(0L, reader.GetInt64(1));
+        }
+
+        await using (var dbContext = new BeeexyDbContext(options))
+        {
+            await dbContext.Database.MigrateAsync();
+            Assert.Empty(await dbContext.Database.GetPendingMigrationsAsync());
+            var preserved = await dbContext.ShareGrants.AsNoTracking().SingleAsync(
+                value => value.Id == grant.Id);
+            Assert.NotEqual(Guid.Empty, preserved.IdempotencyKey.Value);
+            Assert.Equal(new string('0', 64), preserved.RequestFingerprint.Value);
+            Assert.Equal(grant.CapabilityHash, preserved.CapabilityHash);
+        }
+    }
+
     [Fact]
     [Trait("Category", "Phase111")]
     public async Task Phase111SharingFoundation_IsAdditiveEmptyAndCanRollbackAndReapply()

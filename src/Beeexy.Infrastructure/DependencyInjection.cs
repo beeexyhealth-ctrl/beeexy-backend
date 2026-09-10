@@ -6,6 +6,7 @@ using Beeexy.Application.History;
 using Beeexy.Application.Interoperability;
 using Beeexy.Application.Patients;
 using Beeexy.Application.Scheduling;
+using Beeexy.Application.Sharing;
 using Beeexy.Application.Triage;
 using Beeexy.Domain.Common;
 using Beeexy.Infrastructure.Ai;
@@ -17,6 +18,7 @@ using Beeexy.Infrastructure.Interoperability;
 using Beeexy.Infrastructure.Patients;
 using Beeexy.Infrastructure.Persistence;
 using Beeexy.Infrastructure.Scheduling;
+using Beeexy.Infrastructure.Sharing;
 using Beeexy.Infrastructure.Time;
 using Beeexy.Infrastructure.Triage;
 using Microsoft.EntityFrameworkCore;
@@ -84,6 +86,12 @@ public static class DependencyInjection
         services.AddScoped<IAppointmentTransitionTransaction, AppointmentTransitionTransaction>();
         services.AddScoped<IAppointmentRescheduleTransaction, AppointmentTransitionTransaction>();
         services.AddScoped<IAppointmentReadRepository, AppointmentReadRepository>();
+        services.AddSingleton<IShareCapabilityService, CryptographicShareCapabilityService>();
+        services.AddScoped<ShareRepository>();
+        services.AddScoped<IShareCreationTransaction>(provider =>
+            provider.GetRequiredService<ShareRepository>());
+        services.AddScoped<IShareReadRepository>(provider =>
+            provider.GetRequiredService<ShareRepository>());
         services.AddScoped<
             IAppointmentOperationsReadRepository,
             AppointmentOperationsReadRepository>();

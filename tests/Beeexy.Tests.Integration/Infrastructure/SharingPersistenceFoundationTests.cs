@@ -24,6 +24,8 @@ public sealed class SharingPersistenceFoundationTests(PostgreSqlContainerFixture
         var grant = ShareGrant.Create(
             patient.Id,
             account.Id,
+            EntityId.New(),
+            Fingerprint(),
             ShareScope.Case,
             Hash('a'),
             now,
@@ -119,6 +121,8 @@ public sealed class SharingPersistenceFoundationTests(PostgreSqlContainerFixture
         var firstGrant = ShareGrant.Create(
             patient.Id,
             account.Id,
+            EntityId.New(),
+            Fingerprint(),
             ShareScope.FullProfile,
             Hash('c'),
             now,
@@ -129,6 +133,8 @@ public sealed class SharingPersistenceFoundationTests(PostgreSqlContainerFixture
             () => SaveAsync(ShareGrant.Create(
                 patient.Id,
                 account.Id,
+                EntityId.New(),
+                Fingerprint(),
                 ShareScope.PreTriage,
                 Hash('c'),
                 now,
@@ -335,6 +341,8 @@ public sealed class SharingPersistenceFoundationTests(PostgreSqlContainerFixture
         var grant = ShareGrant.Create(
             patient.Id,
             account.Id,
+            EntityId.New(),
+            Fingerprint(),
             ShareScope.SpecificRecords,
             Hash('f'),
             now,
@@ -512,6 +520,11 @@ public sealed class SharingPersistenceFoundationTests(PostgreSqlContainerFixture
     private static TokenHash Hash(char value)
     {
         return TokenHash.FromHash(new string(value, 64));
+    }
+
+    private static ShareRequestFingerprint Fingerprint()
+    {
+        return ShareRequestFingerprint.Create(new string('0', 64));
     }
 
     private static async Task AssertDatabaseViolationAsync(
